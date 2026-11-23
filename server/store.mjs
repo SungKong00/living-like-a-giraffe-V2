@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto'
 import { validate, seed } from './layout.mjs'
 
 import { root, json, put, catalog, buildDir } from './world-files.mjs'
-import { assetKey, initialAsset } from './visitor-asset.mjs'
+import { cachedLighting } from './baked-lighting.mjs'
+import { initialAsset } from './visitor-asset.mjs'
 
 export function conflict(message) {
   return Object.assign(Error(message), { status: 409 })
@@ -30,6 +31,10 @@ export class WorldStore {
         job: null,
       })
     }
+    for (const snap of [this.#state.published, this.#state.previous].filter(
+      Boolean,
+    ))
+      cachedLighting(snap)
     if (building(this.#state.job))
       this.#save({
         ...this.#state,
@@ -50,6 +55,7 @@ export class WorldStore {
   edit(expected, model, layout) {
     if (this.#state.draft.id !== expected)
       throw conflict('다른 변경이 먼저 저장되었습니다. 다시 열어 확인하세요.')
+    cachedLighting(this.#state.draft)
     const draft = {
       id: randomUUID(),
       model,
@@ -88,7 +94,7 @@ export class WorldStore {
       if (
         kind === 'publish' &&
         job.status === '공개 완료' &&
-        published.asset === assetKey(draft)
+        published.asset === cachedLighting(draft)
       )
         return { id: job.id }
     }
@@ -117,9 +123,8 @@ export class WorldStore {
       },
       complete: () => {
         if (!active()) return
-        const snapshot = { ...draft, asset: assetKey(draft) }
-        if (!this.#assetExists(snapshot.asset))
-          throw Error('검증된 렌더 파일이 없습니다.')
+        const snapshot = { ...draft, asset: cachedLighting(draft) }
+        if (!snapshot.asset) throw Error('검증된 렌더 파일이 없습니다.')
         if (kind === 'publish') this.#publish(snapshot)
         else
           this.#save({

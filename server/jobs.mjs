@@ -5,7 +5,7 @@ import { optimizeEditor } from '../world/optimize.mjs'
 import { catalog, root, modelDir, put, json } from './world-files.mjs'
 import { conflict } from './store.mjs'
 import { blender } from './blender.mjs'
-import { buildVisitorAsset } from './visitor-asset.mjs'
+import { cachedLighting, bakeLighting } from './baked-lighting.mjs'
 import { mergeItems } from './layout.mjs'
 
 export class Jobs {
@@ -30,13 +30,28 @@ export class Jobs {
       this.#enqueue(async () => {
         if (!ticket.isCurrent()) return
         try {
-          await buildVisitorAsset(ticket.snapshot, ticket.stage)
+          await bakeLighting(ticket.snapshot, ticket.stage)
           ticket.complete()
         } catch (error) {
           ticket.fail(error)
         }
       })
     return ticket.id
+  }
+  async previewLighting(revision) {
+    const snapshot = this.store.state.draft
+    if (snapshot.id !== revision)
+      throw conflict('최신 초안을 다시 열어 주세요.')
+    const asset =
+      cachedLighting(snapshot) ||
+      (await this.#enqueue(() => {
+        if (this.store.state.draft.id !== revision)
+          throw conflict('조명 준비 중 초안이 바뀌었습니다.')
+        return bakeLighting(snapshot)
+      }))
+    if (this.store.state.draft.id !== revision)
+      throw conflict('조명 준비 중 초안이 바뀌었습니다.')
+    return { ...snapshot, asset }
   }
   download(snap) {
     const dir = path.join(root, 'handoffs', snap.id)

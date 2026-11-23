@@ -85,6 +85,12 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
     ...layout,
     items: candidate.items,
   })
+  const beforeLighting = store.state
+  const preview = await jobs.previewLighting(merged.id)
+  assert.deepEqual(store.state, beforeLighting)
+  assert.notEqual(preview.asset, beforeLighting.published.asset)
+  const file = path.join(buildDir(preview.asset), 'world.glb')
+  const builtAt = fs.statSync(file).mtimeMs
   const requested = jobs.publish(merged.id)
   assert.equal(jobs.publish(merged.id), requested)
   assert.equal(store.state.published.id, initial.id)
@@ -115,10 +121,16 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
   )
   const updated = {
     ...merged.layout,
+    items: merged.layout.items
+      .map((i) => ({ ...i, label: i.label + '!' }))
+      .reverse(),
     pages: merged.layout.pages.map((p) => ({ ...p, title: p.title + '!' })),
   }
   const content = store.edit(merged.id, candidate.model, updated)
   const asset = store.state.published.asset
+  assert.equal((await jobs.previewLighting(content.id)).asset, preview.asset)
+  assert.equal(fs.statSync(file).mtimeMs, builtAt)
+  await assert.rejects(jobs.previewLighting(merged.id), /최신 초안/)
   jobs.publish(content.id)
   await new Promise((r) => setTimeout(r, 100))
   assert.equal(store.state.published.asset, asset)

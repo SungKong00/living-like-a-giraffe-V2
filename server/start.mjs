@@ -5,6 +5,7 @@ import { timingSafeEqual, createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { WorldStore, conflict } from './store.mjs'
 import { buildDir, root, modelDir, catalog } from './world-files.mjs'
+import { cachedLighting } from './baked-lighting.mjs'
 import { Jobs } from './jobs.mjs'
 // A second server must never race the first writer's atomic state-file swaps.
 if (!fs.existsSync(modelDir('initial')))
@@ -133,6 +134,18 @@ app.get('/api/admin/status', (req, res) => {
 app.post('/api/admin/publish', (req, res) =>
   res.status(202).json({ job: jobs.publish(req.body.revision) }),
 )
+// This endpoint can build a private asset, but cannot create or approve a publication.
+app.post('/api/admin/lighting', async (req, res) => {
+  const snapshot = await jobs.previewLighting(req.body.revision)
+  res.json(visitorView(snapshot, '/api/admin/lighting/' + snapshot.asset))
+})
+app.get('/api/admin/lighting/:asset', (req, res) => {
+  if (!/^[a-f0-9]{64}$/.test(req.params.asset)) return res.sendStatus(404)
+  if (cachedLighting(store.state.draft) !== req.params.asset) return res.sendStatus(404)
+  const file = path.join(buildDir(req.params.asset), 'world.glb')
+  if (!fs.existsSync(file)) return res.sendStatus(404)
+  res.sendFile(file, { dotfiles: 'allow' })
+})
 app.post('/api/admin/reviews', (req, res) =>
   res.status(202).json({ job: jobs.prepareReview(req.body.revision) }),
 )
