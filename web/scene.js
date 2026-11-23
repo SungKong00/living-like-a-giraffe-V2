@@ -44,8 +44,8 @@ export async function createScene(
     scene,
   )
   camera.mode = Camera.ORTHOGRAPHIC_CAMERA
-  camera.lowerAlphaLimit = alpha - Math.PI / 3
-  camera.upperAlphaLimit = alpha + Math.PI / 3
+  camera.lowerAlphaLimit = alpha - Math.PI / 6
+  camera.upperAlphaLimit = alpha + Math.PI / 6
   camera.lowerBetaLimit = Math.PI / 9
   camera.upperBetaLimit = (5 * Math.PI) / 12
   camera.lowerRadiusLimit = camera.upperRadiusLimit = 150
