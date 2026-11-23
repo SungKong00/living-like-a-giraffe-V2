@@ -14,6 +14,8 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight'
 import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader'
+// scene.pick and createPickingRay silently miss without the Ray side effect.
+import '@babylonjs/core/Culling/ray'
 import '@babylonjs/loaders/glTF/2.0'
 import '@babylonjs/loaders/glTF/glTFFileLoader'
 import { el } from './ui.js'
@@ -33,7 +35,7 @@ async function openScene(
   view,
   state,
   mode,
-  { onRoom, onSpot, onItem, onReady } = {},
+  { onRoom, onSpot, onSpotDown, onReady } = {},
 ) {
   const editing = mode === 'editor'
   const draft = mode !== 'visitor'
@@ -67,6 +69,8 @@ async function openScene(
   camera.inputs.removeByType('ArcRotateCameraMouseWheelInput')
   camera.panningSensibility = 0
   camera.attachControl(view.canvas, true)
+  // The studio keeps the left button for selecting, moving and panning.
+  if (editing) camera.inputs.attached.pointers.buttons = [2]
   const fill = new HemisphericLight('환경', new Vector3(0, 1, 0), scene)
   fill.intensity = 0.85
   const sun = new DirectionalLight(
@@ -123,7 +127,8 @@ async function openScene(
     focus = null,
     zoom = 1,
     marks = []
-  let box
+  let box,
+    chosenSpot = null
   const styled = new Map(),
     materials = new WeakMap(),
     instances = new Map(originals)
@@ -132,6 +137,11 @@ async function openScene(
     const { ShadowGenerator } =
       await import('@babylonjs/core/Lights/Shadows/shadowGenerator')
     await import('@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent')
+    // Register the shadow shaders before the generator compiles them.
+    await Promise.all([
+      import('@babylonjs/core/Shaders/shadowMap.vertex'),
+      import('@babylonjs/core/Shaders/shadowMap.fragment'),
+    ])
     shadow = new ShadowGenerator(1024, sun)
     shadow.usePercentageCloserFiltering = true
     for (const mesh of imported.meshes) {
@@ -182,6 +192,13 @@ async function openScene(
   }
   // Anchors are independent of baked triangles and survive material batching.
   function spotWorld(s) {
+    // While editing, follow the live node so a dragged item carries its pins.
+    const live = editing && instances.get(s.anchor)
+    if (live)
+      return Vector3.TransformCoordinates(
+        v(s.position),
+        live.computeWorldMatrix(true),
+      )
     const item = layout.items.find((i) => i.id === s.anchor)
     const room = rooms.get(item?.room || s.anchor)
     if (!room) return null
@@ -200,10 +217,15 @@ async function openScene(
   function markers() {
     view.overlay.replaceChildren()
     marks = []
-    function add(label, pos, action, cls) {
+    function add(label, pos, action, cls, down) {
       const node = el(
         'button',
-        { class: 'pin ' + cls, type: 'button', onclick: action },
+        {
+          class: 'pin ' + cls,
+          type: 'button',
+          onclick: action,
+          onpointerdown: down,
+        },
         label,
       )
       view.overlay.append(node)
@@ -237,7 +259,8 @@ async function openScene(
           s.label,
           () => spotWorld(s),
           () => onSpot?.(s),
-          'spot',
+          'spot' + (s.id === chosenSpot ? ' chosen' : ''),
+          editing ? (event) => onSpotDown?.(s, event) : undefined,
         )
       }
   }
@@ -262,6 +285,11 @@ async function openScene(
     resize()
     markers()
     onRoom?.(id)
+  }
+  function look(target, nextZoom = zoom) {
+    camera.setTarget(target.clone())
+    zoom = Math.min(10, Math.max(0.5, nextZoom))
+    resize()
   }
   function magnify(factor, point) {
     const next = Math.min(10, Math.max(0.5, zoom * factor))
@@ -333,57 +361,57 @@ async function openScene(
   const obs = new ResizeObserver(resize)
   obs.observe(view.host)
   const previous = { x: 0, y: 0 }
-  view.canvas.onpointerdown = (e) => {
-    if (e.isPrimary) multiTouch = false
-    previous.x = e.clientX
-    previous.y = e.clientY
-  }
-  view.canvas.onpointerup = (e) => {
-    if (multiTouch) return
-    if (Math.hypot(e.clientX - previous.x, e.clientY - previous.y) > 6) return
-    const mesh = scene.pick(scene.pointerX, scene.pointerY)?.pickedMesh
-    for (let n = mesh; n; n = n.parent) {
-      const entry = [...instances].find(([, obj]) => n === obj)
-      if (editing && entry) {
-        onItem?.(entry[0])
-        return
-      }
-      if (extras(n).roomId && !editing && !focus) {
-        selectRoom(extras(n).roomId)
-        return
-      }
+  if (!editing)
+    view.canvas.onpointerdown = (e) => {
+      if (e.isPrimary) multiTouch = false
+      previous.x = e.clientX
+      previous.y = e.clientY
     }
-    if (!editing && focus) {
-      const ray = scene.createPickingRay(
-        scene.pointerX,
-        scene.pointerY,
-        Matrix.Identity(),
-        camera,
-      )
-      // Test in anchor-local coordinates so the box rotates and scales with its owner.
-      let nearest
-      for (const s of layout.spots) {
-        const item = layout.items.find((i) => i.id === s.anchor)
-        if ((item?.room || s.anchor) !== focus) continue
-        const room = rooms.get(focus).getWorldMatrix()
-        const matrix = item
-          ? Matrix.Compose(
-              v(item.scale),
-              Quaternion.FromArray(item.rotation),
-              v(item.position),
-            ).multiply(room)
-          : room
-        const local = ray.constructor.Transform(ray, matrix.clone().invert())
-        const half = v(s.size).scale(0.5),
-          point = v(s.position)
-        if (local.intersectsBoxMinMax(point.subtract(half), point.add(half))) {
-          const distance = Vector3.Distance(ray.origin, spotWorld(s))
-          if (!nearest || distance < nearest.distance) nearest = { s, distance }
+  if (!editing)
+    view.canvas.onpointerup = (e) => {
+      if (multiTouch) return
+      if (Math.hypot(e.clientX - previous.x, e.clientY - previous.y) > 6) return
+      const mesh = scene.pick(scene.pointerX, scene.pointerY)?.pickedMesh
+      for (let n = mesh; n; n = n.parent) {
+        if (extras(n).roomId && !focus) {
+          selectRoom(extras(n).roomId)
+          return
         }
       }
-      if (nearest) onSpot?.(nearest.s)
+      if (focus) {
+        const ray = scene.createPickingRay(
+          scene.pointerX,
+          scene.pointerY,
+          Matrix.Identity(),
+          camera,
+        )
+        // Test in anchor-local coordinates so the box rotates and scales with its owner.
+        let nearest
+        for (const s of layout.spots) {
+          const item = layout.items.find((i) => i.id === s.anchor)
+          if ((item?.room || s.anchor) !== focus) continue
+          const room = rooms.get(focus).getWorldMatrix()
+          const matrix = item
+            ? Matrix.Compose(
+                v(item.scale),
+                Quaternion.FromArray(item.rotation),
+                v(item.position),
+              ).multiply(room)
+            : room
+          const local = ray.constructor.Transform(ray, matrix.clone().invert())
+          const half = v(s.size).scale(0.5),
+            point = v(s.position)
+          if (
+            local.intersectsBoxMinMax(point.subtract(half), point.add(half))
+          ) {
+            const distance = Vector3.Distance(ray.origin, spotWorld(s))
+            if (!nearest || distance < nearest.distance)
+              nearest = { s, distance }
+          }
+        }
+        if (nearest) onSpot?.(nearest.s)
+      }
     }
-  }
   if (draft) applyItems(layout)
   markers()
   resize()
@@ -459,10 +487,39 @@ async function openScene(
     },
   }
   if (!editing) return viewer
+  // Floor footprints are measured once, before any furniture is added.
+  const roomBounds = new Map(
+    [...rooms].map(([id, n]) => {
+      const { min, max } = n.getHierarchyBoundingVectors(true)
+      return [id, { min, max }]
+    }),
+  )
   return {
     ...viewer,
     scene,
+    camera,
+    rooms,
+    roomBounds,
     instances,
+    look,
+    get zoomLevel() {
+      return zoom
+    },
+    // Furniture wins over the room that contains it.
+    pick(x, y) {
+      const mesh = scene.pick(x, y)?.pickedMesh
+      const owners = new Map([...instances].map(([id, n]) => [n, id]))
+      for (let n = mesh; n; n = n.parent) {
+        if (owners.has(n)) return { type: 'item', id: owners.get(n) }
+        if (extras(n).roomId) return { type: 'room', id: extras(n).roomId }
+      }
+      return null
+    },
+    chooseSpot(id) {
+      if (chosenSpot === id) return
+      chosenSpot = id
+      markers()
+    },
     showBox(s) {
       if (!box) {
         box = MeshBuilder.CreateBox('클릭 범위', { size: 1 }, scene)

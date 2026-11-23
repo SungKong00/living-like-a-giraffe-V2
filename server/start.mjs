@@ -75,6 +75,10 @@ function editorView(snap) {
     rooms: model.rooms,
     render: 'editor',
     options: model.options,
+    // Each kind the model can clone, named after its first catalog instance.
+    kinds: [...new Map(model.items.map((i) => [i.kind, i.label]))].map(
+      ([kind, label]) => ({ kind, label }),
+    ),
     lights: model.lights,
     asset: '/api/admin/model/' + snap.model,
   }

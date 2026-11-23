@@ -17,6 +17,12 @@ export class EditHistory {
     this.#value = next
     this.#redo = []
   }
+  get canUndo() {
+    return this.#undo.length > 0
+  }
+  get canRedo() {
+    return this.#redo.length > 0
+  }
   undo() {
     if (this.#undo.length) {
       this.#redo.push(this.#value)

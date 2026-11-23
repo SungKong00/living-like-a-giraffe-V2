@@ -46,44 +46,102 @@ try {
   await page.goto(origin + '/studio')
   await page.getByLabel('관리자 키').fill(key)
   await page.getByRole('button', { name: '스튜디오 열기' }).click()
-  await page.getByRole('button', { name: '이동', exact: true }).waitFor()
-  await page.getByRole('button', { name: '복제', exact: true }).click()
+  const saved = () => page.locator('.save-chip.saved').waitFor()
+  const tree = (name) => page.locator('.tree-row', { hasText: name }).first()
+  await tree('나무 벤치').click()
+  // Selecting from the list opens the inspector; ⌘/Ctrl+D duplicates.
+  await page.getByLabel('이름', { exact: true }).waitFor()
+  await page.keyboard.press('ControlOrMeta+d')
+  // The inspector re-renders on the next frame; act on the duplicate only.
+  const inspecting = (label) =>
+    page.waitForFunction(
+      (l) => document.querySelector('[data-key="label"]')?.value === l,
+      label,
+    )
+  await inspecting('나무 벤치 2')
   await page.getByLabel('이름', { exact: true }).fill('파란 벤치')
   await page.getByLabel('이름', { exact: true }).press('Tab')
-  await page.getByLabel('가구 색').fill('#113355')
-  await page.getByLabel('표면').selectOption('matte')
+  await inspecting('파란 벤치')
+  await page.getByLabel('직접 고른 색').fill('#113355')
+  await page.getByRole('radio', { name: '무광' }).click()
+  await page
+    .locator('[role="radio"][aria-checked="true"]', { hasText: '무광' })
+    .waitFor()
+  await page.getByRole('button', { name: '↻ 15°' }).click()
+  await page.getByRole('button', { name: '↻ 15°' }).click()
+  await page.getByText('축별 크기').click()
   for (const [field, value] of [
-    ['회전 각도', '35'],
-    ['위치 · X / 높이 / Z X', '4'],
+    ['위치 X', '4'],
     ['크기 X', '1.4'],
   ]) {
     const control = page.getByLabel(field, { exact: true })
     await control.fill(value)
     await control.press('Tab')
+    // The inspector re-renders after each edit and keeps the next field focused.
+    await page.waitForFunction(
+      (f) => document.activeElement?.getAttribute('aria-label') !== f,
+      field,
+    )
   }
-  await page.getByRole('button', { name: '초안 저장', exact: true }).click()
-  await page.getByText('저장됨', { exact: true }).waitFor()
+  await saved()
+  assert.equal(
+    (await (await page.request.get(origin + '/api/admin/draft')).json()).layout
+      .items.length,
+    2,
+  )
   await page.reload()
-  await page.getByRole('button', { name: '↳ 파란 벤치' }).click()
-  assert.equal(await page.getByLabel('가구 색').inputValue(), '#113355')
-  assert.equal(await page.getByLabel('표면').inputValue(), 'matte')
-  assert.equal(await page.getByLabel('회전 각도').inputValue(), '35')
+  await tree('파란 벤치').click()
+  await inspecting('파란 벤치')
+  assert.equal(await page.getByLabel('직접 고른 색').inputValue(), '#113355')
+  assert.equal(
+    await page
+      .getByRole('radio', { name: '무광' })
+      .getAttribute('aria-checked'),
+    'true',
+  )
+  assert.equal(
+    await page.getByLabel('방향', { exact: true }).inputValue(),
+    '30',
+  )
+  assert.equal(
+    await page.getByLabel('위치 X', { exact: true }).inputValue(),
+    '4',
+  )
   assert.equal(
     await page.getByLabel('크기 X', { exact: true }).inputValue(),
     '1.4',
   )
-  await page.getByRole('button', { name: '＋ 페이지' }).click()
+  // Deleting is undoable from the notice.
+  await page.keyboard.press('Delete')
+  await page
+    .locator('#notice')
+    .getByRole('button', { name: '되돌리기', exact: true })
+    .click()
+  await tree('파란 벤치').waitFor()
+  await page.getByRole('tab', { name: '행사 페이지' }).click()
+  await page.getByRole('button', { name: '＋ 새 페이지' }).click()
   await page.getByLabel('제목', { exact: true }).fill('벤치 이야기')
   await page.getByLabel('제목', { exact: true }).press('Tab')
-  await page.getByRole('button', { name: '↳ 파란 벤치' }).click()
-  await page.getByRole('button', { name: '클릭 영역 추가' }).click()
+  await page.getByRole('tab', { name: '배치' }).click()
+  await tree('파란 벤치').click()
+  await page.getByRole('button', { name: '＋ 클릭 영역 추가' }).click()
+  await page.getByLabel('표시 이름').fill('새 안내')
+  await page.getByLabel('표시 이름').press('Tab')
   await page
-    .getByLabel('연결', { exact: true })
-    .selectOption({ label: '벤치 이야기' })
-  await page.getByRole('button', { name: '초안 저장' }).click()
-  await page.getByText('저장됨', { exact: true }).waitFor()
-  await page.getByRole('button', { name: '배치 미리보기', exact: true }).click()
-  const preview = page.getByRole('dialog')
+    .getByLabel('연결 대상', { exact: true })
+    .selectOption({ label: '페이지 · 벤치 이야기' })
+  // An invalid external address is explained and never reaches the draft.
+  await page.getByLabel('연결 대상', { exact: true }).selectOption('__url')
+  await page.getByLabel('외부 주소').fill('instagram')
+  await page.getByLabel('외부 주소').press('Enter')
+  await page.getByText('http:// 또는 https://로 시작하는 주소').waitFor()
+  await saved()
+  const linked = (
+    await (await page.request.get(origin + '/api/admin/draft')).json()
+  ).layout.spots.find((s) => s.label === '새 안내')
+  assert.equal(linked.action.type, 'page')
+  await page.getByRole('button', { name: '미리보기', exact: true }).click()
+  const preview = page.getByRole('dialog', { name: '배치 미리보기' })
   await preview
     .getByRole('button', { name: '멘탈 사우나', exact: true })
     .click()
@@ -93,6 +151,18 @@ try {
     (await (await fetch(origin + '/api/world')).json()).id,
     before.id,
   )
+  await page.getByRole('button', { name: '발행', exact: true }).click()
+  await page
+    .getByRole('button', { name: '구운 결과 준비', exact: true })
+    .click()
+  // Editing the draft while the result is prepared cancels that result and
+  // the publish popover asks for a fresh one.
+  await page.getByText('결과 준비 중').waitFor()
+  await tree('새 안내').click()
+  await page.getByLabel('클릭 범위 W', { exact: true }).fill('2.5')
+  await page.getByLabel('클릭 범위 W', { exact: true }).press('Enter')
+  await page.getByRole('button', { name: '발행', exact: false }).click()
+  await page.getByText('준비한 결과가 취소되었습니다').waitFor()
   await page
     .getByRole('button', { name: '구운 결과 준비', exact: true })
     .click()
@@ -124,12 +194,11 @@ try {
     409,
   )
   await openReview.click()
-  await preview
-    .getByRole('button', { name: '멘탈 사우나', exact: true })
-    .click()
-  await preview.getByRole('button', { name: '새 안내', exact: true }).click()
-  await preview.getByRole('button', { name: '이 결과 공개' }).click()
-  await preview.waitFor({ state: 'detached' })
+  const review = page.getByRole('dialog', { name: '구운 결과 · 비공개' })
+  await review.getByRole('button', { name: '멘탈 사우나', exact: true }).click()
+  await review.getByRole('button', { name: '새 안내', exact: true }).click()
+  await review.getByRole('button', { name: '이 결과 공개' }).click()
+  await review.waitFor({ state: 'detached' })
   const promoted = await (await fetch(origin + '/api/world')).json()
   assert.equal(promoted.id, privateView.id)
   assert.deepEqual(promoted.layout, privateView.layout)
@@ -202,7 +271,9 @@ try {
     await mobile.close()
   }
   assert.deepEqual(errors, [])
-  console.log('PC 저장·재접속·미리보기, 모바일 행사 탐색, 접근 권한 확인')
+  console.log(
+    'PC 복제·옵션·자동 저장·재접속·미리보기·발행, 모바일 행사 탐색, 접근 권한 확인',
+  )
 } finally {
   await browser?.close()
   const ended = once(server, 'exit')
