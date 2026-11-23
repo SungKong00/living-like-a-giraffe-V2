@@ -1,0 +1,7 @@
+schema: spec-driven
+
+context: |
+  Language: Korean
+  All artifacts must be written in Korean.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+  프로젝트 문서의 담당 위치와 적용 기준은 루트 AGENTS.md를 따른다.
