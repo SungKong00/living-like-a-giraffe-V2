@@ -27,10 +27,20 @@ def bake(scene,out):
     scene.render.threads_mode = 'FIXED'
     scene.render.threads = 4
     outputs = []
+    groups = []
     for key,room in rooms.items():
-        meshes = [obj for obj in room.children_recursive if obj.type=='MESH' and
-                  not any(slot.material and 'glass' in slot.material.name.lower() for slot in obj.material_slots)]
-        mesh = render_meshes(meshes,room)
+        owners = [room,*[child for child in room.children if 'itemId' in child]]
+        for owner in owners:
+            children = [owner,*owner.children_recursive]
+            if owner == room:
+                editable = {o for item in owners[1:] for o in [item,*item.children_recursive]}
+                children = [o for o in children if o not in editable]
+            meshes = [o for o in children if o.type in {'MESH','FONT','CURVE'} and
+                      not any(slot.material and 'glass' in slot.material.name.lower() for slot in o.material_slots)]
+            if meshes:
+                groups.append((key,owner,meshes))
+    for key,owner,meshes in groups:
+        mesh = render_meshes(meshes,owner if owner not in meshes else owner.parent)
         if not mesh:
             continue
         mesh.name = key+' display'
@@ -39,13 +49,16 @@ def bake(scene,out):
             if slot.material:
                 slot.material = slot.material.copy()
         uv = mesh.data.uv_layers.new(name='BakedLight')
+        uv_name = uv.name
         mesh.data.uv_layers.active = uv
         select([mesh])
         bpy.ops.object.mode_set(mode='EDIT')
         bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.normals_make_consistent(inside=False)
         bpy.ops.uv.smart_project(island_margin=.003)
         bpy.ops.object.mode_set(mode='OBJECT')
-        image = bpy.data.images.new('Light '+key,1024,1024,alpha=False)
+        resolution = 256 if 'itemId' in owner else 1024
+        image = bpy.data.images.new('Light '+key,resolution,resolution,alpha=False)
         for slot in mesh.material_slots:
             if not slot.material:
                 continue
@@ -54,10 +67,14 @@ def bake(scene,out):
             tex = mat.node_tree.nodes.new('ShaderNodeTexImage')
             tex.image = image
             mat.node_tree.nodes.active = tex
-        bpy.ops.object.bake(type='COMBINED',pass_filter={'DIRECT','INDIRECT','DIFFUSE','EMIT'},margin=2)
-        outputs.append((mesh,image,uv.name))
+        bpy.ops.object.bake(type='COMBINED',pass_filter={'DIRECT','INDIRECT','DIFFUSE','EMIT'},margin=2,uv_layer=uv_name)
+        outputs.append((mesh,image,uv_name))
     # Preserve the original bounce lighting until every target has been baked.
     for mesh,image,uv_name in outputs:
+        for name in list(mesh.data.uv_layers.keys()):
+            if name != uv_name:
+                mesh.data.uv_layers.remove(mesh.data.uv_layers[name])
+        mesh.data.uv_layers[uv_name].active_render = True
         image.pack()
         mat = bpy.data.materials.new(mesh.name+' light')
         mat.use_nodes = True

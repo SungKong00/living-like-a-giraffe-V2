@@ -20,15 +20,16 @@ async function blender(mode,source,dir,input) {
     if(process.platform!=='darwin')throw Error('현재 Blender 작업 격리는 macOS를 지원합니다.')
     const prefix = path.dirname(path.dirname(fs.realpathSync(python)))
     const reads = [path.resolve('.venv'),prefix,path.dirname(worker),source,dir,tmp]
-    const policy = '(version 1)(allow default)(deny network*)(deny file-read-data)(deny file-write*)'+
-      '(allow file-read* (subpath "/System")(subpath "/usr")(subpath "/Library")(subpath "/private/etc")(subpath "/opt/homebrew")(subpath "/dev")'+reads.map(p=>'(subpath '+quote(p)+')').join('')+')'+
-      '(allow file-write* (subpath '+quote(dir)+')(subpath '+quote(tmp)+')(literal "/dev/null"))'
+    const except = paths=>paths.map(p=>'(require-not (subpath '+quote(p)+'))').join('')
+    const policy = '(version 1)(allow default)(deny network*)'+
+      '(deny file-read-data (require-all (require-any (subpath "/Users")(subpath "/Volumes")) '+except(reads)+'))'+
+      '(deny file-write* (require-all '+except([dir,tmp])+'(require-not (literal "/dev/null"))))'
     const args = [worker,mode,source,dir]
     if(input)args.push(input)
     await exec('/usr/bin/sandbox-exec',['-p',policy,python,...args],{timeout:maxTime,killSignal:'SIGKILL',maxBuffer:16*1024*1024,
       env:{PATH:'/usr/bin:/bin',HOME:tmp,TMPDIR:tmp,PYTHONDONTWRITEBYTECODE:'1',PYTHONNOUSERSITE:'1'}})
   } catch(e) {
-    const detail=(e.stderr||e.message).trim().split('\n').filter(Boolean).at(-1)
+    const detail=(e.stderr||'').trim().split('\n').filter(Boolean).at(-1)||e.signal||'작업자 시작 실패'
     throw Error('Blender 처리 실패 · '+detail)
   } finally {fs.rmSync(tmp,{recursive:true,force:true})}
 }

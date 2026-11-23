@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -53,3 +54,7 @@ def run(command, source, out, request=None):
 if __name__=='__main__':
     cmd,source,out,*extra = sys.argv[1:]
     run(cmd,Path(source),Path(out),Path(extra[0]) if extra else None)
+    # bpy embeds native render threads. Exit only after all synchronous writes succeed.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)

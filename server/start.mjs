@@ -41,12 +41,12 @@ app.get('/api/world/:id',(req,res)=>{
   if(!/^(initial|[a-f0-9]{64})$/.test(req.params.id))return res.sendStatus(404)
   const file=path.join(buildDir(req.params.id),'world.glb')
   if(!fs.existsSync(file))return res.sendStatus(404)
-  res.set('Cache-Control','public, max-age=31536000, immutable').sendFile(file)
+  res.set('Cache-Control','public, max-age=31536000, immutable').sendFile(file,{dotfiles:'allow'})
 })
 app.get('/api/admin/draft',(req,res)=>res.json(view(store.state.draft,true)))
 app.get('/api/admin/model/:id',(req,res)=>{
   if(!/^(initial|[a-f0-9-]{36})$/.test(req.params.id))return res.sendStatus(404)
-  res.sendFile(path.join(modelDir(req.params.id),'editor.glb'))
+  res.sendFile(path.join(modelDir(req.params.id),'editor.glb'),{dotfiles:'allow'})
 })
 app.put('/api/admin/draft',(req,res)=>res.json(view(store.edit(req.body.revision,store.state.draft.model,req.body.layout),true)))
 app.get('/api/admin/status',(req,res)=>{const s=store.state;res.json({published:s.published.id,previous:!!s.previous,job:s.job})})
@@ -55,7 +55,7 @@ app.post('/api/admin/restore',(req,res)=>{store.restore();res.json({ok:true})})
 app.get('/api/admin/download/:which',async(req,res)=>{
   if(!['draft','published'].includes(req.params.which))return res.sendStatus(404)
   const snap=store.state[req.params.which]
-  res.download(await jobs.download(snap),'riragi-'+snap.id.slice(0,8)+'.blend')
+  res.download(await jobs.download(snap),'riragi-'+snap.id.slice(0,8)+'.blend',{dotfiles:'allow'})
 })
 app.post('/api/admin/upload',express.raw({type:'application/octet-stream',limit:'250mb'}),async(req,res)=>{
   if(!Buffer.isBuffer(req.body))return res.sendStatus(415)
