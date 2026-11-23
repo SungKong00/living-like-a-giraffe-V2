@@ -143,8 +143,8 @@ async function visit(data) {
     bottom.hidden = false
   }
   try {
-    const { createScene } = await import('./scene.js')
-    world = await createScene(view, data, {
+    const { openVisitorScene } = await import('./scene.js')
+    world = await openVisitorScene(view, data, {
       onRoom(id) {
         recent.hidden = !!id
         back.hidden = !id

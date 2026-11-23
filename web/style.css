@@ -313,7 +313,12 @@ textarea {
   min-height: 80px;
   resize: vertical;
 }
+.studio-bar button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .studio-bar {
+  flex-wrap: wrap;
   min-height: 58px;
   display: flex;
   align-items: center;

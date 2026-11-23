@@ -1,8 +1,8 @@
 import { field, safe, input, select, vec } from './fields.js'
 import { app, api, el, button, zoomButtons, stage, notify } from './ui.js'
-import { preview } from './preview.js'
+import { previewCandidate, previewLayout, previewReview } from './preview.js'
 import { EditHistory } from './history.js'
-import { createScene } from './scene.js'
+import { openEditorScene } from './scene.js'
 import { GizmoManager } from '@babylonjs/core/Gizmos/gizmoManager'
 import { Quaternion } from '@babylonjs/core/Maths/math.vector'
 const key = () => crypto.randomUUID()
@@ -71,6 +71,46 @@ export async function studio() {
         layout: history.value,
       })
     sync.textContent = '저장됨'
+    updateBuildControls()
+  }
+  let latestJob
+  const reviewButton = button(
+    '구운 결과 준비',
+    safe(async () => {
+      await save()
+      if (
+        latestJob?.revision === saved.id &&
+        latestJob.status === '검토 가능'
+      ) {
+        await previewReview(latestJob.id, poll)
+      } else {
+        await api('admin/reviews', 'POST', { revision: saved.id })
+        await poll()
+      }
+    }),
+    'primary',
+  )
+  const publishButton = button(
+    '바로 발행',
+    safe(async () => {
+      await save()
+      await api('admin/publish', 'POST', { revision: saved.id })
+      await poll()
+    }),
+  )
+  function updateBuildControls() {
+    const current = !dirty() && latestJob?.revision === saved.id
+    const preparing = ['대기', '베이크', '최적화'].includes(latestJob?.status)
+    const reviewing = current && latestJob.kind === 'review'
+    const ready = reviewing && latestJob.status === '검토 가능'
+    reviewButton.textContent = ready
+      ? '구운 결과 열기'
+      : reviewing && preparing
+        ? '구운 결과 준비 중…'
+        : '구운 결과 준비'
+    reviewButton.disabled =
+      preparing && (reviewing || latestJob.kind === 'publish')
+    publishButton.disabled = ready || (current && preparing)
   }
   const bar = el(
     'div',
@@ -81,26 +121,15 @@ export async function studio() {
     redo,
     button('초안 저장', safe(save)),
     button(
-      '발행',
-      safe(async () => {
-        await save()
-        await api('admin/publish', 'POST', { revision: saved.id })
-        await poll()
-      }),
-      'primary',
+      '배치 미리보기',
+      safe(() => previewLayout(saved, history.value)),
     ),
+    reviewButton,
     status,
   )
   app.replaceChildren(
     bar,
     el('div', { class: 'desk' }, layers, view.host, panel),
-  )
-  bar.insertBefore(
-    button(
-      '미리보기',
-      safe(() => preview(saved, history.value, candidate, choices)),
-    ),
-    status,
   )
   function choose(type, id) {
     selected = { type, id }
@@ -405,7 +434,7 @@ export async function studio() {
       group.append(
         button(
           '선택한 배치 미리보기',
-          safe(() => preview(saved, history.value, candidate, choices, true)),
+          safe(() => previewCandidate(candidate, choices)),
         ),
       )
       group.append(button('검토 결과를 초안에 적용', safe(accept)))
@@ -414,6 +443,7 @@ export async function studio() {
   }
   function render() {
     const d = history.value
+    updateBuildControls()
     sync.textContent = dirty() ? '저장되지 않은 변경' : '저장됨'
     function row(type, o, name) {
       return button(
@@ -476,6 +506,7 @@ export async function studio() {
         'details',
         {},
         el('summary', {}, '공개 관리'),
+        publishButton,
         button(
           '직전 공개본 복원',
           safe(async () => {
@@ -492,6 +523,8 @@ export async function studio() {
   }
   async function poll() {
     const state = await api('admin/status')
+    latestJob = state.job
+    updateBuildControls()
     status.textContent =
       '공개 ' +
       state.published.slice(0, 6) +
@@ -511,8 +544,7 @@ export async function studio() {
       e.returnValue = ''
     }
   }
-  world = await createScene(view, saved, {
-    editing: true,
+  world = await openEditorScene(view, saved, {
     onItem: (id) => choose('item', id),
     onSpot: (s) => choose('spot', s.id),
   })
@@ -559,6 +591,7 @@ export async function studio() {
     ),
   )
   document.addEventListener('keydown', (e) => {
+    if (document.querySelector('dialog[open]')) return
     if (e.key === 'Escape' && dragging) {
       dragging = null
       gizmo.releaseDrag()

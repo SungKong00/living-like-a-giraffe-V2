@@ -32,6 +32,9 @@ try {
   for (const [method, route] of [
     ['PUT', 'draft'],
     ['POST', 'publish'],
+    ['POST', 'reviews'],
+    ['GET', 'reviews/unknown/asset'],
+    ['POST', 'reviews/unknown/publish'],
     ['GET', 'download/draft'],
   ]) {
     assert.equal(
@@ -79,7 +82,7 @@ try {
     .selectOption({ label: '벤치 이야기' })
   await page.getByRole('button', { name: '초안 저장' }).click()
   await page.getByText('저장됨', { exact: true }).waitFor()
-  await page.getByRole('button', { name: '미리보기', exact: true }).click()
+  await page.getByRole('button', { name: '배치 미리보기', exact: true }).click()
   const preview = page.getByRole('dialog')
   await preview
     .getByRole('button', { name: '멘탈 사우나', exact: true })
@@ -89,6 +92,50 @@ try {
   assert.equal(
     (await (await fetch(origin + '/api/world')).json()).id,
     before.id,
+  )
+  await page
+    .getByRole('button', { name: '구운 결과 준비', exact: true })
+    .click()
+  const openReview = page.getByRole('button', { name: '구운 결과 열기' })
+  await openReview.waitFor({ timeout: 180000 })
+  const status = await (
+    await page.request.get(origin + '/api/admin/status')
+  ).json()
+  const reviewUrl = origin + '/api/admin/reviews/' + status.job.id
+  const privateView = await (await page.request.get(reviewUrl)).json()
+  assert.equal(privateView.render, 'visitor')
+  const privateBytes = await (
+    await page.request.get(origin + privateView.asset)
+  ).body()
+  assert.equal((await fetch(origin + privateView.asset)).status, 401)
+  const { assetKey } = await import('../server/visitor-asset.mjs')
+  const asset = assetKey({ model: 'initial', layout: privateView.layout })
+  assert.equal((await fetch(origin + '/api/world/' + asset)).status, 404)
+  assert.equal(
+    (await (await fetch(origin + '/api/world')).json()).id,
+    before.id,
+  )
+  assert.equal(
+    (
+      await page.request.post(origin + '/api/admin/publish', {
+        data: { revision: privateView.id },
+      })
+    ).status(),
+    409,
+  )
+  await openReview.click()
+  await preview
+    .getByRole('button', { name: '멘탈 사우나', exact: true })
+    .click()
+  await preview.getByRole('button', { name: '새 안내', exact: true }).click()
+  await preview.getByRole('button', { name: '이 결과 공개' }).click()
+  await preview.waitFor({ state: 'detached' })
+  const promoted = await (await fetch(origin + '/api/world')).json()
+  assert.equal(promoted.id, privateView.id)
+  assert.deepEqual(promoted.layout, privateView.layout)
+  assert.deepEqual(
+    Buffer.from(await (await fetch(origin + promoted.asset)).arrayBuffer()),
+    privateBytes,
   )
   const originalDraft = await (
     await page.request.get(origin + '/api/admin/draft')

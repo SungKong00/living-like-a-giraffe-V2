@@ -67,20 +67,31 @@ app.use('/api/admin', (req, res, next) => {
   if (!(sessions.get(sid) > Date.now())) return res.sendStatus(401)
   next()
 })
-function view(snap, admin = false) {
+function editorView(snap) {
   const model = catalog(snap.model)
   return {
     id: snap.id,
     layout: snap.layout,
     rooms: model.rooms,
-    options: admin ? model.options : undefined,
-    lights: admin ? model.lights : undefined,
-    asset: admin
-      ? '/api/admin/model/' + snap.model
-      : '/api/world/' + snap.asset,
+    render: 'editor',
+    options: model.options,
+    lights: model.lights,
+    asset: '/api/admin/model/' + snap.model,
   }
 }
-app.get('/api/world', (req, res) => res.json(view(store.state.published)))
+function visitorView(snap, asset) {
+  return {
+    id: snap.id,
+    layout: snap.layout,
+    rooms: catalog(snap.model).rooms,
+    render: 'visitor',
+    asset,
+  }
+}
+app.get('/api/world', (req, res) => {
+  const snap = store.state.published
+  res.json(visitorView(snap, '/api/world/' + snap.asset))
+})
 app.get('/api/world/:id', (req, res) => {
   // Only assets which have completed publication receive a public route.
   if (!/^(initial|[a-f0-9]{64})$/.test(req.params.id))
@@ -95,7 +106,7 @@ app.get('/api/world/:id', (req, res) => {
     .sendFile(file, { dotfiles: 'allow' })
 })
 app.get('/api/admin/draft', (req, res) =>
-  res.json(view(store.state.draft, true)),
+  res.json(editorView(store.state.draft)),
 )
 app.get('/api/admin/model/:id', (req, res) => {
   if (!/^(initial|[a-f0-9-]{36})$/.test(req.params.id))
@@ -106,9 +117,8 @@ app.get('/api/admin/model/:id', (req, res) => {
 })
 app.put('/api/admin/draft', (req, res) =>
   res.json(
-    view(
+    editorView(
       store.edit(req.body.revision, store.state.draft.model, req.body.layout),
-      true,
     ),
   ),
 )
@@ -119,6 +129,25 @@ app.get('/api/admin/status', (req, res) => {
 app.post('/api/admin/publish', (req, res) =>
   res.status(202).json({ job: jobs.publish(req.body.revision) }),
 )
+app.post('/api/admin/reviews', (req, res) =>
+  res.status(202).json({ job: jobs.prepareReview(req.body.revision) }),
+)
+app.get('/api/admin/reviews/:id', (req, res) => {
+  const snapshot = store.reviewedSnapshot(req.params.id)
+  res.json(
+    visitorView(snapshot, '/api/admin/reviews/' + req.params.id + '/asset'),
+  )
+})
+app.get('/api/admin/reviews/:id/asset', (req, res) => {
+  const snapshot = store.reviewedSnapshot(req.params.id)
+  res.sendFile(path.join(buildDir(snapshot.asset), 'world.glb'), {
+    dotfiles: 'allow',
+  })
+})
+app.post('/api/admin/reviews/:id/publish', (req, res) => {
+  store.approveReview(req.params.id)
+  res.json({ ok: true })
+})
 app.post('/api/admin/restore', (req, res) => {
   store.restore()
   res.json({ ok: true })
@@ -152,7 +181,7 @@ app.post('/api/admin/import', (req, res) => {
     throw conflict('최신 개정에서 충돌을 다시 확인하세요.')
   const layout = { ...store.state.draft.layout, items: result.items }
   if (spots) layout.spots = spots
-  res.json(view(store.edit(revision, model, layout), true))
+  res.json(editorView(store.edit(revision, model, layout)))
 })
 app.get('/api/admin/compare/:id', (req, res) =>
   res.json(jobs.compare(req.params.id)),
@@ -160,14 +189,11 @@ app.get('/api/admin/compare/:id', (req, res) =>
 app.get('/api/admin/candidate/:id', (req, res) => {
   const result = jobs.compare(req.params.id)
   res.json(
-    view(
-      {
-        id: result.revision,
-        model: result.model,
-        layout: { ...store.state.draft.layout, items: result.items },
-      },
-      true,
-    ),
+    editorView({
+      id: result.revision,
+      model: result.model,
+      layout: { ...store.state.draft.layout, items: result.items },
+    }),
   )
 })
 

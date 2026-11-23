@@ -20,25 +20,23 @@ export class Jobs {
     return next
   }
   publish(expected) {
-    const { draft: snap, job } = this.store.state
-    if (
-      snap.id === expected &&
-      job?.revision === expected &&
-      ['대기', '베이크', '최적화'].includes(job.status)
-    )
-      return job.id
-    const id = this.store.begin(expected)
-    this.#enqueue(async () => {
-      try {
-        const asset = await buildVisitorAsset(snap, (stage) =>
-          this.store.progress(id, stage),
-        )
-        this.store.release(id, snap, asset)
-      } catch (e) {
-        this.store.progress(id, '실패', e.message)
-      }
-    })
-    return id
+    return this.#schedule(this.store.beginPublication(expected))
+  }
+  prepareReview(expected) {
+    return this.#schedule(this.store.beginReview(expected))
+  }
+  #schedule(ticket) {
+    if (ticket.snapshot)
+      this.#enqueue(async () => {
+        if (!ticket.isCurrent()) return
+        try {
+          await buildVisitorAsset(ticket.snapshot, ticket.stage)
+          ticket.complete()
+        } catch (error) {
+          ticket.fail(error)
+        }
+      })
+    return ticket.id
   }
   download(snap) {
     const dir = path.join(root, 'handoffs', snap.id)

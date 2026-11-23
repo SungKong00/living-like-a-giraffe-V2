@@ -114,6 +114,7 @@ try {
         json: {
           rooms: [{ id: 'sauna', label: '사우나' }],
           layout: { items, spots, pages: [] },
+          render: 'visitor',
           asset: '/api/world/sample',
         },
       }),

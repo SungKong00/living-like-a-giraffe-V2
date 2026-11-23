@@ -18,12 +18,26 @@ import '@babylonjs/loaders/glTF/glTFFileLoader'
 import { el } from './ui.js'
 
 const v = (arr) => Vector3.FromArray(arr)
-export async function createScene(
+export function openVisitorScene(view, state, actions) {
+  return openScene(view, state, 'visitor', actions)
+}
+export function openEditorScene(view, state, actions) {
+  return openScene(view, state, 'editor', actions)
+}
+export function openLayoutPreview(view, state, actions) {
+  return openScene(view, state, 'layout', actions)
+}
+
+async function openScene(
   view,
   state,
-  { editing = false, preview = false, onRoom, onSpot, onItem } = {},
+  mode,
+  { onRoom, onSpot, onItem, onReady } = {},
 ) {
-  const draft = editing || preview
+  const editing = mode === 'editor'
+  const draft = mode !== 'visitor'
+  if (state.render !== (draft ? 'editor' : 'visitor'))
+    throw Error('이 화면에 맞는 월드 모델을 다시 불러오세요.')
   const engine = new Engine(
     view.canvas,
     true,
@@ -379,6 +393,7 @@ export async function createScene(
   scene.executeWhenReady(() => {
     ready = true
     wake()
+    scene.onAfterRenderObservable.addOnce(() => onReady?.())
     performance.mark('riragi-world-ready')
   })
   engine.runRenderLoop(() => {
@@ -424,14 +439,23 @@ export async function createScene(
       m.node.style.top = y + 'px'
     }
   })
-  return {
-    scene,
-    camera,
-    instances,
+  const viewer = {
     selectRoom,
-    resize,
+    zoom: magnify,
+    dispose() {
+      gestures.abort()
+      redraw.disconnect()
+      obs.disconnect()
+      scene.dispose()
+      engine.dispose()
+    },
+  }
+  if (!editing) return viewer
+  return {
+    ...viewer,
+    scene,
+    instances,
     showBox(s) {
-      if (!editing) return
       if (!box) {
         box = MeshBuilder.CreateBox('클릭 범위', { size: 1 }, scene)
         box.isPickable = false
@@ -447,18 +471,10 @@ export async function createScene(
         box.scaling = v(s.size)
       }
     },
-    zoom: magnify,
     update(next) {
       layout = next
-      if (draft) applyItems(next)
+      applyItems(next)
       markers()
-    },
-    dispose() {
-      gestures.abort()
-      redraw.disconnect()
-      obs.disconnect()
-      scene.dispose()
-      engine.dispose()
     },
   }
 }
