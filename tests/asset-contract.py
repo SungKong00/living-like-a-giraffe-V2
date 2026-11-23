@@ -2,9 +2,11 @@
 
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import bpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "world"))
+from bake import display_texture
 from model import apply, inventory, tagged, transform
 from worker import load
 
@@ -58,3 +60,19 @@ assert all(
     for child, prev in zip(bench.children, parts)
 )
 assert inventory(scene)["items"][0]["rotation"] == row["rotation"]
+
+# Two highlights above display white must still be distinguishable after Filmic.
+linear = bpy.data.images.new("HDR sample", 2, 1, float_buffer=True)
+linear.pixels[:] = [1, 1, 1, 1, 4, 4, 4, 1]
+scene.view_settings.view_transform = "Filmic"
+with TemporaryDirectory() as directory:
+    atlas = display_texture(scene, linear, directory)
+    assert 0 < atlas.pixels[0] < atlas.pixels[4] < 1
+    assert atlas.packed_file and atlas.colorspace_settings.name == "sRGB"
+    try:
+        display_texture(scene, atlas, directory)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("표시용 이미지에 색 변환을 두 번 적용했습니다.")
+print("HDR 밝기 차이 보존, sRGB 패킹, 중복 색 변환 거부 확인")

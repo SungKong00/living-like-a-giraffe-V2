@@ -44,6 +44,8 @@ def live_surface(material):
 def display_texture(scene, linear_image, out):
     # glTF base colour/emission textures use sRGB. Preserve the scene's view,
     # look and exposure while targeting the web display on this disposable copy.
+    if not linear_image.is_float:
+        raise ValueError("장면 색 변환에는 부동소수점 베이크 이미지가 필요합니다.")
     settings = scene.render.image_settings
     scene.display_settings.display_device = "sRGB"
     settings.file_format = "PNG"

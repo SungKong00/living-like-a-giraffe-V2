@@ -5,8 +5,28 @@ import { buildDir, catalog, modelDir, put } from './world-files.mjs'
 import { blender } from './blender.mjs'
 import { optimizeVisitor } from '../world/optimize.mjs'
 
-// Change the recipe when bake, display conversion or optimization output changes.
-const recipe = 'cycles-display-srgb-v4'
+// Derive the pipeline version from the actual worker, optimizer and dependencies.
+// Updating Blender code cannot silently reuse an older immutable visitor file.
+function pipelineFingerprint() {
+  const world = new URL('../world/', import.meta.url)
+  const inputs = fs
+    .readdirSync(world)
+    .filter((name) => /\.(py|mjs)$/.test(name) || name === 'requirements.txt')
+    .sort()
+    .map((name) => new URL(name, world))
+  inputs.push(
+    new URL(import.meta.url),
+    new URL('./blender.mjs', import.meta.url),
+    new URL('../package-lock.json', import.meta.url),
+  )
+  const hash = createHash('sha256')
+  for (const file of inputs) {
+    hash.update(path.basename(file.pathname)).update('\0')
+    hash.update(createHash('sha256').update(fs.readFileSync(file)).digest())
+  }
+  return hash.digest('hex')
+}
+const recipe = pipelineFingerprint()
 export function assetKey({ model, layout }) {
   return createHash('sha256')
     .update(JSON.stringify([recipe, model, layout.items]))
