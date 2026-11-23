@@ -9,7 +9,7 @@ const python = path.resolve('.venv/bin/python')
 const worker = path.resolve('world/worker.py')
 const quote = (value) => JSON.stringify(fs.realpathSync(value))
 const maxTime = 15 * 60 * 1000
-export async function blender(mode, source, dir, input) {
+export async function blender(mode, source, dir, input, signal) {
   fs.mkdirSync(dir, { recursive: true })
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'riragi-job-'))
   try {
@@ -40,6 +40,7 @@ export async function blender(mode, source, dir, input) {
       '/usr/bin/sandbox-exec',
       ['-p', policy, python, ...args],
       {
+        signal,
         cwd: tmp,
         timeout: maxTime,
         killSignal: 'SIGKILL',
@@ -74,6 +75,7 @@ export async function blender(mode, source, dir, input) {
       clearInterval(watch)
     }
   } catch (e) {
+    signal?.throwIfAborted()
     if (process.env.RIRAGI_DEBUG) console.error(e.stderr?.slice(-6000))
     const detail =
       (e.stderr || '')

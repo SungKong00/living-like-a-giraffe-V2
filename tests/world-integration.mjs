@@ -24,6 +24,16 @@ try {
     finish: 'matte',
     position: [3, 0, 4],
   }
+  layout.lights = [
+    {
+      id: 'bench-lamp',
+      label: '벤치 조명',
+      room: twin.room,
+      position: [0, 2.5, 0],
+      color: '#ffdabc',
+      energy: 550,
+    },
+  ]
   layout.items.push(twin)
   layout.spots.push({
     ...layout.spots[0],
@@ -57,6 +67,9 @@ items=tagged(s,'itemId')
 a=items[sys.argv[2]]
 assert a['color']=='#226655' and a['finish']=='matte' and len(a.children)==2
 assert all(part.material_slots[0].material['riragiBase'] for part in a.children)
+lamp=tagged(s,'webLightId')['bench-lamp']
+assert lamp.data.energy==550
+lamp.data.energy=600
 a.location.x += 2
 save(Path(sys.argv[3]))
 missing=bpy.data.images.new("Missing texture",width=16,height=16)
@@ -77,6 +90,7 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
   )
   const candidate = await jobs.upload(fs.readFileSync(changed))
   assert.equal(candidate.conflicts.length, 0)
+  assert.deepEqual(candidate.lights, [{ ...layout.lights[0], energy: 600 }])
   const result = candidate.items.find((i) => i.id === twin.id)
   assert.equal(result.position[0], 5)
   assert.equal(result.color, '#884422')
@@ -84,6 +98,7 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
   const merged = store.edit(web.id, candidate.model, {
     ...layout,
     items: candidate.items,
+    lights: candidate.lights,
   })
   const beforeLighting = store.state
   const preview = await jobs.previewLighting(merged.id)

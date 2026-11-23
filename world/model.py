@@ -102,6 +102,55 @@ def area_lights(scene):
     ]
 
 
+def srgb_byte(value):
+    channel = 12.92 * value if value <= 0.0031308 else 1.055 * value ** (1 / 2.4) - 0.055
+    return round(255 * min(1, max(0, channel)))
+
+
+def web_lights(scene):
+    result = []
+    for key, obj in tagged(scene, "webLightId").items():
+        if (
+            obj.type != "LIGHT" or obj.data.type != "POINT"
+            or not obj.parent or "roomId" not in obj.parent
+        ):
+            raise ValueError(f"{obj.name}: 웹 점광원의 방과 종류를 확인하세요")
+        result.append(dict(
+            id=key,
+            label=obj.get("label", obj.name),
+            room=obj.parent["roomId"],
+            position=values(AXIS @ obj.matrix_local.translation),
+            color="#" + "".join(f"{srgb_byte(c):02x}" for c in obj.data.color),
+            energy=round(obj.data.energy, 4),
+        ))
+    return result
+
+
+def apply_web_lights(scene, lights):
+    rooms = tagged(scene, "roomId")
+    existing = tagged(scene, "webLightId")
+    for light in lights:
+        obj = existing.pop(light["id"], None)
+        if obj is None:
+            lamp = bpy.data.lights.new(light["label"], "POINT")
+            obj = bpy.data.objects.new(light["label"], lamp)
+            scene.collection.objects.link(obj)
+            obj["webLightId"] = light["id"]
+        obj.parent = rooms[light["room"]]
+        obj.matrix_parent_inverse = Matrix.Identity(4)
+        obj.location = AXIS.inverted() @ Vector(light["position"])
+        obj["label"] = light["label"]
+        if obj.data.users > 1:
+            obj.data = obj.data.copy()
+        obj.data.color = [
+            linear(int(light["color"][i:i + 2], 16) / 255) for i in (1, 3, 5)
+        ]
+        obj.data.energy = light["energy"]
+    for obj in existing.values():
+        bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.context.view_layer.update()
+
+
 def inventory(scene):
     rooms = tagged(scene, "roomId")
     items = []
@@ -142,6 +191,7 @@ def inventory(scene):
         raise ValueError("방 기준점이 없습니다.")
     return dict(
         lights=area_lights(scene),
+        webLights=web_lights(scene),
         options=options,
         rooms=[
             dict(id=k, label=o.get("label", o.name), **transform(o.matrix_world))

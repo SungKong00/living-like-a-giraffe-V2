@@ -31,10 +31,6 @@ export class WorldStore {
         job: null,
       })
     }
-    for (const snap of [this.#state.published, this.#state.previous].filter(
-      Boolean,
-    ))
-      cachedLighting(snap)
     if (building(this.#state.job))
       this.#save({
         ...this.#state,
@@ -55,7 +51,6 @@ export class WorldStore {
   edit(expected, model, layout) {
     if (this.#state.draft.id !== expected)
       throw conflict('다른 변경이 먼저 저장되었습니다. 다시 열어 확인하세요.')
-    cachedLighting(this.#state.draft)
     const draft = {
       id: randomUUID(),
       model,

@@ -136,12 +136,18 @@ app.post('/api/admin/publish', (req, res) =>
 )
 // This endpoint can build a private asset, but cannot create or approve a publication.
 app.post('/api/admin/lighting', async (req, res) => {
-  const snapshot = await jobs.previewLighting(req.body.revision)
+  const controller = new AbortController()
+  res.once('close', () => controller.abort())
+  const snapshot = await jobs.previewLighting(
+    req.body.revision,
+    controller.signal,
+  )
   res.json(visitorView(snapshot, '/api/admin/lighting/' + snapshot.asset))
 })
 app.get('/api/admin/lighting/:asset', (req, res) => {
   if (!/^[a-f0-9]{64}$/.test(req.params.asset)) return res.sendStatus(404)
-  if (cachedLighting(store.state.draft) !== req.params.asset) return res.sendStatus(404)
+  if (cachedLighting(store.state.draft) !== req.params.asset)
+    return res.sendStatus(404)
   const file = path.join(buildDir(req.params.asset), 'world.glb')
   if (!fs.existsSync(file)) return res.sendStatus(404)
   res.sendFile(file, { dotfiles: 'allow' })
@@ -196,7 +202,11 @@ app.post('/api/admin/import', (req, res) => {
     result.conflicts.length
   )
     throw conflict('최신 개정에서 충돌을 다시 확인하세요.')
-  const layout = { ...store.state.draft.layout, items: result.items }
+  const layout = {
+    ...store.state.draft.layout,
+    items: result.items,
+    lights: result.lights,
+  }
   if (spots) layout.spots = spots
   res.json(editorView(store.edit(revision, model, layout)))
 })
@@ -209,7 +219,11 @@ app.get('/api/admin/candidate/:id', (req, res) => {
     editorView({
       id: result.revision,
       model: result.model,
-      layout: { ...store.state.draft.layout, items: result.items },
+      layout: {
+        ...store.state.draft.layout,
+        items: result.items,
+        lights: result.lights,
+      },
     }),
   )
 })

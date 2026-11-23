@@ -5,6 +5,7 @@ import { optimizeEditor } from '../world/optimize.mjs'
 import { catalog, root, modelDir, put, json } from './world-files.mjs'
 import { conflict } from './store.mjs'
 import { blender } from './blender.mjs'
+import { assetKey } from './visitor-asset.mjs'
 import { cachedLighting, bakeLighting } from './baked-lighting.mjs'
 import { mergeItems } from './layout.mjs'
 
@@ -38,18 +39,20 @@ export class Jobs {
       })
     return ticket.id
   }
-  async previewLighting(revision) {
+  async previewLighting(revision, signal) {
     const snapshot = this.store.state.draft
     if (snapshot.id !== revision)
       throw conflict('최신 초안을 다시 열어 주세요.')
+    const appearance = assetKey(snapshot)
     const asset =
       cachedLighting(snapshot) ||
       (await this.#enqueue(() => {
-        if (this.store.state.draft.id !== revision)
+        if (assetKey(this.store.state.draft) !== appearance)
           throw conflict('조명 준비 중 초안이 바뀌었습니다.')
-        return bakeLighting(snapshot)
+        signal?.throwIfAborted()
+        return bakeLighting(snapshot, undefined, signal)
       }))
-    if (this.store.state.draft.id !== revision)
+    if (assetKey(this.store.state.draft) !== appearance)
       throw conflict('조명 준비 중 초안이 바뀌었습니다.')
     return { ...snapshot, asset }
   }
@@ -62,7 +65,11 @@ export class Jobs {
       const pending = this.#enqueue(async () => {
         put(path.join(dir, 'snapshot.json'), snap)
         const input = path.join(dir, 'input.json')
-        put(input, { items: snap.layout.items, handoff: snap.id })
+        put(input, {
+          items: snap.layout.items,
+          lights: snap.layout.lights,
+          handoff: snap.id,
+        })
         await blender(
           'download',
           path.join(modelDir(snap.model), 'source.blend'),
@@ -115,17 +122,33 @@ export class Jobs {
       throw conflict(
         '제작 원본이 교체되었습니다. 최신 전체 파일을 기준으로 다시 인계하세요.',
       )
+    const lights = mergeItems(
+      base.layout.lights ?? [],
+      draft.layout.lights ?? [],
+      candidate.webLights ?? [],
+      Object.fromEntries(
+        Object.entries(choices)
+          .filter(([key]) => key.startsWith('light:'))
+          .map(([key, value]) => [key.slice(6), value]),
+      ),
+    )
+    const furniture = mergeItems(
+      base.layout.items,
+      draft.layout.items,
+      candidate.items,
+      choices,
+    )
     return {
       model: id,
       revision: draft.id,
       publication: published.id,
       rooms: candidate.rooms,
-      ...mergeItems(
-        base.layout.items,
-        draft.layout.items,
-        candidate.items,
-        choices,
-      ),
+      items: furniture.items,
+      lights: lights.items,
+      conflicts: [
+        ...furniture.conflicts,
+        ...lights.conflicts.map((c) => ({ ...c, key: 'light:' + c.key })),
+      ],
     }
   }
 }

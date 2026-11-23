@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 import bpy
-from model import apply, bootstrap, export_glb, inventory, wrap_mesh_anchors
+from model import apply, apply_web_lights, bootstrap, export_glb, inventory, wrap_mesh_anchors
 
 
 def load(path):
@@ -44,6 +44,7 @@ def run(command, source, out, request=None):
     if request:
         data = json.loads(request.read_text())
         apply(scene, data["items"])
+        apply_web_lights(scene, data.get("lights", []))
         scene["handoff"] = data["handoff"]
     if command == "download":
         save(out / "world.blend")
@@ -57,6 +58,8 @@ def run(command, source, out, request=None):
     else:
         manifest["handoff"] = scene.get("handoff", "")
         (out / "catalog.json").write_text(json.dumps(manifest, ensure_ascii=False))
+        # The editable scene builds web lights from the draft.
+        apply_web_lights(scene, [])
         # Merge fixed surfaces only inside their owner's local space.
         from bake import render_meshes
         from model import tagged, appearance

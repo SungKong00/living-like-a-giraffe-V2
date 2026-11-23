@@ -41,6 +41,19 @@ const page = z.strictObject({
   url: z.union([link, z.literal('')]),
 })
 const layout = z.strictObject({
+  lights: z
+    .array(
+      z.strictObject({
+        id,
+        room: id,
+        label: title,
+        position: vector,
+        color: z.string().regex(/^#[0-9a-f]{6}$/),
+        energy: z.number().finite().min(0).max(10000),
+      }),
+    )
+    .max(16)
+    .optional(),
   items: z.array(item).max(500),
   spots: z.array(hotspot).max(1000),
   pages: z.array(page).max(500),
@@ -52,9 +65,17 @@ export function validate(input, catalog) {
   const kinds = new Set(catalog.items.map((i) => i.kind))
   const ids = [...rooms, ...data.items.map((i) => i.id)]
   const pages = data.pages.map((p) => p.id)
-  for (const keys of [ids, pages, data.spots.map((s) => s.id)]) {
+  for (const keys of [
+    ids,
+    pages,
+    (data.lights ?? []).map((l) => l.id),
+    data.spots.map((s) => s.id),
+  ]) {
     if (new Set(keys).size !== keys.length) throw Error('중복된 ID가 있습니다.')
   }
+  for (const light of data.lights ?? [])
+    if (!rooms.includes(light.room))
+      throw Error(light.label + '의 방을 확인하세요.')
   for (const i of data.items)
     if (!rooms.includes(i.room) || !kinds.has(i.kind))
       throw Error(i.label + '의 방 또는 종류를 확인하세요.')
