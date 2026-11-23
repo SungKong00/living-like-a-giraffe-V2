@@ -1,3 +1,8 @@
 /assets-source/riragi-v06/
 *.blend[0-9]*
 .DS_Store
+node_modules/
+dist/
+.world/
+.venv/
+__pycache__/
