@@ -83,3 +83,44 @@ test('Blender 왕복 반올림과 동등한 쿼터니언은 충돌로 표시하�
     conflicts: [],
   })
 })
+
+test('조명 모양 계약과 굽기 캐시는 기존 점광원·방향·켜짐을 구분한다', async () => {
+  const { lightingInput } = await import('../shared/lighting-input.mjs')
+  const draft = seed(catalog)
+  const original = {
+    id: 'lamp',
+    room: 'sauna',
+    label: '램프',
+    position: [0, 3, 0],
+    color: '#ffffff',
+    energy: 400,
+  }
+  const withLamp = (patch) => ({
+    ...draft,
+    lights: [{ ...original, ...patch }],
+  })
+  assert.deepEqual(
+    seed({ ...catalog, webLights: [original] }).lights,
+    validate(withLamp({}), catalog).lights,
+  )
+  assert.deepEqual(
+    lightingInput(withLamp({})),
+    lightingInput(validate(withLamp({}), catalog)),
+  )
+  assert.deepEqual(
+    lightingInput(withLamp({ enabled: false })),
+    lightingInput(draft),
+  )
+  const cone = { type: 'spot', rotation: [0, 0, 0, 1], angle: 45, blend: 0.5 }
+  assert.notDeepEqual(
+    lightingInput(withLamp({ shape: cone })),
+    lightingInput(withLamp({ shape: { ...cone, angle: 60 } })),
+  )
+  for (const shape of [
+    { ...cone, width: 3 },
+    { ...cone, angle: 0 },
+    { ...cone, blend: 2 },
+    { type: 'area', width: 1, height: -1, rotation: [0, 0, 0, 1] },
+  ])
+    assert.throws(() => validate(withLamp({ shape }), catalog))
+})

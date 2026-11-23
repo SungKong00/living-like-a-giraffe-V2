@@ -9,7 +9,6 @@ import { Vector3, Quaternion, Matrix } from '@babylonjs/core/Maths/math.vector'
 import { addStudioFloor, floorBackground } from './studio-floor.js'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
-import { PointLight } from '@babylonjs/core/Lights/pointLight'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight'
@@ -35,7 +34,7 @@ async function openScene(
   view,
   state,
   mode,
-  { onRoom, onSpot, onSpotDown, onReady } = {},
+  { onRoom, onSpot, onSpotDown, onLight, onReady } = {},
 ) {
   const editing = mode === 'editor'
   const studioCamera = editing
@@ -151,36 +150,15 @@ async function openScene(
     focus = null,
     zoom = 1,
     marks = []
+  const guide = editing
+    ? (await import('./light-guide.js')).lightGuide(scene, rooms)
+    : null
+  let selectedLight
   let box,
     chosenSpot = null
   const styled = new Map(),
     materials = new WeakMap(),
     instances = new Map(originals)
-  const webLights = new Map()
-  function applyLights(next) {
-    const lights = next.lights ?? []
-    for (const [id, point] of webLights) {
-      if (lights.some((light) => light.id === id)) continue
-      point.dispose()
-      webLights.delete(id)
-    }
-    const roomMeshes = new Map()
-    for (const light of lights) {
-      let point = webLights.get(light.id)
-      if (!point) {
-        point = new PointLight(light.label, Vector3.Zero(), scene)
-        point.renderPriority = 2
-        webLights.set(light.id, point)
-      }
-      point.parent = rooms.get(light.room)
-      point.position.copyFromFloats(...light.position)
-      point.diffuse = Color3.FromHexString(light.color).toLinearSpace()
-      point.intensity = light.energy / (4 * Math.PI)
-      if (!roomMeshes.has(light.room))
-        roomMeshes.set(light.room, point.parent.getChildMeshes())
-      point.includedOnlyMeshes = roomMeshes.get(light.room)
-    }
-  }
   function applyItems(next) {
     for (const [id, n] of instances)
       if (!next.items.some((i) => i.id === id)) {
@@ -219,8 +197,7 @@ async function openScene(
         mesh.receiveShadows = true
       }
     }
-    applyLights(next)
-    illumination.update(instances)
+    illumination.update(instances, next.lights)
   }
   // Anchors are independent of baked triangles and survive material batching.
   function spotWorld(s) {
@@ -265,6 +242,18 @@ async function openScene(
         height: node.offsetHeight,
       })
     }
+    if (editing)
+      for (const light of layout.lights ?? [])
+        add(
+          '조명 · ' + light.label,
+          () =>
+            Vector3.TransformCoordinates(
+              v(light.position),
+              rooms.get(light.room).getWorldMatrix(),
+            ),
+          () => onLight?.(light.id),
+          'place',
+        )
     if (!focus && !editing)
       for (const r of state.rooms) {
         const n = rooms.get(r.id)
@@ -572,6 +561,29 @@ async function openScene(
       }
       return null
     },
+    roomPoint(x, y, id) {
+      const room = rooms.get(id)
+      const hit = scene.pick(
+        x,
+        y,
+        (mesh) =>
+          mesh.isPickable &&
+          mesh.isEnabled() &&
+          mesh.isVisible &&
+          mesh.isDescendantOf(room),
+      )
+      if (!hit?.pickedPoint) return null
+      return Vector3.TransformCoordinates(
+        hit.pickedPoint,
+        room.getWorldMatrix().clone().invert(),
+      ).asArray()
+    },
+    chooseLight(id) {
+      if (selectedLight === id) return
+      selectedLight = id
+      guide(layout.lights?.find((l) => l.id === id))
+      wake()
+    },
     chooseSpot(id) {
       if (chosenSpot === id) return
       chosenSpot = id
@@ -597,14 +609,14 @@ async function openScene(
     itemMoved(changedRoom) {
       wake()
       if (changedRoom) {
-        applyLights(layout)
-        illumination.update(instances)
+        illumination.update(instances, layout.lights)
       }
     },
     update(next) {
       wake()
       layout = next
       applyItems(next)
+      guide(next.lights?.find((l) => l.id === selectedLight))
       markers()
     },
   }

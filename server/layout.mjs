@@ -1,3 +1,4 @@
+import { lightLimit, lightWithDefaults } from '../shared/studio-lights.mjs'
 import { z } from 'zod'
 import { isDeepStrictEqual as equal } from 'node:util'
 
@@ -40,20 +41,36 @@ const page = z.strictObject({
   body: z.string().max(16000),
   url: z.union([link, z.literal('')]),
 })
+const lightShape = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('point') }),
+  z.strictObject({
+    type: z.literal('spot'),
+    rotation,
+    angle: z.number().min(1).max(180),
+    blend: z.number().min(0).max(1),
+  }),
+  z.strictObject({
+    type: z.literal('area'),
+    rotation,
+    width: z.number().min(0.01).max(100),
+    height: z.number().min(0.01).max(100),
+  }),
+])
+const light = z
+  .strictObject({
+    id,
+    room: id,
+    label: title,
+    position: vector,
+    color: z.string().regex(/^#[0-9a-f]{6}$/),
+    energy: z.number().min(0).max(10000),
+    enabled: z.boolean().optional(),
+    shape: lightShape.optional(),
+  })
+  .transform(lightWithDefaults)
+export const studioLights = z.array(light).max(lightLimit)
 const layout = z.strictObject({
-  lights: z
-    .array(
-      z.strictObject({
-        id,
-        room: id,
-        label: title,
-        position: vector,
-        color: z.string().regex(/^#[0-9a-f]{6}$/),
-        energy: z.number().finite().min(0).max(10000),
-      }),
-    )
-    .max(16)
-    .optional(),
+  lights: studioLights.optional(),
   items: z.array(item).max(500),
   spots: z.array(hotspot).max(1000),
   pages: z.array(page).max(500),
@@ -102,6 +119,12 @@ export function validate(input, catalog) {
 
 function sameValue(key, a, b) {
   if (equal(a, b)) return true
+  if (key.endsWith('.shape') && a && b && a.type === b.type)
+    return Object.keys(a).every((prop) =>
+      sameValue(key + '.' + prop, a[prop], b[prop]),
+    )
+  if (typeof a === 'number' && typeof b === 'number')
+    return Math.abs(a - b) < 0.00002
   if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length)
     return false
   const near = (sign) => a.every((v, i) => Math.abs(v - sign * b[i]) <= 0.00002)
@@ -162,5 +185,7 @@ export function seed(catalog) {
     size: [2, 2, 2],
     action: { type: 'page', page: p.id },
   }))
-  return validate({ items: catalog.items, pages, spots }, catalog)
+  const initial = { items: catalog.items, pages, spots }
+  if (catalog.webLights?.length) initial.lights = catalog.webLights
+  return validate(initial, catalog)
 }

@@ -33,6 +33,36 @@ try {
       color: '#ffdabc',
       energy: 550,
     },
+    {
+      id: 'accent',
+      label: '작품 조명',
+      room: twin.room,
+      position: [2, 4, 1],
+      color: '#ffffff',
+      energy: 300,
+      enabled: true,
+      shape: {
+        type: 'spot',
+        rotation: [-0.5, 0, 0, 0.8660254],
+        angle: 35,
+        blend: 0.4,
+      },
+    },
+    {
+      id: 'panel',
+      label: '창 조명',
+      room: twin.room,
+      position: [3, 5, 0],
+      color: '#ddedff',
+      energy: 750,
+      enabled: false,
+      shape: {
+        type: 'area',
+        rotation: [-0.5, 0, 0, 0.8660254],
+        width: 3,
+        height: 1.5,
+      },
+    },
   ]
   layout.items.push(twin)
   layout.spots.push({
@@ -70,6 +100,15 @@ assert all(part.material_slots[0].material['riragiBase'] for part in a.children)
 lamp=tagged(s,'webLightId')['bench-lamp']
 assert lamp.data.energy==550
 lamp.data.energy=600
+spot=tagged(s,'webLightId')['accent']
+area=tagged(s,'webLightId')['panel']
+from math import degrees
+assert spot.data.type=='SPOT' and abs(degrees(spot.data.spot_size)-35)<0.001 and abs(spot.data.spot_blend-0.4)<0.001
+assert area.data.type=='AREA' and area.data.shape=='RECTANGLE' and area.hide_render and area.data.size_y==1.5
+spot.data.spot_size*=2
+area.data.size_y=2.5
+area.hide_render=False
+area.hide_viewport=False
 a.location.x += 2
 save(Path(sys.argv[3]))
 missing=bpy.data.images.new("Missing texture",width=16,height=16)
@@ -110,7 +149,20 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
   assert.equal(studio.materials.filter((m) => m.extras?.riragiBaked).length, 4)
   assert.ok(studio.nodes.some((n) => n.extras?.itemId === twin.id))
   assert.equal(candidate.conflicts.length, 0)
-  assert.deepEqual(candidate.lights, [{ ...layout.lights[0], energy: 600 }])
+  const point = candidate.lights.find((l) => l.id === 'bench-lamp')
+  assert.deepEqual(point, {
+    ...layout.lights[0],
+    energy: 600,
+    enabled: true,
+    shape: { type: 'point' },
+  })
+  const spot = candidate.lights.find((l) => l.id === 'accent'),
+    area = candidate.lights.find((l) => l.id === 'panel')
+  assert.equal(spot.shape.angle, 70)
+  assert.equal(spot.shape.blend, 0.4)
+  assert.ok(Math.abs(spot.shape.rotation[0] + 0.5) < 0.00002)
+  assert.equal(area.shape.height, 2.5)
+  assert.equal(area.enabled, true)
   const result = candidate.items.find((i) => i.id === twin.id)
   assert.equal(result.position[0], 5)
   assert.equal(result.color, '#884422')

@@ -7,7 +7,7 @@ import { conflict } from './store.mjs'
 import { blender } from './blender.mjs'
 import { assetKey } from './visitor-asset.mjs'
 import { cachedLighting, bakeLighting } from './baked-lighting.mjs'
-import { mergeItems } from './layout.mjs'
+import { mergeItems, studioLights } from './layout.mjs'
 
 export class Jobs {
   #tail = Promise.resolve()
@@ -124,9 +124,9 @@ export class Jobs {
         '제작 원본이 교체되었습니다. 최신 전체 파일을 기준으로 다시 인계하세요.',
       )
     const lights = mergeItems(
-      base.layout.lights ?? [],
-      draft.layout.lights ?? [],
-      candidate.webLights ?? [],
+      studioLights.parse(base.layout.lights ?? []),
+      studioLights.parse(draft.layout.lights ?? []),
+      studioLights.parse(candidate.webLights ?? []),
       Object.fromEntries(
         Object.entries(choices)
           .filter(([key]) => key.startsWith('light:'))

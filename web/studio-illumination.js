@@ -10,6 +10,7 @@ import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator'
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent'
 import '@babylonjs/core/Shaders/shadowMap.vertex'
 import '@babylonjs/core/Shaders/shadowMap.fragment'
+import { roomLights } from './room-lights.js'
 import { studioDisplay } from './studio-display.js'
 
 // Babylon requests this coefficient table when the first rectangle is created.
@@ -90,8 +91,12 @@ export function studioIllumination(scene, rooms, meshes) {
     false,
   )
   const staticMaterials = new Map()
+  const fixedSurfaces = new Set(),
+    liveSurfaces = new Set()
+  let fixtureSlots = 0
   function style(material) {
-    material.maxSimultaneousLights = 8
+    liveSurfaces.add(material)
+    material.maxSimultaneousLights = 8 + fixtureSlots
     applyDisplay(material)
   }
   function belongsToItem(node) {
@@ -103,6 +108,8 @@ export function studioIllumination(scene, rooms, meshes) {
     const material = mesh.material
     if (!material) continue
     if (material.metadata?.gltf?.extras?.riragiBaked) {
+      fixedSurfaces.add(material)
+      material.maxSimultaneousLights = 1
       mesh.layerMask = fixed
       mesh.receiveShadows = true
       material.unlit = false
@@ -137,20 +144,28 @@ export function studioIllumination(scene, rooms, meshes) {
       [...panels].sort((a, b) => score(b) - score(a)).slice(0, 4),
     )
   }
+  const syncFixtures = roomLights(scene, rooms)
   let membership
   return {
     style(material) {
       if (material.albedoColor && !material.unlit) style(material)
     },
-    update(instances) {
+    update(instances, lights) {
       // Tint, slider and metadata edits reuse the same light and caster lists.
-      if (
+      const unchanged =
         membership?.size === instances.size &&
         [...instances.values()].every(
           (node) => membership.get(node) === node.parent,
         )
-      )
-        return
+      const count = syncFixtures(lights ?? [], !unchanged)
+      if (count !== fixtureSlots) {
+        fixtureSlots = count
+        for (const material of fixedSurfaces)
+          material.maxSimultaneousLights = 1 + count
+        for (const material of liveSurfaces)
+          material.maxSimultaneousLights = 8 + count
+      }
+      if (unchanged) return
       membership = new Map(
         [...instances.values()].map((node) => [node, node.parent]),
       )

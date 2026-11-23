@@ -11,10 +11,13 @@ import {
   Steps,
 } from './ds/index.js'
 import { previewCandidate } from './preview.js'
+import { lightKinds } from '../shared/studio-lights.mjs'
 import { yawOf } from './edit-ops.js'
 
 const props = {
   energy: '출력',
+  shape: '빛 모양과 방향',
+  enabled: '조명 켜짐',
   position: '위치',
   rotation: '방향',
   scale: '크기',
@@ -28,6 +31,27 @@ const finishes = { original: '원본', matte: '무광', gloss: '유광' }
 function describe(prop, value, rooms) {
   if (value == null) return '삭제됨'
   if (!prop) return '있음 · ' + value.label
+  if (prop === 'enabled') return value ? '켜짐' : '꺼짐'
+  if (prop === 'shape') {
+    const info = [lightKinds[value.type].label]
+    if (value.type === 'spot')
+      info.push(
+        value.angle + '°',
+        '부드러움 ' + Math.round(100 * value.blend) + '%',
+      )
+    if (value.type === 'area')
+      info.push(value.width + ' × ' + value.height + ' m')
+    if (value.rotation) {
+      const [x, y, z, w] = value.rotation
+      const direction = [
+        -2 * (x * z + w * y),
+        2 * (w * x - y * z),
+        2 * (x * x + y * y) - 1,
+      ]
+      info.push('방향 ' + direction.map((v) => v.toFixed(2)).join(', '))
+    }
+    return info.join(' · ')
+  }
   if (prop === 'rotation') return yawOf(value) + '°'
   if (prop === 'position' || prop === 'scale')
     return value.map((v) => Math.round(v * 100) / 100).join(' · ')

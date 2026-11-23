@@ -72,7 +72,43 @@ try {
     (await page.request.get(origin + '/api/world').then((r) => r.json())).id,
     before.id,
   )
-  await page.getByRole('button', { name: '조명 추가', exact: true }).click()
+  const addLight = async (kind) => {
+    await page.getByRole('button', { name: '조명 추가', exact: true }).click()
+    await page.getByRole('menuitem', { name: new RegExp('^' + kind) }).click()
+    await page.getByLabel('조명 이름').waitFor()
+  }
+  await addLight('면광원')
+  const height = page.getByLabel('면광원 높이')
+  await height.fill('3.5')
+  await height.press('Tab')
+  await page.getByRole('button', { name: '조명 켜기' }).click()
+  await saved()
+  let authored = await (
+    await page.request.get(origin + '/api/admin/draft')
+  ).json()
+  assert.equal(authored.layout.lights[0].shape.height, 3.5)
+  assert.equal(authored.layout.lights[0].enabled, false)
+  await page.getByRole('button', { name: '조명 삭제' }).click()
+  await addLight('스포트라이트')
+  await page.getByRole('button', { name: '비출 곳 지정' }).click()
+  await page.getByRole('button', { name: '지정 취소' }).waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: '비출 곳 지정' }).click()
+  const stage = page.locator('.studio-viewport canvas')
+  const rect = await stage.boundingBox()
+  await page.mouse.click(
+    rect.x + rect.width * 0.58,
+    rect.y + rect.height * 0.58,
+  )
+  await page.getByRole('button', { name: '비출 곳 지정' }).waitFor()
+  await saved()
+  authored = await (await page.request.get(origin + '/api/admin/draft')).json()
+  assert.ok(
+    Math.abs(authored.layout.lights[0].shape.rotation[0] + Math.SQRT1_2) >
+      0.001,
+  )
+  await page.getByRole('button', { name: '조명 삭제' }).click()
+  await addLight('점광원')
   await page.getByLabel('조명 이름').waitFor()
   const energy = page.getByRole('slider', { name: '조명 출력' })
   await energy.evaluate((input) => {

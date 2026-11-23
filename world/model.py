@@ -111,17 +111,32 @@ def web_lights(scene):
     result = []
     for key, obj in tagged(scene, "webLightId").items():
         if (
-            obj.type != "LIGHT" or obj.data.type != "POINT"
+            obj.type != "LIGHT" or obj.data.type not in {"POINT", "SPOT", "AREA"}
             or not obj.parent or "roomId" not in obj.parent
         ):
-            raise ValueError(f"{obj.name}: 웹 점광원의 방과 종류를 확인하세요")
+            raise ValueError(f"{obj.name}: 웹 조명의 방과 종류를 확인하세요")
+        lamp = obj.data
+        shape = {"type": lamp.type.lower()}
+        if lamp.type != "POINT":
+            q = (AXIS.to_quaternion() @ obj.matrix_local.to_quaternion()).normalized()
+            if q.w < 0:
+                q.negate()
+            shape["rotation"] = values((q.x, q.y, q.z, q.w))
+        if lamp.type == "SPOT":
+            shape.update(angle=round(math.degrees(lamp.spot_size), 4), blend=round(lamp.spot_blend, 5))
+        elif lamp.type == "AREA":
+            if lamp.shape not in {"RECTANGLE", "SQUARE"}:
+                raise ValueError(f"{obj.name}: 웹 면광원은 직사각형 또는 정사각형으로 지정하세요")
+            scale = obj.matrix_local.to_scale()
+            height = lamp.size_y if lamp.shape == "RECTANGLE" else lamp.size
+            shape.update(width=round(lamp.size * abs(scale.x), 5), height=round(height * abs(scale.y), 5))
         result.append(dict(
             id=key,
             label=obj.get("label", obj.name),
             room=obj.parent["roomId"],
             position=values(AXIS @ obj.matrix_local.translation),
             color="#" + "".join(f"{srgb_byte(c):02x}" for c in obj.data.color),
-            energy=round(obj.data.energy, 4),
+            energy=round(obj.data.energy, 4), enabled=not obj.hide_render, shape=shape,
         ))
     return result
 
@@ -130,9 +145,11 @@ def apply_web_lights(scene, lights):
     rooms = tagged(scene, "roomId")
     existing = tagged(scene, "webLightId")
     for light in lights:
+        shape = light.get("shape", {"type": "point"})
+        kind = shape["type"].upper()
         obj = existing.pop(light["id"], None)
         if obj is None:
-            lamp = bpy.data.lights.new(light["label"], "POINT")
+            lamp = bpy.data.lights.new(light["label"], kind)
             obj = bpy.data.objects.new(light["label"], lamp)
             scene.collection.objects.link(obj)
             obj["webLightId"] = light["id"]
@@ -142,6 +159,20 @@ def apply_web_lights(scene, lights):
         obj["label"] = light["label"]
         if obj.data.users > 1:
             obj.data = obj.data.copy()
+        obj.data.type = kind
+        obj.hide_render = not light.get("enabled", True)
+        obj.hide_viewport = obj.hide_render
+        if kind != "POINT":
+            x, y, z, w = shape["rotation"]
+            obj.rotation_mode = "QUATERNION"
+            obj.rotation_quaternion = AXIS.to_quaternion().inverted() @ Quaternion((w, x, y, z)).normalized()
+            obj.scale = (1, 1, 1)
+        if kind == "SPOT":
+            obj.data.spot_size = math.radians(shape["angle"])
+            obj.data.spot_blend = shape["blend"]
+        if kind == "AREA":
+            obj.data.shape = "RECTANGLE"
+            obj.data.size, obj.data.size_y = shape["width"], shape["height"]
         obj.data.color = [
             linear(int(light["color"][i:i + 2], 16) / 255) for i in (1, 3, 5)
         ]
@@ -317,7 +348,7 @@ def select(objects):
 def export_glb(scene, path):
     rooms = tagged(scene, "roomId")
     objects = [o for r in rooms.values() for o in [r, *r.children_recursive]]
-    select(objects)
+    select([o for o in objects if not ("webLightId" in o and o.hide_render)])
     bpy.ops.export_scene.gltf(
         filepath=str(path),
         use_selection=True,

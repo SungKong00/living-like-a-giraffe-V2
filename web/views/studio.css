@@ -119,6 +119,12 @@
     bottom: var(--space-4);
     translate: -50% 0;
   }
+  .stage.is-placing-light canvas {
+    cursor: crosshair;
+  }
+  .stage.is-placing-light .stage__markers > * {
+    pointer-events: none;
+  }
   .studio-hint {
     position: absolute;
     bottom: calc(var(--control-xl) + var(--space-6));

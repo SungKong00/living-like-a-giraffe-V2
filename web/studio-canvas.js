@@ -238,6 +238,7 @@ export function attachCanvas(world, view, hooks) {
     if (e.button !== 0) return
     canvas.focus({ preventScroll: true })
     const at = point(e)
+    if (hooks.pickLightPoint(at)) return
     const hit = world.pick(at.x, at.y)
     if (hit?.type === 'item') {
       hooks.select(hit)

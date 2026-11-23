@@ -39,7 +39,8 @@ import {
 } from './ds/index.js'
 import { previewLayout } from './preview.js'
 import { EditHistory } from './history.js'
-import { lightInspector } from './light-inspector.js'
+import { aimShape, lightInspector, lightMenu } from './light-inspector.js'
+import { lightKinds } from '../shared/studio-lights.mjs'
 import { selectionPreview } from './selection-preview.js'
 import { openEditorScene } from './scene.js'
 import { Autosave } from './autosave.js'
@@ -177,6 +178,7 @@ export async function studio() {
     world = null,
     canvas = null
   const collapsed = new Set()
+  let lightPick = null
   let axesOpen = false
   // Spot whose destination was switched to an external link that has not been
   // typed yet. Kept as state so a re-render does not hide the address field.
@@ -451,7 +453,10 @@ export async function studio() {
     shown = history.value
     world?.update(shown)
     projection?.invalidate()
-    if (selection && !exists(selection)) selection = null
+    if (selection && !exists(selection)) {
+      selection = null
+      setLightPick(null)
+    }
     render()
   }
   function change(edit) {
@@ -490,6 +495,7 @@ export async function studio() {
     return !!ops.find(shown, listOf[sel.type], sel.id)
   }
   function select(sel, { frame = false } = {}) {
+    setLightPick(null)
     if (selection?.id !== sel?.id || selection?.type !== sel?.type)
       inspector.scrollTop = 0
     selection = sel
@@ -679,29 +685,46 @@ export async function studio() {
           },
         }),
         menu.element,
-        Button({
-          label: '조명 추가',
-          size: 'sm',
-          disabled: (shown.lights?.length ?? 0) >= 16,
-          onClick() {
-            const id = newId()
-            const room = roomOf(selection) || rooms[0].id
-            const ordinal = (shown.lights?.length ?? 0) + 1
-            change((d) =>
-              (d.lights ??= []).push({
-                id,
-                room,
-                label: '점광원 ' + ordinal,
-                color: '#ffffff',
-                position: [0, 3, 0],
-                energy: 500,
-              }),
-            )
-            select({ type: 'light', id }, { frame: true })
-          },
-        }),
+        lightMenu(
+          roomName(roomOf(selection) || rooms[0].id),
+          shown.lights?.length ?? 0,
+          addLight,
+        ),
       ),
     ]
+  }
+  function addLight(type) {
+    const room = roomOf(selection) || rooms[0].id
+    const id = newId(),
+      kind = lightKinds[type]
+    const item = selectedItem()
+    const position = item
+      ? [item.position[0], item.position[1] + 3, item.position[2]]
+      : [0, 3, 0]
+    const names = new Set((shown.lights ?? []).map((l) => l.label))
+    let n = 1
+    while (names.has(kind.label + ' ' + n)) n++
+    collapsed.delete(room)
+    query = ''
+    change((d) =>
+      (d.lights ??= []).push({
+        id,
+        room,
+        label: kind.label + ' ' + n,
+        position,
+        energy: 500,
+        color: '#ffffff',
+        enabled: true,
+        shape: kind.shape(),
+      }),
+    )
+    select({ type: 'light', id }, { frame: true })
+  }
+  function setLightPick(mode) {
+    if (lightPick === mode) return
+    lightPick = mode
+    view.host.classList.toggle('is-placing-light', !!mode)
+    render()
   }
   function layoutTree() {
     const match = (label) =>
@@ -715,7 +738,10 @@ export async function studio() {
           .map((l) =>
             row({ type: 'light', id: l.id }, l.label, {
               depth: 1,
-              meta: '조명',
+              meta:
+                l.enabled === false
+                  ? '꺼짐'
+                  : lightKinds[l.shape?.type ?? 'point'].label,
             }),
           )
         for (const i of items) {
@@ -812,6 +838,8 @@ export async function studio() {
       const set = (values) => patch('lights', light.id, values)
       return lightInspector(light, {
         rooms,
+        picking: lightPick,
+        pick: setLightPick,
         title: labelInput('조명 이름', light.label, (label) => set({ label })),
         set,
         preview: (values) =>
@@ -827,7 +855,13 @@ export async function studio() {
     room: () => roomInspector(rooms.find((r) => r.id === selection.id)),
   }
   function renderInspector() {
-    const key = JSON.stringify([selection, shown, axesOpen, addressing])
+    const key = JSON.stringify([
+      selection,
+      shown,
+      axesOpen,
+      addressing,
+      lightPick,
+    ])
     if (key === inspectorKey) return
     inspectorKey = key
     renderKeepingFocus(properties, () =>
@@ -1513,6 +1547,7 @@ export async function studio() {
       undoButton.disabled = !history.canUndo
       redoButton.disabled = !history.canRedo
       canvas?.setSelection(selection)
+      world?.chooseLight(selection?.type === 'light' ? selection.id : null)
       world?.chooseSpot(selection?.type === 'spot' ? selection.id : null)
       world?.showBox(
         selection?.type === 'spot'
@@ -1534,6 +1569,7 @@ export async function studio() {
       /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||
       e.target.isContentEditable
     if (e.key === 'Escape') {
+      if (lightPick) return setLightPick(null)
       if (canvas?.cancel()) return
       if (!typing) select(null)
       return
@@ -1591,6 +1627,39 @@ export async function studio() {
     snapping: () => snapping,
     select: (sel) => select(sel),
     toolbar: floating,
+    pickLightPoint(at) {
+      if (!lightPick) return false
+      const light =
+        selection?.type === 'light' && ops.find(shown, 'lights', selection.id)
+      if (!light) {
+        setLightPick(null)
+        return false
+      }
+      const point = world.roomPoint(at.x, at.y, light.room)
+      if (!point) {
+        notify(roomName(light.room) + '의 바닥이나 물체를 클릭하세요.')
+        return true
+      }
+      let values
+      if (lightPick === 'aim') {
+        const shape = aimShape(light, point)
+        if (!shape) {
+          notify('조명과 떨어진 곳을 클릭하세요.')
+          return true
+        }
+        values = { shape }
+      } else
+        values = {
+          position: [
+            ops.round(point[0]),
+            light.position[1],
+            ops.round(point[2]),
+          ],
+        }
+      setLightPick(null)
+      patch('lights', light.id, values)
+      return true
+    },
     dragging(on) {
       view.host.classList.toggle('is-dragging', on)
     },
@@ -1615,6 +1684,7 @@ export async function studio() {
   }
   try {
     world = await openEditorScene(view, saved, {
+      onLight: (id) => select({ type: 'light', id }),
       onSpot: (s) => select({ type: 'spot', id: s.id }),
       onSpotDown: (s, e) => hooks.spotDown?.(s, e),
     })

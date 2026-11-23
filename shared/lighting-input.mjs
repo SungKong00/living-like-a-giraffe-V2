@@ -15,12 +15,14 @@ export function lightingInput(layout) {
       }))
       .sort(byId),
     (layout.lights ?? [])
-      .map(({ id, room, position, color, energy }) => ({
+      .filter((light) => light.enabled !== false)
+      .map(({ id, room, position, color, energy, shape }) => ({
         id,
         room,
         position,
         color,
         energy,
+        ...(shape && shape.type !== 'point' ? { shape } : {}),
       }))
       .sort(byId),
   ]
