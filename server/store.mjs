@@ -3,20 +3,9 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { validate, seed } from './layout.mjs'
 
-export const root = path.resolve(process.env.RIRAGI_DATA || '.world')
-export function json(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf8'))
-}
-export function put(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  const tmp = file + '.' + randomUUID()
-  fs.writeFileSync(tmp, JSON.stringify(value))
-  fs.renameSync(tmp, file)
-}
-export const modelDir = (model) => path.join(root, 'models', model)
-export const buildDir = (key) => path.join(root, 'builds', key)
-export const catalog = (model) =>
-  json(path.join(modelDir(model), 'catalog.json'))
+import { root, json, put, catalog } from './world-files.mjs'
+import { initialAsset } from './visitor-asset.mjs'
+
 export function conflict(message) {
   return Object.assign(Error(message), { status: 409 })
 }
@@ -34,7 +23,7 @@ export class WorldStore {
       }
       this.#save({
         draft,
-        published: { ...draft, asset: 'initial' },
+        published: { ...draft, asset: initialAsset(draft) },
         previous: null,
         job: null,
       })

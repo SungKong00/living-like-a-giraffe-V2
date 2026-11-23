@@ -1,5 +1,8 @@
 """Bake opaque surfaces in the disposable publication scene. Keep glass live."""
 
+from tempfile import TemporaryDirectory
+from pathlib import Path
+
 import bpy
 from model import select, tagged, parent_at
 
@@ -36,6 +39,25 @@ def live_surface(material):
             ):
                 return True
     return False
+
+
+def display_texture(scene, linear_image, out):
+    # glTF base colour/emission textures use sRGB. Preserve the scene's view,
+    # look and exposure while targeting the web display on this disposable copy.
+    settings = scene.render.image_settings
+    scene.display_settings.display_device = "sRGB"
+    settings.file_format = "PNG"
+    settings.color_mode = "RGB"
+    settings.color_depth = "8"
+    settings.color_management = "FOLLOW_SCENE"
+    with TemporaryDirectory(dir=out) as directory:
+        filename = str(Path(directory) / "display.png")
+        linear_image.save_render(filename, scene=scene)
+        texture = bpy.data.images.load(filename, check_existing=False)
+        texture.name = linear_image.name + " sRGB"
+        texture.colorspace_settings.name = "sRGB"
+        texture.pack()
+        return texture
 
 
 def bake(scene, out):
@@ -89,7 +111,9 @@ def bake(scene, out):
         bpy.ops.uv.smart_project(island_margin=0.003)
         bpy.ops.object.mode_set(mode="OBJECT")
         resolution = 256 if "itemId" in owner else 1024
-        image = bpy.data.images.new("Light " + key, resolution, resolution, alpha=False)
+        image = bpy.data.images.new(
+            "Light " + key, resolution, resolution, alpha=False, float_buffer=True
+        )
         for slot in mesh.material_slots:
             if not slot.material:
                 continue
@@ -111,7 +135,7 @@ def bake(scene, out):
             if name != uv_name:
                 mesh.data.uv_layers.remove(mesh.data.uv_layers[name])
         mesh.data.uv_layers[uv_name].active_render = True
-        image.pack()
+        texture = display_texture(scene, image, out)
         mat = bpy.data.materials.new(mesh.name + " baked")
         mat["riragiBaked"] = True
         mat["riragiFinish"] = finish
@@ -119,7 +143,7 @@ def bake(scene, out):
         nodes = mat.node_tree.nodes
         nodes.clear()
         tex = nodes.new("ShaderNodeTexImage")
-        tex.image = image
+        tex.image = texture
         coords = nodes.new("ShaderNodeUVMap")
         coords.uv_map = uv_name
         emit = nodes.new("ShaderNodeEmission")

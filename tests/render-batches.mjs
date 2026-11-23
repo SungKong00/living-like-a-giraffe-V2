@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import sharp from 'sharp'
 import { Document, NodeIO } from '@gltf-transform/core'
 import { chromium } from 'playwright'
-import { optimize } from '../world/optimize.mjs'
+import { optimizeVisitor } from '../world/optimize.mjs'
 
 const dir = await fs.mkdtemp(path.resolve('.world/render-'))
 const doc = new Document(),
@@ -74,7 +74,7 @@ try {
   const raw = path.join(dir, 'raw.glb'),
     batched = path.join(dir, 'batched.glb')
   await new NodeIO().write(raw, doc)
-  await optimize(raw, batched, ['sauna'])
+  await optimizeVisitor(raw, batched, ['sauna'])
   browser = await chromium.launch({
     channel: 'chrome',
     args: ['--enable-unsafe-swiftshader'],

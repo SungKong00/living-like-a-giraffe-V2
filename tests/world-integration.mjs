@@ -7,10 +7,10 @@ import { randomUUID } from 'node:crypto'
 const dir = fs.mkdtempSync(path.resolve('.world/integration-'))
 process.env.RIRAGI_DATA = dir
 try {
-  fs.cpSync('.world/models/initial', path.join(dir, 'models/initial'), {
-    recursive: true,
-  })
-  const { WorldStore, catalog, buildDir } = await import('../server/store.mjs')
+  const { copyPreparedWorld } = await import('./prepared-world.mjs')
+  copyPreparedWorld(dir)
+  const { WorldStore } = await import('../server/store.mjs')
+  const { catalog, buildDir } = await import('../server/world-files.mjs')
   const { Jobs } = await import('../server/jobs.mjs')
   const store = new WorldStore(),
     jobs = new Jobs(store)

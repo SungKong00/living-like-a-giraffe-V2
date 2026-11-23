@@ -53,7 +53,15 @@ function identities(doc) {
     })
     .sort()
 }
-export async function optimize(input, output, expectedRooms) {
+export function optimizeEditor(input, output, expectedRooms) {
+  return optimize(input, output, expectedRooms, false)
+}
+
+export function optimizeVisitor(input, output, expectedRooms) {
+  return optimize(input, output, expectedRooms, true)
+}
+
+async function optimize(input, output, expectedRooms, visitor) {
   const io = new NodeIO()
     .registerExtensions(ALL_EXTENSIONS)
     .registerDependencies({
@@ -63,7 +71,7 @@ export async function optimize(input, output, expectedRooms) {
   const doc = await io.read(input)
   const before = identities(doc)
   await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready])
-  const baked = await finishBakedMaterials(doc)
+  const baked = visitor && (await finishBakedMaterials(doc))
   await doc.transform(weld(), dedup())
   if (baked) batchRoomCopies(doc)
   await doc.transform(

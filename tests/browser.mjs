@@ -1,3 +1,4 @@
+import { copyPreparedWorld } from './prepared-world.mjs'
 import { chromium, devices } from 'playwright'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
@@ -6,10 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
 const root = fs.mkdtempSync(path.resolve('.world/browser-'))
-for (const name of ['models', 'builds'])
-  fs.cpSync('.world/' + name + '/initial', path.join(root, name, 'initial'), {
-    recursive: true,
-  })
+copyPreparedWorld(root)
 const key = randomUUID()
 const server = spawn(process.execPath, ['server/start.mjs', '--production'], {
   env: { ...process.env, PORT: '0', RIRAGI_DATA: root, RIRAGI_ADMIN_KEY: key },

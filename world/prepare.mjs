@@ -1,7 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { optimize } from './optimize.mjs'
-const dir = '.world/models/initial'
+import { existsSync, mkdirSync } from 'node:fs'
+import { optimizeEditor } from './optimize.mjs'
+import { modelDir, catalog } from '../server/world-files.mjs'
+import { buildVisitorAsset } from '../server/visitor-asset.mjs'
+import { seed } from '../server/layout.mjs'
+const dir = modelDir('initial')
 mkdirSync(dir, { recursive: true })
 if (!existsSync(dir + '/source.blend') || !existsSync(dir + '/raw.glb'))
   execFileSync(
@@ -14,34 +17,14 @@ if (!existsSync(dir + '/source.blend') || !existsSync(dir + '/raw.glb'))
     ],
     { stdio: 'inherit' },
   )
-const catalog = JSON.parse(readFileSync(dir + '/catalog.json'))
-await optimize(
+const model = catalog('initial')
+await optimizeEditor(
   dir + '/raw.glb',
   dir + '/editor.glb',
-  catalog.rooms.map((r) => r.id),
+  model.rooms.map((r) => r.id),
 )
-const build = '.world/builds/initial'
-mkdirSync(build, { recursive: true })
-if (!existsSync(build + '/world.glb')) {
-  const { writeFileSync } = await import('node:fs')
-  writeFileSync(
-    build + '/input.json',
-    JSON.stringify({ items: catalog.items, handoff: 'initial' }),
-  )
-  execFileSync(
-    '.venv/bin/python',
-    [
-      'world/worker.py',
-      'publish',
-      dir + '/source.blend',
-      build,
-      build + '/input.json',
-    ],
-    { stdio: 'inherit' },
-  )
-  await optimize(
-    build + '/raw.glb',
-    build + '/world.glb',
-    catalog.rooms.map((r) => r.id),
-  )
-}
+await buildVisitorAsset({
+  id: 'initial',
+  model: 'initial',
+  layout: seed(model),
+})

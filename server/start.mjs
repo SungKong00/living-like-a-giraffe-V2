@@ -3,22 +3,22 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { timingSafeEqual, createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
-import {
-  WorldStore,
-  buildDir,
-  root,
-  modelDir,
-  catalog,
-  conflict,
-} from './store.mjs'
+import { WorldStore, conflict } from './store.mjs'
+import { buildDir, root, modelDir, catalog } from './world-files.mjs'
 import { Jobs } from './jobs.mjs'
 // A second server must never race the first writer's atomic state-file swaps.
-if (!fs.existsSync(path.join(buildDir('initial'), 'world.glb')))
+if (!fs.existsSync(modelDir('initial')))
   throw Error('npm run prepare:world를 먼저 실행하세요.')
 const { default: lockfile } = await import('proper-lockfile')
 await lockfile.lock(root, { stale: 120000, update: 10000 })
 const store = new WorldStore(),
   jobs = new Jobs(store)
+if (
+  !fs.existsSync(path.join(buildDir(store.state.published.asset), 'world.glb'))
+)
+  throw Error(
+    '공개 모델을 찾을 수 없습니다. 월드 저장소와 prepare:world 결과를 확인하세요.',
+  )
 const app = express(),
   server = createServer(app)
 const sessions = new Map()
