@@ -40,7 +40,12 @@ import {
 } from './ds/index.js'
 import { previewLayout } from './preview.js'
 import { EditHistory } from './history.js'
-import { aimShape, lightInspector, lightMenu } from './light-inspector.js'
+import {
+  aimShape,
+  lightInspector,
+  lightMenu,
+  showLightPosition,
+} from './light-inspector.js'
 import { lightKinds } from '../shared/studio-lights.mjs'
 import { selectionPreview } from './selection-preview.js'
 import { openEditorScene } from './scene.js'
@@ -67,7 +72,7 @@ const palette = [
 ]
 const finishNames = { original: '원본', matte: '무광', gloss: '유광' }
 const shortcuts = [
-  ['끌기', '가구·안내 표시 옮기기'],
+  ['끌기', '가구·전구·안내 표시 옮기기'],
   ['Alt + 끌기', '복제하며 옮기기'],
   [cmd.replace('+', '') + ' + 끌기', '격자 맞춤 잠시 끄기'],
   ['빈 곳 끌기', '화면 이동'],
@@ -176,9 +181,8 @@ export async function studio() {
     resolvedSources(sourceCatalog, shown.sourceLights).find((l) => l.id === id)
   let sourceOpen = false
   function changeLight(id, values, temporary = false) {
-    const fn = temporary ? preview : change
     const source = sourceMap.get(id)
-    fn((d) => {
+    const edit = (d) => {
       if (source)
         editSource(
           d,
@@ -186,7 +190,12 @@ export async function studio() {
           values?.shape ? { rotation: values.shape.rotation } : values,
         )
       else Object.assign(ops.find(d, 'lights', id), values)
-    })
+    }
+    if (!temporary) return change(edit)
+    // This layout is a disposable copy. Dragging never writes into history.
+    edit(shown)
+    world?.updateLights(shown)
+    transient = true
   }
   const rooms = saved.rooms
   const kinds = saved.kinds || []
@@ -199,6 +208,7 @@ export async function studio() {
     canvas = null
   const collapsed = new Set()
   let lightPick = null
+  let lightTool = 'move'
   let axesOpen = false
   // Spot whose destination was switched to an external link that has not been
   // typed yet. Kept as state so a re-render does not hide the address field.
@@ -347,7 +357,7 @@ export async function studio() {
   const hint = el(
     'p',
     { class: 'studio-hint' },
-    el('span', {}, '가구를 끌어 옮기기'),
+    el('span', {}, '가구·전구를 끌어 옮기기'),
     el('span', {}, '빈 곳을 끌어 화면 이동'),
     el('span', {}, '오른쪽 버튼으로 시점 회전'),
   )
@@ -495,11 +505,13 @@ export async function studio() {
     projection?.invalidate()
   }
   function undo() {
+    if (canvas?.cancel()) return
     history.undo()
     autosave.schedule()
     apply()
   }
   function redo() {
+    if (canvas?.cancel()) return
     history.redo()
     autosave.schedule()
     apply()
@@ -517,8 +529,11 @@ export async function studio() {
   }
   function select(sel, { frame = false } = {}) {
     setLightPick(null)
-    if (selection?.id !== sel?.id || selection?.type !== sel?.type)
+    if (selection?.id !== sel?.id || selection?.type !== sel?.type) {
+      canvas?.cancel()
+      lightTool = 'move'
       inspector.scrollTop = 0
+    }
     selection = sel
     if (sel?.type === 'page') tab = 'pages'
     else if (sel) tab = 'layout'
@@ -900,6 +915,13 @@ export async function studio() {
       const set = (values) => changeLight(light.id, values)
       return lightInspector(light, {
         rooms,
+        tool: lightTool,
+        setTool: (mode) => {
+          canvas?.cancel()
+          lightTool = mode
+          setLightPick(null)
+          render()
+        },
         picking: lightPick,
         pick: setLightPick,
         source,
@@ -925,6 +947,7 @@ export async function studio() {
       axesOpen,
       addressing,
       lightPick,
+      lightTool,
     ])
     if (key === inspectorKey) return
     inspectorKey = key
@@ -1690,6 +1713,12 @@ export async function studio() {
     layout: () => shown,
     light: lightById,
     isSource: (id) => sourceMap.has(id),
+    lightTool: () => (lightPick ? null : lightTool),
+    previewLight(id, values) {
+      changeLight(id, values, true)
+      if (values.position) showLightPosition(properties, values.position)
+    },
+    commitLight: (id, values) => changeLight(id, values),
     snapping: () => snapping,
     select: (sel) => select(sel),
     toolbar: floating,
@@ -1733,7 +1762,13 @@ export async function studio() {
       view.host.classList.toggle('is-dragging', on)
     },
     itemMoved: () => projection.invalidate(),
-    revert: () => apply(),
+    revert() {
+      apply()
+      if (selection?.type === 'light') {
+        const light = lightById(selection.id)
+        if (light) showLightPosition(properties, light.position)
+      }
+    },
     commitItem(id, values, { copy }) {
       const item = ops.find(shown, 'items', id)
       const moved = values.room && values.room !== item.room
@@ -1754,6 +1789,7 @@ export async function studio() {
   try {
     world = await openEditorScene(view, saved, {
       onLight: (id) => select({ type: 'light', id }),
+      onLightDown: (id, e) => hooks.lightDown?.(id, e),
       onSpot: (s) => select({ type: 'spot', id: s.id }),
       onSpotDown: (s, e) => hooks.spotDown?.(s, e),
     })

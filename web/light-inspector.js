@@ -13,6 +13,7 @@ import {
   PanelSection,
   PropertyRow,
   Select,
+  Segmented,
   Slider,
   SwatchPicker,
   Toggle,
@@ -53,6 +54,16 @@ export function aimShape(light, target) {
   return { ...light.shape, rotation: delta.multiply(old).normalize().asArray() }
 }
 
+const axes = ['X', 'Y', 'Z']
+// Keep the numeric readout in sync during a canvas drag without replacing the
+// inspector or moving keyboard focus. The final edit rebuilds it as usual.
+export function showLightPosition(panel, position) {
+  axes.forEach((axis, index) => {
+    const field = panel.querySelector('input[data-key="light-' + axis + '"]')
+    if (field) field.value = position[index]
+  })
+}
+
 export function lightInspector(
   row,
   {
@@ -64,6 +75,8 @@ export function lightInspector(
     picking,
     pick,
     source,
+    tool,
+    setTool,
     modified,
     reset,
   },
@@ -197,8 +210,26 @@ export function lightInspector(
     }),
     PanelSection({
       title: '배치',
-      meta: '높이는 Y로 조절',
+      meta:
+        tool === 'rotate' ? '고리를 드래그해 회전' : '초록 화살표로 높이 조절',
       children: [
+        ...(shape.type === 'point'
+          ? []
+          : [
+              property(
+                '장면 도구',
+                Segmented({
+                  label: '조명 조작 도구',
+                  key: 'light-transform',
+                  value: tool,
+                  options: [
+                    { value: 'move', label: '이동' },
+                    { value: 'rotate', label: '회전' },
+                  ],
+                  onChange: setTool,
+                }),
+              ),
+            ]),
         ...(source
           ? []
           : [
@@ -215,7 +246,7 @@ export function lightInspector(
             ]),
         property(
           '위치 (m)',
-          ...['X', 'Y', 'Z'].map((axis, index) =>
+          ...axes.map((axis, index) =>
             NumberInput({
               label: '조명 위치 ' + axis,
               prefix: axis,

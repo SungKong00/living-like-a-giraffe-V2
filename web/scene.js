@@ -18,7 +18,7 @@ import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader'
 import '@babylonjs/core/Culling/ray'
 import '@babylonjs/loaders/glTF/2.0'
 import '@babylonjs/loaders/glTF/glTFFileLoader'
-import { Pin } from './ds/index.js'
+import { IconButton, Pin } from './ds/index.js'
 
 const v = (arr) => Vector3.FromArray(arr)
 export function openVisitorScene(view, state, actions) {
@@ -35,7 +35,7 @@ async function openScene(
   view,
   state,
   mode,
-  { onRoom, onSpot, onSpotDown, onLight, onReady } = {},
+  { onRoom, onSpot, onSpotDown, onLight, onLightDown, onReady } = {},
 ) {
   const editing = mode === 'editor'
   const studioCamera = editing
@@ -261,23 +261,41 @@ async function openScene(
         height: node.offsetHeight,
       })
     }
-    if (editing)
-      for (const light of [
-        ...(layout.lights ?? []),
-        ...sourceRows.filter((l) => l.id === selectedLight),
-      ])
-        add(
-          '조명 · ' + light.label,
-          () =>
-            light.room == null
-              ? v(light.position)
-              : Vector3.TransformCoordinates(
-                  v(light.position),
-                  rooms.get(light.room).getWorldMatrix(),
-                ),
-          () => onLight?.(light.id),
-          'place',
-        )
+    if (editing) {
+      for (const lamp of [...(layout.lights ?? []), ...sourceRows]) {
+        const id = lamp.id,
+          label = '조명 · ' + lamp.label
+        const selected = id === selectedLight
+        const node = IconButton({
+          label,
+          icon: 'light',
+          size: 'sm',
+          variant: selected ? 'primary' : 'secondary',
+          className: 'studio-light-pin',
+          pressed: selected,
+          onClick: () => onLight?.(id),
+        })
+        node.addEventListener('pointerdown', (e) => onLightDown?.(id, e))
+        view.overlay.append(node)
+        marks.push({
+          node,
+          light: id,
+          width: node.offsetWidth,
+          height: node.offsetHeight,
+          pos: () => {
+            const current = id === selectedLight ? activeLight() : lamp
+            if (!current) return null
+            const room = rooms.get(current.room)
+            return room
+              ? Vector3.TransformCoordinates(
+                  v(current.position),
+                  room.getWorldMatrix(),
+                )
+              : v(current.position)
+          },
+        })
+      }
+    }
     if (!focus && !editing)
       for (const r of state.rooms) {
         const n = rooms.get(r.id)
@@ -489,6 +507,17 @@ async function openScene(
     const width = view.canvas.clientWidth,
       height = view.canvas.clientHeight
     const port = camera.viewport.toGlobal(width, height)
+    const project = (pos) =>
+      Vector3.Project(
+        pos,
+        Matrix.IdentityReadOnly,
+        scene.getTransformMatrix(),
+        port,
+      )
+    const activePin =
+      selectedLight && marks.find((m) => m.light === selectedLight)
+    const anchor = activePin?.pos()
+    const handle = anchor && project(anchor)
     const placed = []
     for (const m of marks) {
       const pos = m.pos()
@@ -496,12 +525,30 @@ async function openScene(
         m.node.hidden = true
         continue
       }
-      const p = Vector3.Project(
-        pos,
-        Matrix.Identity(),
-        scene.getTransformMatrix(),
-        port,
-      )
+      const p = project(pos)
+      if (handle && m !== activePin) {
+        // A nearby HTML pin would swallow the tip of a 3D arrow or rotation
+        // ring. Give the selected tool its screen space until deselection.
+        const dx = Math.max(0, Math.abs(p.x - handle.x) - m.width / 2)
+        const middle = m.light ? p.y : p.y - m.height / 2
+        const dy = Math.max(0, Math.abs(middle - handle.y) - m.height / 2)
+        if (Math.hypot(dx, dy) < 78) {
+          m.node.hidden = true
+          continue
+        }
+      }
+      if (
+        m.light &&
+        (p.x < 0 ||
+          p.x > width ||
+          p.y < 0 ||
+          p.y > height ||
+          p.z < 0 ||
+          p.z > 1)
+      ) {
+        m.node.hidden = true
+        continue
+      }
       m.node.hidden = false
       const x = Math.max(m.width / 2, Math.min(width - m.width / 2, p.x))
       let y = p.y
@@ -562,6 +609,7 @@ async function openScene(
   return {
     ...viewer,
     ...cameraView,
+    wake,
     scene,
     camera,
     rooms,
@@ -640,6 +688,12 @@ async function openScene(
       if (changedRoom) {
         updateIllumination(layout)
       }
+    },
+    updateLights(next) {
+      layout = next
+      updateIllumination(next)
+      guide(activeLight())
+      wake()
     },
     update(next) {
       wake()

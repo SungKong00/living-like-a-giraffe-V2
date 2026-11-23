@@ -1,3 +1,4 @@
+import { checkLightHandles, turnLightHandle } from './light-handles.mjs'
 import { copyPreparedWorld } from './prepared-world.mjs'
 import { chromium, devices } from 'playwright'
 import { spawn } from 'node:child_process'
@@ -73,6 +74,7 @@ try {
     before.id,
   )
   await tree('Blender 원본 조명').click()
+  await checkLightHandles(page, origin, 'Large_softbox', true)
   await tree('Large_softbox').click()
   const output = page.getByLabel('정확한 조명 출력')
   assert.ok(Number(await output.inputValue()) > 10000)
@@ -101,6 +103,12 @@ try {
       await page.mouse.click(
         canvasBox.x + canvasBox.width / 2 + offset,
         canvasBox.y + canvasBox.height / 2,
+      )
+      await page.evaluate(
+        () =>
+          new Promise((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(done)),
+          ),
       )
       if (await page.getByRole('button', { name: action, exact: true }).count())
         break
@@ -140,6 +148,25 @@ try {
   assert.equal(authored.layout.lights[0].enabled, false)
   await page.getByRole('button', { name: '조명 삭제' }).click()
   await addLight('스포트라이트')
+  await saved()
+  const spotBefore = (
+    await page.request.get(origin + '/api/admin/draft').then((r) => r.json())
+  ).layout
+  await turnLightHandle(
+    page,
+    page.getByRole('button', { name: '조명 · 스포트라이트 1', exact: true }),
+  )
+  await saved()
+  const spotTurned = (
+    await page.request.get(origin + '/api/admin/draft').then((r) => r.json())
+  ).layout
+  assert.notDeepEqual(
+    spotTurned.lights[0].shape.rotation,
+    spotBefore.lights[0].shape.rotation,
+  )
+  assert.deepEqual(spotTurned.lights[0].position, spotBefore.lights[0].position)
+  await page.locator('button[aria-label="되돌리기"]').click()
+  await saved()
   await page.getByRole('button', { name: '비출 곳 지정' }).click()
   await page.getByRole('button', { name: '지정 취소' }).waitFor()
   await page.keyboard.press('Escape')
@@ -159,6 +186,8 @@ try {
   )
   await page.getByRole('button', { name: '조명 삭제' }).click()
   await addLight('점광원')
+  await saved()
+  await checkLightHandles(page, origin, '점광원 1', false)
   await page.getByLabel('조명 이름').waitFor()
   const energy = page.getByRole('slider', { name: '조명 출력' })
   await energy.evaluate((input) => {

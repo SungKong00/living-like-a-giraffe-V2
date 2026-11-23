@@ -119,6 +119,15 @@
     bottom: var(--space-4);
     translate: -50% 0;
   }
+  .studio-light-pin {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    touch-action: none;
+  }
+  .studio-light-pin[aria-pressed='true'] {
+    z-index: 1;
+  }
   .stage.is-placing-light canvas {
     cursor: crosshair;
   }

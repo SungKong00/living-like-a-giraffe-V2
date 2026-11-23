@@ -1,3 +1,4 @@
+import { lightTransform } from './light-transform.js'
 import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { HighlightLayer } from '@babylonjs/core/Layers/highlightLayer'
@@ -26,6 +27,14 @@ export function attachCanvas(world, view, hooks) {
   // Framing a selection translates the orbit without changing its orientation.
   camera.overrideCloneAlphaBetaRadius = true
   const canvas = view.canvas
+  const handles = lightTransform(world, canvas, hooks)
+  function syncLight() {
+    const tool = hooks.lightTool()
+    handles.sync(
+      tool && selection?.type === 'light' ? hooks.light(selection.id) : null,
+      tool,
+    )
+  }
   const glow = new HighlightLayer('선택 강조', scene, {
     blurHorizontalSize: 0.6,
     blurVerticalSize: 0.6,
@@ -146,6 +155,33 @@ export function attachCanvas(world, view, hooks) {
     hooks.commitItem(g.id, patch, { copy: g.copy })
   }
 
+  function beginLight(id, at) {
+    const light = hooks.light(id)
+    if (!light) return null
+    const space =
+      rooms.get(light.room)?.computeWorldMatrix(true) ?? Matrix.Identity()
+    const origin = Vector3.TransformCoordinates(
+      Vector3.FromArray(light.position),
+      space,
+    )
+    return {
+      kind: 'light',
+      id,
+      start: light.position,
+      positionAt: floorDrag(at, origin),
+      inverse: inverse(space),
+    }
+  }
+  function moveLight(g, at, e) {
+    const local = Vector3.TransformCoordinates(g.positionAt(at), g.inverse)
+    const align = hooks.snapping() !== (e.metaKey || e.ctrlKey) ? snap : round
+    g.position = [align(local.x), g.start[1], align(local.z)].map((v) =>
+      Math.max(-10000, Math.min(10000, v)),
+    )
+    hooks.previewLight(g.id, { position: g.position })
+    syncLight()
+  }
+
   function beginSpot(s, at) {
     const anchor = instances.get(s.anchor) || rooms.get(s.anchor)
     if (!anchor) return null
@@ -186,13 +222,13 @@ export function attachCanvas(world, view, hooks) {
 
   function start(g, e) {
     if (!g) return
-    gesture = { ...g, from: point(e), moved: false }
+    gesture = { ...g, pointer: e.pointerId, from: point(e), moved: false }
     addEventListener('pointermove', onMove)
     addEventListener('pointerup', onUp)
-    addEventListener('pointercancel', cancel)
+    addEventListener('pointercancel', cancelPointer)
   }
   function onMove(e) {
-    if (!gesture) return
+    if (!gesture || gesture.pointer !== e.pointerId) return
     const at = point(e)
     if (
       !gesture.moved &&
@@ -205,23 +241,31 @@ export function attachCanvas(world, view, hooks) {
       hooks.dragging(true, gesture.kind)
     }
     if (gesture.kind === 'item') moveItem(gesture, at, e)
+    else if (gesture.kind === 'light') moveLight(gesture, at, e)
     else if (gesture.kind === 'spot') moveSpot(gesture, at, e)
     else movePan(gesture, at)
   }
   function stop() {
     removeEventListener('pointermove', onMove)
     removeEventListener('pointerup', onUp)
-    removeEventListener('pointercancel', cancel)
+    removeEventListener('pointercancel', cancelPointer)
     const g = gesture
     gesture = null
     canvas.style.cursor = ''
     if (g?.moved) hooks.dragging(false, g.kind)
     return g
   }
-  function onUp() {
+  function cancelPointer(e) {
+    if (gesture?.pointer === e.pointerId) cancel()
+  }
+  canvas.addEventListener('lostpointercapture', cancelPointer)
+  function onUp(e) {
+    if (gesture?.pointer !== e.pointerId || e.button !== 0) return
     const g = stop()
     if (!g) return
     if (g.kind === 'item' && g.moved) dropItem(g)
+    else if (g.kind === 'light' && g.moved)
+      hooks.commitLight(g.id, { position: g.position })
     else if (g.kind === 'spot' && g.moved)
       hooks.commitSpot(g.id, g.spot.position)
     else if (g.kind === 'pan' && !g.moved)
@@ -229,13 +273,14 @@ export function attachCanvas(world, view, hooks) {
   }
   // Escape or a lost pointer puts the dragged object back without an edit.
   function cancel() {
+    if (handles.cancel()) return true
     const g = stop()
     if (g?.moved && g.kind !== 'pan') hooks.revert()
     return !!g
   }
 
   canvas.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || handles.dragging || gesture) return
     canvas.focus({ preventScroll: true })
     const at = point(e)
     if (hooks.pickLightPoint(at)) return
@@ -266,6 +311,17 @@ export function attachCanvas(world, view, hooks) {
     canvas.style.cursor = id ? 'grab' : ''
     paint()
   }
+  hooks.lightDown = (id, e) => {
+    if (e.button !== 0 || gesture || handles.dragging) return
+    e.preventDefault()
+    hooks.select({ type: 'light', id })
+    start(beginLight(id, point(e)), e)
+    if (gesture) canvas.setPointerCapture(e.pointerId)
+  }
+  window.addEventListener('blur', cancel)
+  scene.onDisposeObservable.addOnce(() =>
+    window.removeEventListener('blur', cancel),
+  )
   hooks.spotDown = (s, e) => {
     if (e.button !== 0) return
     e.preventDefault()
@@ -406,6 +462,7 @@ export function attachCanvas(world, view, hooks) {
   return {
     setSelection(sel) {
       selection = sel
+      syncLight()
       paint()
     },
     refreshHighlight: paint,
@@ -413,7 +470,7 @@ export function attachCanvas(world, view, hooks) {
     cancel,
     screenAxis,
     get busy() {
-      return !!gesture
+      return !!gesture || handles.dragging
     },
   }
 }
