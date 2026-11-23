@@ -4,6 +4,7 @@
 
 - 모델을 열거나 수정할 때는 [월드 자산](docs/world/README.md)을 확인한다.
 - 행사 페이지를 준비할 때는 [행사 자료](docs/events/README.md)에서 출처를 확인한다.
+- 화면을 만들거나 고칠 때는 [디자인 시스템](docs/design-system/README.md)의 토큰과 컴포넌트를 쓰고 확장한다.
 - 프로젝트 작업을 시작할 때는 [작업 지침](AGENTS.md)을 읽는다.
 
 ## 개발 도구

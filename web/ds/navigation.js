@@ -188,3 +188,64 @@ export function NavLinks(props) {
     }),
   )
 }
+
+/**
+ * Where the current selection sits in its scope chain (월드 › 방 › 가구).
+ * Every item but the last opens that wider scope; the last is the current one.
+ */
+export function Breadcrumbs(props) {
+  const o = options('Breadcrumbs', props, {
+    label: is.string().required,
+    items: is.array().required,
+  })
+  invariant(o.items.length > 0, 'Breadcrumbs', 'items가 하나 이상 필요합니다.')
+  return el(
+    'nav',
+    { class: 'ui-breadcrumbs', 'aria-label': o.label },
+    el(
+      'ol',
+      { class: 'ui-breadcrumbs__list' },
+      ...o.items.map((item, index) => {
+        const i = options('Breadcrumbs.item', item, {
+          label: is.string().required,
+          icon: is.string(),
+          key: is.string(),
+          onSelect: is.func(),
+        })
+        const last = index === o.items.length - 1
+        invariant(
+          last || i.onSelect,
+          'Breadcrumbs',
+          '마지막이 아닌 항목에는 onSelect가 필요합니다.',
+        )
+        const content = [
+          i.icon ? Icon(i.icon, 'xs') : null,
+          el('span', { class: 'ui-breadcrumbs__label' }, i.label),
+        ]
+        return el(
+          'li',
+          { class: 'ui-breadcrumbs__item' },
+          last
+            ? el(
+                'span',
+                {
+                  class: 'ui-breadcrumbs__current',
+                  'aria-current': 'location',
+                },
+                ...content,
+              )
+            : el(
+                'button',
+                {
+                  type: 'button',
+                  class: 'ui-breadcrumbs__link',
+                  'data-key': i.key,
+                  onclick: i.onSelect,
+                },
+                ...content,
+              ),
+        )
+      }),
+    ),
+  )
+}

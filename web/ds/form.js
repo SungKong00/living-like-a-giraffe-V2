@@ -269,6 +269,7 @@ export function Segmented(props) {
     value: is.string().required,
     options: is.array().required,
     key: is.string(),
+    size: is.oneOf(['sm', 'md'], 'md'),
     onChange: is.func().required,
   })
   invariant(
@@ -278,7 +279,11 @@ export function Segmented(props) {
   )
   return el(
     'div',
-    { class: 'ui-segmented', role: 'radiogroup', 'aria-label': o.label },
+    {
+      class: cx('ui-segmented', 'ui-segmented--' + o.size),
+      role: 'radiogroup',
+      'aria-label': o.label,
+    },
     ...o.options.map(({ value, label }) =>
       el(
         'button',

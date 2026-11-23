@@ -38,6 +38,10 @@ import {
   Undo2,
   Upload,
   X,
+  Globe,
+  LampCeiling,
+  RectangleHorizontal,
+  Undo,
 } from 'lucide'
 import { DesignSystemError } from './contract.js'
 
@@ -66,6 +70,8 @@ const glyphs = Object.freeze({
   keyboard: Keyboard,
   link: Link,
   light: Lightbulb,
+  'light-area': RectangleHorizontal,
+  'light-spot': LampCeiling,
   map: MapGlyph,
   minus: Minus,
   page: FileText,
@@ -74,6 +80,7 @@ const glyphs = Object.freeze({
   publish: Send,
   redo: Redo2,
   room: DoorOpen,
+  reset: Undo,
   'rotate-left': RotateCcw,
   'rotate-right': RotateCw,
   saved: CloudCheck,
@@ -84,6 +91,7 @@ const glyphs = Object.freeze({
   spot: MapPin,
   undo: Undo2,
   upload: Upload,
+  world: Globe,
 })
 
 export const iconNames = Object.freeze(Object.keys(glyphs))

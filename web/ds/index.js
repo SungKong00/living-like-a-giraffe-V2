@@ -35,7 +35,14 @@ export {
   TONES,
 } from './feedback.js'
 export { Popover, Menu, Dialog, overlays } from './overlay.js'
-export { Tabs, TreeItem, Pin, Brand, NavLinks } from './navigation.js'
+export {
+  Tabs,
+  TreeItem,
+  Breadcrumbs,
+  Pin,
+  Brand,
+  NavLinks,
+} from './navigation.js'
 export {
   GlassHeading,
   ObjectPreview,

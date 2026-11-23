@@ -61,9 +61,12 @@
     scrollbar-width: thin;
     scrollbar-color: var(--color-border) transparent;
   }
+  /* Only the list scrolls, so the 추가 menu in the head can open over the
+     canvas instead of being clipped by the panel. */
   .studio-outline {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: visible;
     border-right: 1px solid var(--color-border-subtle);
   }
   .studio-inspector {
@@ -73,9 +76,6 @@
 
   /* ---------- Outline ---------- */
   .studio-outline__head {
-    position: sticky;
-    top: 0;
-    z-index: var(--z-raised);
     display: grid;
     gap: var(--space-2);
     padding: var(--space-3);
@@ -90,6 +90,10 @@
   .studio-outline__list {
     display: grid;
     align-content: start;
+    min-height: 0;
+    overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
     gap: var(--space-0-5);
     padding: var(--space-2) var(--space-2) var(--space-8);
   }
@@ -190,6 +194,10 @@
   }
 
   /* ---------- Inspector ---------- */
+  .studio-inspector__scope {
+    margin: calc(var(--space-1) * -1) 0 var(--space-3)
+      calc(var(--space-1-5) * -1);
+  }
   .studio-muted {
     font: var(--text-caption);
     color: var(--color-text-tertiary);

@@ -1,13 +1,8 @@
 import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector'
-import {
-  lightKinds,
-  lightWithDefaults,
-  lightLimit,
-} from '../shared/studio-lights.mjs'
+import { lightKinds, lightWithDefaults } from '../shared/studio-lights.mjs'
 import {
   Button,
   IconButton,
-  Menu,
   NumberInput,
   PanelHeader,
   PanelSection,
@@ -18,27 +13,6 @@ import {
   SwatchPicker,
   Toggle,
 } from './ds/index.js'
-
-export function lightMenu(roomName, count, add) {
-  const trigger = Button({
-    label: '조명 추가',
-    size: 'sm',
-    iconEnd: 'chevron-down',
-    disabled: count >= lightLimit,
-  })
-  if (trigger.disabled)
-    trigger.title =
-      '월드에 조명을 최대 ' + lightLimit + '개까지 둘 수 있습니다.'
-  return Menu({
-    trigger,
-    label: '조명 추가',
-    heading: roomName + '에 조명 추가',
-    items: Object.entries(lightKinds).map(([type, kind]) => ({
-      label: kind.label + ' · ' + kind.use,
-      onSelect: () => add(type),
-    })),
-  }).element
-}
 
 // Apply the shortest rotation from the current beam to the picked target.
 // This retains a rectangular panel's roll when a producer adjusts its aim.
@@ -79,12 +53,23 @@ export function lightInspector(
     setTool,
     modified,
     reset,
+    overridden = () => false,
+    resetField,
   },
 ) {
   const light = lightWithDefaults(row)
   const shape = light.shape,
     kind = lightKinds[shape.type]
   const property = (label, ...children) => PropertyRow({ label, children })
+  // A Blender light keeps its original values until a producer changes one;
+  // those rows are marked and can be reset one at a time.
+  const native = (field, subject) =>
+    source &&
+    overridden(field) && {
+      from: 'Blender 원본',
+      subject,
+      onReset: () => resetField(field),
+    }
   function shapeSlider(label, prop, min, max, suffix, factor = 1) {
     const update = (fn, value) =>
       fn({ shape: { ...shape, [prop]: value / factor } })
@@ -165,22 +150,25 @@ export function lightInspector(
     PanelSection({
       title: '빛',
       children: [
-        property(
-          '밝기',
-          Slider({
-            label: '조명 출력',
-            key: 'energy',
-            min: 0,
-            max: source
-              ? Math.max(20000, Math.ceil(light.energy / 10000) * 10000)
-              : 10000,
-            step: 1,
-            value: light.energy,
-            format: (v) => v + ' W',
-            onInput: (energy) => preview({ energy }),
-            onCommit: (energy) => set({ energy }),
-          }),
-        ),
+        PropertyRow({
+          label: '밝기',
+          override: native('energy', '밝기'),
+          children: [
+            Slider({
+              label: '조명 출력',
+              key: 'energy',
+              min: 0,
+              max: source
+                ? Math.max(20000, Math.ceil(light.energy / 10000) * 10000)
+                : 10000,
+              step: 1,
+              value: light.energy,
+              format: (v) => v + ' W',
+              onInput: (energy) => preview({ energy }),
+              onCommit: (energy) => set({ energy }),
+            }),
+          ],
+        }),
         property(
           '출력 (W)',
           NumberInput({
@@ -193,18 +181,21 @@ export function lightInspector(
             onCommit: (energy) => set({ energy }),
           }),
         ),
-        property(
-          '빛 색상',
-          SwatchPicker({
-            label: '조명 색',
-            value: light.color,
-            colors: ['#ffffff', '#ffd9aa', '#ffc18a', '#cce4ff', '#b7c7ff'],
-            customLabel: '직접 고른 조명 색',
-            allowCustom: true,
-            onPreview: (color) => preview({ color }),
-            onChange: (color) => set({ color }),
-          }),
-        ),
+        PropertyRow({
+          label: '빛 색상',
+          override: native('color', '빛 색상'),
+          children: [
+            SwatchPicker({
+              label: '조명 색',
+              value: light.color,
+              colors: ['#ffffff', '#ffd9aa', '#ffc18a', '#cce4ff', '#b7c7ff'],
+              customLabel: '직접 고른 조명 색',
+              allowCustom: true,
+              onPreview: (color) => preview({ color }),
+              onChange: (color) => set({ color }),
+            }),
+          ],
+        }),
         ...beam,
       ],
     }),
@@ -216,19 +207,22 @@ export function lightInspector(
         ...(shape.type === 'point'
           ? []
           : [
-              property(
-                '장면 도구',
-                Segmented({
-                  label: '조명 조작 도구',
-                  key: 'light-transform',
-                  value: tool,
-                  options: [
-                    { value: 'move', label: '이동' },
-                    { value: 'rotate', label: '회전' },
-                  ],
-                  onChange: setTool,
-                }),
-              ),
+              PropertyRow({
+                label: '장면 도구',
+                override: native('rotation', '방향'),
+                children: [
+                  Segmented({
+                    label: '조명 조작 도구',
+                    key: 'light-transform',
+                    value: tool,
+                    options: [
+                      { value: 'move', label: '이동' },
+                      { value: 'rotate', label: '회전' },
+                    ],
+                    onChange: setTool,
+                  }),
+                ],
+              }),
             ]),
         ...(source
           ? []
@@ -244,9 +238,10 @@ export function lightInspector(
                 }),
               ),
             ]),
-        property(
-          '위치 (m)',
-          ...axes.map((axis, index) =>
+        PropertyRow({
+          label: '위치 (m)',
+          override: native('position', '위치'),
+          children: axes.map((axis, index) =>
             NumberInput({
               label: '조명 위치 ' + axis,
               prefix: axis,
@@ -262,7 +257,7 @@ export function lightInspector(
                 }),
             }),
           ),
-        ),
+        }),
         PropertyRow({
           label: picking
             ? light.room

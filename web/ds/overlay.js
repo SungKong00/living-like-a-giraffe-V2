@@ -115,7 +115,8 @@ export function Popover(props) {
       o.trigger.setAttribute('aria-expanded', 'true')
       stack.push(entry)
       o.onOpen?.()
-      if (o.role === 'menu') panel.querySelector('[role="menuitem"]')?.focus()
+      if (o.role === 'menu')
+        panel.querySelector('[role="menuitem"]:not(:disabled)')?.focus()
     },
     close({ restoreFocus = false } = {}) {
       if (!isOpen) return
@@ -138,63 +139,102 @@ export function Popover(props) {
   return controller
 }
 
-/** A popover listing actions. Arrow keys move between items. */
+/**
+ * A popover listing actions. Arrow keys move between items.
+ * Pass `items` (with an optional `heading`) for one list, or `sections`
+ * — `[{ heading, items }]` — when one menu adds several kinds of things.
+ * Either may be a function so the menu is rebuilt each time it opens.
+ */
 export function Menu(props) {
   const o = options('Menu', props, {
     trigger: is.node().required,
     label: is.string().required,
     heading: is.string(),
-    items: is.any().required,
+    items: is.any(),
+    sections: is.any(),
     empty: is.string('항목이 없습니다.'),
     placement: is.oneOf(PLACEMENTS, 'bottom-end'),
+    width: is.oneOf(['sm', 'md'], 'sm'),
   })
-  const build = (menu) => {
-    const items = typeof o.items === 'function' ? o.items() : o.items
-    const nodes = items.map((item) => {
-      const i = options('Menu.item', item, {
-        label: is.string().required,
-        icon: is.string(),
-        onSelect: is.func().required,
-        danger: is.boolean(),
-      })
-      return el(
-        'button',
-        {
-          type: 'button',
-          role: 'menuitem',
-          class: cx('ui-menu__item', i.danger && 'ui-menu__item--danger'),
-          tabindex: '-1',
-          onclick: () => {
-            menu.close({ restoreFocus: true })
-            i.onSelect()
-          },
-        },
-        i.icon ? Icon(i.icon, 'sm') : null,
-        el('span', {}, i.label),
-      )
+  invariant(
+    (o.items === undefined) !== (o.sections === undefined),
+    'Menu',
+    'items와 sections 중 하나만 지정합니다.',
+  )
+  invariant(
+    !(o.sections && o.heading),
+    'Menu',
+    'sections를 쓰면 각 구역에 heading을 둡니다.',
+  )
+  const item = (menu, entry) => {
+    const i = options('Menu.item', entry, {
+      label: is.string().required,
+      hint: is.string(),
+      icon: is.string(),
+      onSelect: is.func().required,
+      danger: is.boolean(),
+      disabled: is.boolean(),
     })
-    return [
-      o.heading
-        ? el(
-            'div',
-            { class: 'ui-menu__heading', role: 'presentation' },
-            o.heading,
-          )
-        : null,
-      ...nodes,
-      nodes.length ? null : el('p', { class: 'ui-menu__empty' }, o.empty),
-    ]
+    const node = el(
+      'button',
+      {
+        type: 'button',
+        role: 'menuitem',
+        class: cx('ui-menu__item', i.danger && 'ui-menu__item--danger'),
+        tabindex: '-1',
+        onclick: () => {
+          menu.close({ restoreFocus: true })
+          i.onSelect()
+        },
+      },
+      i.icon ? Icon(i.icon, 'sm') : null,
+      el('span', { class: 'ui-menu__label' }, i.label),
+      i.hint ? el('span', { class: 'ui-menu__hint' }, i.hint) : null,
+    )
+    if (i.disabled) {
+      node.disabled = true
+      node.setAttribute('aria-disabled', 'true')
+    }
+    return node
+  }
+  const heading = (text) =>
+    el('div', { class: 'ui-menu__heading', role: 'presentation' }, text)
+  const build = (menu) => {
+    const read = (v) => (typeof v === 'function' ? v() : v)
+    const sections = o.sections
+      ? read(o.sections).map((s) =>
+          options('Menu.section', s, {
+            heading: is.string().required,
+            items: is.array().required,
+          }),
+        )
+      : [{ heading: o.heading, items: read(o.items) }]
+    const groups = sections
+      .filter((s) => s.items.length)
+      .map((s) =>
+        el(
+          'div',
+          { class: 'ui-menu__group', role: 'group', 'aria-label': s.heading },
+          s.heading ? heading(s.heading) : null,
+          ...s.items.map((entry) => item(menu, entry)),
+        ),
+      )
+    return groups.length
+      ? groups
+      : [el('p', { class: 'ui-menu__empty' }, o.empty)]
   }
   const menu = Popover({
     trigger: o.trigger,
     label: o.label,
     role: 'menu',
     placement: o.placement,
-    width: 'sm',
+    width: o.width,
     content: (m) => build(m),
   })
   menu.panel.addEventListener('keydown', (e) => {
-    const items = [...menu.panel.querySelectorAll('[role="menuitem"]')]
+    const items = [
+      ...menu.panel.querySelectorAll('[role="menuitem"]:not(:disabled)'),
+    ]
     const at = items.indexOf(document.activeElement)
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()

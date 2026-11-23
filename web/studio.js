@@ -1,4 +1,9 @@
-import { editSource, resolvedSources } from '../shared/source-lights.mjs'
+import {
+  editSource,
+  resolvedSources,
+  sourceValues,
+} from '../shared/source-lights.mjs'
+import { lightKinds } from '../shared/studio-lights.mjs'
 import './views/studio.css'
 import { app, api, stage } from './ui.js'
 import {
@@ -9,44 +14,25 @@ import {
   IconButton,
   ButtonGroup,
   TextInput,
-  TextArea,
-  NumberInput,
-  Slider,
-  Select,
-  Segmented,
-  SwatchPicker,
   Toggle,
   Field,
   StatusText,
   Callout,
   Kbd,
-  EmptyState,
   toast,
   Popover,
-  Menu,
-  Tabs,
-  TreeItem,
   ObjectPreview,
-  PanelHeader,
-  PanelSection,
-  PropertyRow,
-  Disclosure,
   Dialog,
   Toolbar,
   ToolbarDivider,
-  Chip,
-  ChipList,
   Icon,
 } from './ds/index.js'
 import { previewLayout } from './preview.js'
 import { EditHistory } from './history.js'
-import {
-  aimShape,
-  lightInspector,
-  lightMenu,
-  showLightPosition,
-} from './light-inspector.js'
-import { lightKinds } from '../shared/studio-lights.mjs'
+import { aimShape, showLightPosition } from './light-inspector.js'
+import { entities as entityQueries } from './studio-entities.js'
+import { outline as outlinePanel } from './studio-outline.js'
+import { inspectors, scopePath, emptyInspector } from './studio-inspectors.js'
 import { selectionPreview } from './selection-preview.js'
 import { openEditorScene } from './scene.js'
 import { Autosave } from './autosave.js'
@@ -58,19 +44,6 @@ import * as ops from './edit-ops.js'
 const newId = () => crypto.randomUUID()
 const mac = /Mac|iPhone|iPad/.test(navigator.platform)
 const cmd = mac ? '⌘' : 'Ctrl+'
-const palette = [
-  '#ac7958',
-  '#6b4a35',
-  '#d9c3a5',
-  '#f2efe6',
-  '#2f3b35',
-  '#226655',
-  '#884422',
-  '#c94f3d',
-  '#3d5a80',
-  '#e0b44c',
-]
-const finishNames = { original: '원본', matte: '무광', gloss: '유광' }
 const shortcuts = [
   ['끌기', '가구·전구·안내 표시 옮기기'],
   ['Alt + 끌기', '복제하며 옮기기'],
@@ -179,7 +152,6 @@ export async function studio() {
   const lightById = (id) =>
     ops.find(shown, 'lights', id) ||
     resolvedSources(sourceCatalog, shown.sourceLights).find((l) => l.id === id)
-  let sourceOpen = false
   function changeLight(id, values, temporary = false) {
     const source = sourceMap.get(id)
     const edit = (d) => {
@@ -201,18 +173,31 @@ export async function studio() {
   const kinds = saved.kinds || []
   let shown = history.value,
     selection = null,
-    tab = 'layout',
-    query = '',
     snapping = true,
     world = null,
     canvas = null
-  const collapsed = new Set()
-  let lightPick = null
-  let lightTool = 'move'
-  let axesOpen = false
-  // Spot whose destination was switched to an external link that has not been
-  // typed yet. Kept as state so a re-render does not hide the address field.
-  let addressing = null
+  // Panel state that must survive re-rendering. Panels read and write it as
+  // `editor.view`; the draft itself changes only through commands.
+  const ui = {
+    tab: 'scene',
+    query: '',
+    filter: 'all',
+    collapsed: new Set(),
+    axesOpen: false,
+    roomAddOpen: false,
+    // Spot whose destination was switched to an external link that has not
+    // been typed yet, so a re-render does not hide the address field.
+    addressing: null,
+    lightPick: null,
+    lightTool: 'move',
+  }
+  const entities = entityQueries({
+    get layout() {
+      return shown
+    },
+    rooms,
+    light: lightById,
+  })
 
   // ---- Feedback ----
   function notify(message, undoable) {
@@ -408,9 +393,10 @@ export async function studio() {
     class: 'studio-inspector',
     'aria-label': '속성',
   })
+  const scope = el('div', { class: 'studio-inspector__scope', hidden: true })
   const portrait = ObjectPreview({ label: '선택 오브젝트 미리보기' })
   const properties = el('div')
-  inspector.append(portrait, properties)
+  inspector.append(scope, portrait, properties)
   let projection
   const viewport = el('div', { class: 'studio-viewport' }, view.host)
   app.replaceChildren(
@@ -483,7 +469,7 @@ export async function studio() {
     shown = history.value
     world?.update(shown)
     projection?.invalidate()
-    if (selection && !exists(selection)) {
+    if (selection && !entities.exists(selection)) {
       selection = null
       setLightPick(null)
     }
@@ -516,42 +502,24 @@ export async function studio() {
     autosave.schedule()
     apply()
   }
-  const listOf = {
-    light: 'lights',
-    item: 'items',
-    spot: 'spots',
-    page: 'pages',
-  }
-  function exists(sel) {
-    if (sel.type === 'light') return !!lightById(sel.id)
-    if (sel.type === 'room') return rooms.some((r) => r.id === sel.id)
-    return !!ops.find(shown, listOf[sel.type], sel.id)
-  }
   function select(sel, { frame = false } = {}) {
     setLightPick(null)
     if (selection?.id !== sel?.id || selection?.type !== sel?.type) {
       canvas?.cancel()
-      lightTool = 'move'
+      ui.lightTool = 'move'
       inspector.scrollTop = 0
     }
     selection = sel
-    if (sel?.type === 'page') tab = 'pages'
-    else if (sel) tab = 'layout'
-    if (frame && sel) canvas?.frame(sel)
+    if (sel?.type === 'page') ui.tab = 'pages'
+    else if (sel) ui.tab = 'scene'
+    if (frame && sel?.type === 'world') world?.selectRoom(null)
+    else if (frame && sel) canvas?.frame(sel)
     render()
   }
   const selectedItem = () =>
     selection?.type === 'item' && ops.find(shown, 'items', selection.id)
-  const roomOf = (sel) => {
-    if (!sel) return null
-    if (sel.type === 'room') return sel.id
-    if (sel.type === 'light') return lightById(sel.id)?.room
-    if (sel.type === 'item') return ops.find(shown, 'items', sel.id)?.room
-    if (sel.type === 'spot') {
-      const s = ops.find(shown, 'spots', sel.id)
-      return ops.find(shown, 'items', s?.anchor)?.room || s?.anchor
-    }
-  }
+  // New objects go into the room that contains the selection.
+  const targetRoom = () => entities.roomOf(selection) || rooms[0].id
   const roomName = (id) => rooms.find((r) => r.id === id)?.label || id
 
   function duplicate(id = selectedItem()?.id) {
@@ -617,7 +585,7 @@ export async function studio() {
       )
     })
   }
-  function addFurniture(kind, room = roomOf(selection) || rooms[0].id) {
+  function addFurniture(kind, room = targetRoom()) {
     const id = newId()
     const def = kinds.find((k) => k.kind === kind)
     change((d) => ops.addItem(d, { id, kind, label: def?.label || kind, room }))
@@ -641,104 +609,7 @@ export async function studio() {
     change((d) => Object.assign(ops.find(d, list, id), values))
   }
 
-  // ---- Outline ----
-  // Rebuilding identical panels can swallow a click whose press and release
-  // land on different elements, so skip rebuilds when nothing changed.
-  let outlineKey = '',
-    inspectorKey = ''
-  function renderOutline() {
-    const key = JSON.stringify([
-      tab,
-      query,
-      selection,
-      shown,
-      sourceOpen,
-      [...collapsed],
-    ])
-    if (key === outlineKey) return
-    outlineKey = key
-    renderKeepingFocus(outline, () => [
-      el(
-        'div',
-        { class: 'studio-outline__head' },
-        Tabs({
-          label: '목록',
-          value: tab,
-          items: [
-            { id: 'layout', label: '배치' },
-            { id: 'pages', label: '행사 페이지', count: shown.pages.length },
-          ],
-          onChange: (id) => {
-            tab = id
-            renderOutline()
-          },
-        }),
-        ...(tab === 'layout' ? layoutTools() : pageTools()),
-      ),
-      el(
-        'div',
-        { class: 'studio-outline__list', role: 'list' },
-        ...(tab === 'layout' ? layoutTree() : pageList()),
-      ),
-    ])
-  }
-  const isSelected = (sel) =>
-    selection?.type === sel.type && selection.id === sel.id
-  function row(sel, label, props = {}) {
-    return TreeItem({
-      label,
-      key: sel.type + ':' + sel.id,
-      selected: isSelected(sel),
-      onSelect: () => select(sel, { frame: true }),
-      ...props,
-    })
-  }
-  function layoutTools() {
-    const addButton = IconButton({
-      icon: 'add',
-      label: '가구 추가',
-      variant: 'secondary',
-      size: 'sm',
-    })
-    const menu = Menu({
-      trigger: addButton,
-      label: '가구 추가',
-      heading: roomName(roomOf(selection) || rooms[0].id) + '에 추가',
-      empty: '추가할 수 있는 가구 종류가 없습니다.',
-      items: kinds.map((k) => ({
-        label: k.label,
-        icon: 'furniture',
-        onSelect: () => addFurniture(k.kind),
-      })),
-    })
-    return [
-      el(
-        'div',
-        { class: 'studio-outline__tools' },
-        TextInput({
-          label: '가구·조명·안내 찾기',
-          placeholder: '가구·조명·안내 찾기',
-          type: 'search',
-          icon: 'search',
-          size: 'sm',
-          key: 'search',
-          value: query,
-          onInput: (v) => {
-            query = v
-            renderOutline()
-          },
-        }),
-        menu.element,
-        lightMenu(
-          roomName(roomOf(selection) || rooms[0].id),
-          shown.lights?.length ?? 0,
-          addLight,
-        ),
-      ),
-    ]
-  }
-  function addLight(type) {
-    const room = roomOf(selection) || rooms[0].id
+  function addLight(type, room = targetRoom()) {
     const id = newId(),
       kind = lightKinds[type]
     const item = selectedItem()
@@ -748,8 +619,8 @@ export async function studio() {
     const names = new Set((shown.lights ?? []).map((l) => l.label))
     let n = 1
     while (names.has(kind.label + ' ' + n)) n++
-    collapsed.delete(room)
-    query = ''
+    ui.collapsed.delete('room:' + room)
+    ui.query = ''
     change((d) =>
       (d.lights ??= []).push({
         id,
@@ -765,863 +636,143 @@ export async function studio() {
     select({ type: 'light', id }, { frame: true })
   }
   function setLightPick(mode) {
-    if (lightPick === mode) return
-    lightPick = mode
+    if (ui.lightPick === mode) return
+    ui.lightPick = mode
     view.host.classList.toggle('is-placing-light', !!mode)
     render()
   }
-  function layoutTree() {
-    const match = (label) =>
-      !query || label.toLowerCase().includes(query.toLowerCase())
-    const originalRows = sourceCatalog.filter((l) => match(l.label))
-    const toggleSource = () => {
-      sourceOpen = !sourceOpen
-      renderOutline()
-    }
-    const sourceGroup = originalRows.length
-      ? [
-          el(
-            'div',
-            { class: 'studio-outline__group', role: 'listitem' },
-            TreeItem({
-              label: 'Blender 원본 조명',
-              key: 'source-lights',
-              icon: 'room',
-              meta: String(sourceCatalog.length),
-              expanded: !!query || sourceOpen,
-              onToggle: toggleSource,
-              onSelect: toggleSource,
-            }),
-            ...(query || sourceOpen
-              ? originalRows.map((l) =>
-                  row({ type: 'light', id: l.id }, l.label, {
-                    depth: 1,
-                    meta: l.room ? roomName(l.room) : '월드 전체',
-                  }),
-                )
-              : []),
-          ),
-        ]
-      : []
-    const roomGroups = rooms
-      .map((r) => {
-        const items = shown.items.filter((i) => i.room === r.id)
-        const roomSpots = shown.spots.filter((s) => s.anchor === r.id)
-        const children = (shown.lights ?? [])
-          .filter((l) => l.room === r.id && match(l.label))
-          .map((l) =>
-            row({ type: 'light', id: l.id }, l.label, {
-              depth: 1,
-              meta:
-                l.enabled === false
-                  ? '꺼짐'
-                  : lightKinds[l.shape?.type ?? 'point'].label,
-            }),
-          )
-        for (const i of items) {
-          const spots = shown.spots.filter((s) => s.anchor === i.id)
-          const shownSpots = spots.filter((s) => match(s.label))
-          if (!match(i.label) && !shownSpots.length) continue
-          children.push(
-            row({ type: 'item', id: i.id }, i.label, {
-              depth: 1,
-              icon: 'furniture',
-            }),
-          )
-          for (const s of match(i.label) ? spots : shownSpots)
-            children.push(
-              row({ type: 'spot', id: s.id }, s.label, {
-                depth: 2,
-                icon: 'spot',
-              }),
-            )
-        }
-        for (const s of roomSpots.filter((s) => match(s.label)))
-          children.push(
-            row({ type: 'spot', id: s.id }, s.label, {
-              depth: 1,
-              icon: 'spot',
-            }),
-          )
-        if (query && !children.length && !match(r.label)) return null
-        const open = !!query || !collapsed.has(r.id)
-        return el(
-          'div',
-          { class: 'studio-outline__group', role: 'listitem' },
-          row({ type: 'room', id: r.id }, r.label, {
-            icon: 'room',
-            meta: String(items.length),
-            expanded: open,
-            onToggle: () => {
-              collapsed.has(r.id) ? collapsed.delete(r.id) : collapsed.add(r.id)
-              renderOutline()
-            },
-          }),
-          ...(open ? children : []),
-        )
-      })
-      .filter(Boolean)
-    return [...sourceGroup, ...roomGroups].concat(
-      query &&
-        !originalRows.length &&
-        !(shown.lights ?? []).some((l) => match(l.label)) &&
-        !shown.items.some((i) => match(i.label)) &&
-        !shown.spots.some((s) => match(s.label))
-        ? [
-            EmptyState({
-              title: '찾는 항목이 없습니다',
-              description: '다른 이름으로 찾아보세요.',
-            }),
-          ]
-        : [],
-    )
+  function setLightTool(mode) {
+    canvas?.cancel()
+    ui.lightTool = mode
+    setLightPick(null)
+    render()
   }
-  function pageTools() {
-    return [
-      Button({
-        label: '새 페이지',
-        icon: 'add',
-        size: 'sm',
-        wide: true,
-        key: 'add-page',
-        onClick: addPage,
-      }),
-    ]
+  // Reset one value of a Blender light to the model's original.
+  function resetSourceField(id, field) {
+    const source = sourceMap.get(id)
+    const original = sourceValues(source)[field]
+    if (original === undefined) return
+    change((d) => editSource(d, source, { [field]: original }))
   }
-  function pageList() {
-    if (!shown.pages.length)
-      return [
-        EmptyState({
-          icon: 'page',
-          title: '행사 페이지가 없습니다',
-          description: '새 페이지를 만들어 클릭 영역과 연결하세요.',
-        }),
-      ]
-    return shown.pages.map((p) => {
-      const n = shown.spots.filter((s) => s.action.page === p.id).length
-      return row({ type: 'page', id: p.id }, p.title, {
-        icon: 'page',
-        meta: n ? '연결 ' + n : '연결 없음',
-      })
+  function resetAllSources() {
+    change((d) => {
+      delete d.sourceLights
     })
+    notify('모든 Blender 원본 조명을 원본값으로 되돌렸습니다.', true)
+  }
+  function linkSpot(s, value) {
+    if (value === '__url') {
+      // Keep the current link until a valid address is entered.
+      ui.addressing = s.id
+      renderInspector()
+      properties.querySelector('[data-key="url"]').focus()
+      return
+    }
+    ui.addressing = null
+    if (value === '__new') {
+      const id = newId()
+      change((d) => {
+        const page = ops.addPage(d, { id, title: s.label })
+        ops.find(d, 'spots', s.id).action = { type: 'page', page: page.id }
+      })
+      notify(
+        '새 페이지를 만들어 연결했습니다. 행사 페이지 탭에서 내용을 채우세요.',
+      )
+    } else patch('spots', s.id, { action: { type: 'page', page: value } })
+  }
+  function moveToRoom(id, room) {
+    change((d) => ops.moveToRoom(d, id, room))
+    canvas?.frame({ type: 'item', id })
   }
 
-  // ---- Inspector ----
-  // Strategy: one builder per selection type. Add a type by adding a builder.
-  const inspectors = {
-    light: () => {
-      const light = lightById(selection.id)
-      const source = sourceMap.get(light.id)
-      const set = (values) => changeLight(light.id, values)
-      return lightInspector(light, {
-        rooms,
-        tool: lightTool,
-        setTool: (mode) => {
-          canvas?.cancel()
-          lightTool = mode
-          setLightPick(null)
-          render()
-        },
-        picking: lightPick,
-        pick: setLightPick,
-        source,
-        reset: () => changeLight(light.id, null),
-        modified: shown.sourceLights?.some((e) => e.id === light.id),
-        title: source
-          ? light.label
-          : labelInput('조명 이름', light.label, (label) => set({ label })),
-        set,
-        preview: (values) => changeLight(light.id, values, true),
-        remove,
-      })
+  // ---- Panels ----
+  // The facade the outline and inspector modules build from. Panels read the
+  // shown draft and view state through it and change the draft only through
+  // its commands, so every edit goes through history and autosave.
+  const editor = Object.freeze({
+    get layout() {
+      return shown
     },
-    item: () => itemInspector(ops.find(shown, 'items', selection.id)),
-    spot: () => spotInspector(ops.find(shown, 'spots', selection.id)),
-    page: () => pageInspector(ops.find(shown, 'pages', selection.id)),
-    room: () => roomInspector(rooms.find((r) => r.id === selection.id)),
+    get selection() {
+      return selection
+    },
+    rooms,
+    kinds,
+    entities,
+    sourceCatalog,
+    sourceMap,
+    view: ui,
+    cmd,
+    options: (kind) => saved.options?.[kind],
+    isSelected: (sel) =>
+      selection?.type === sel.type && selection?.id === sel.id,
+    roomName,
+    targetRoom,
+    select,
+    showPages() {
+      ui.tab = 'pages'
+      select(null)
+    },
+    change,
+    patch,
+    preview,
+    duplicate,
+    remove,
+    rotate,
+    moveToRoom,
+    addFurniture,
+    addLight,
+    addClickArea,
+    addPage,
+    removePage,
+    linkSpot,
+    changeLight,
+    resetSourceField,
+    resetAllSources,
+    setLightPick,
+    setLightTool,
+    zoomRoom: (id) => world?.selectRoom(id),
+    renderOutline,
+    renderInspector,
+  })
+
+  // Rebuilding identical panels can swallow a click whose press and release
+  // land on different elements, so skip rebuilds when nothing changed.
+  let outlineKey = '',
+    inspectorKey = ''
+  function renderOutline() {
+    const key = JSON.stringify([
+      ui.tab,
+      ui.query,
+      ui.filter,
+      [...ui.collapsed],
+      selection,
+      shown,
+    ])
+    if (key === outlineKey) return
+    outlineKey = key
+    renderKeepingFocus(outline, () => outlinePanel(editor))
   }
   function renderInspector() {
     const key = JSON.stringify([
       selection,
       shown,
-      axesOpen,
-      addressing,
-      lightPick,
-      lightTool,
+      ui.axesOpen,
+      ui.roomAddOpen,
+      ui.addressing,
+      ui.lightPick,
+      ui.lightTool,
     ])
     if (key === inspectorKey) return
     inspectorKey = key
+    scope.replaceChildren(...scopePath(editor))
+    scope.hidden = !scope.childElementCount
     renderKeepingFocus(properties, () =>
-      selection ? inspectors[selection.type]() : emptyInspector(),
+      selection
+        ? inspectors[selection.type](entities.find(selection), editor)
+        : emptyInspector(),
     )
   }
-  function emptyInspector() {
-    return [
-      EmptyState({
-        icon: 'pointer',
-        title: '편집할 대상을 선택하세요',
-        description:
-          '장면에서 가구나 안내 표시를 누르거나, 왼쪽 목록에서 고르세요.',
-        children: [
-          el(
-            'ul',
-            { class: 'studio-tips' },
-            el(
-              'li',
-              {},
-              Icon('furniture', 'sm'),
-              '가구는 끌어서 옮기고 다른 방에 놓을 수 있습니다.',
-            ),
-            el(
-              'li',
-              {},
-              Icon('copy', 'sm'),
-              'Alt를 누른 채 끌면 복제하며 옮깁니다.',
-            ),
-            el(
-              'li',
-              {},
-              Icon('saved', 'sm'),
-              '변경은 초안에 자동 저장되고, 발행하기 전까지 방문자에게 보이지 않습니다.',
-            ),
-          ),
-        ],
-      }),
-    ]
-  }
-  const labelInput = (label, value, commit) =>
-    TextInput({
-      appearance: 'title',
-      key: 'label',
-      label,
-      value,
-      validate: ops.labelError,
-      onCommit: commit,
-    })
-
-  function itemInspector(i) {
-    const allowed = saved.options?.[i.kind] || {
-      colors: ['*'],
-      finishes: ['original', 'matte', 'gloss'],
-    }
-    const set = (values) => patch('items', i.id, values)
-    const yaw = ops.yawOf(i.rotation)
-    const uniform = i.scale.every((v) => Math.abs(v - i.scale[0]) < 1e-6)
-    const kindName = kinds.find((k) => k.kind === i.kind)?.label || i.kind
-    const anyColor = allowed.colors.includes('*')
-    return [
-      PanelHeader({
-        eyebrow: kindName,
-        icon: 'furniture',
-        title: labelInput('이름', i.label, (label) => set({ label })),
-        actions: [
-          IconButton({
-            icon: 'copy',
-            label: '복제',
-            shortcut: cmd + 'D',
-            key: 'duplicate',
-            onClick: () => duplicate(i.id),
-          }),
-          IconButton({
-            icon: 'delete',
-            label: '삭제',
-            variant: 'danger',
-            shortcut: 'Delete',
-            key: 'delete',
-            onClick: () => remove(),
-          }),
-        ],
-      }),
-      PanelSection({
-        title: '배치',
-        children: [
-          PropertyRow({
-            label: '방',
-            children: [
-              Select({
-                label: '방',
-                key: 'room',
-                size: 'sm',
-                value: i.room,
-                options: rooms.map((r) => ({ value: r.id, label: r.label })),
-                onChange: (room) => {
-                  change((d) => ops.moveToRoom(d, i.id, room))
-                  canvas?.frame({ type: 'item', id: i.id })
-                },
-              }),
-            ],
-          }),
-          PropertyRow({
-            label: '위치',
-            children: [
-              NumberInput({
-                label: '위치 X',
-                prefix: 'X',
-                key: 'x',
-                value: i.position[0],
-                onCommit: (v) =>
-                  set({
-                    position: [
-                      ops.clampPosition(v),
-                      i.position[1],
-                      i.position[2],
-                    ],
-                  }),
-              }),
-              NumberInput({
-                label: '위치 Z',
-                prefix: 'Z',
-                key: 'z',
-                value: i.position[2],
-                onCommit: (v) =>
-                  set({
-                    position: [
-                      i.position[0],
-                      i.position[1],
-                      ops.clampPosition(v),
-                    ],
-                  }),
-              }),
-            ],
-          }),
-          PropertyRow({
-            label: '높이',
-            children: [
-              NumberInput({
-                label: '높이',
-                prefix: 'Y',
-                key: 'y',
-                step: 0.05,
-                value: i.position[1],
-                onCommit: (v) =>
-                  set({
-                    position: [
-                      i.position[0],
-                      ops.clampPosition(v),
-                      i.position[2],
-                    ],
-                  }),
-              }),
-            ],
-          }),
-          PropertyRow({
-            label: '방향',
-            children: [
-              Slider({
-                label: '방향',
-                key: 'yaw',
-                value: yaw,
-                min: -180,
-                max: 180,
-                step: 1,
-                format: (v) => Math.round(v) + '°',
-                onInput: (v) =>
-                  preview(
-                    (d) =>
-                      (ops.find(d, 'items', i.id).rotation = ops.withYaw(
-                        i.rotation,
-                        v,
-                      )),
-                  ),
-                onCommit: (v) => set({ rotation: ops.withYaw(i.rotation, v) }),
-              }),
-            ],
-          }),
-          PropertyRow({
-            children: [
-              ButtonGroup({
-                label: '빠른 회전',
-                attached: true,
-                children: [
-                  IconButton({
-                    icon: 'rotate-left',
-                    label: '왼쪽으로 15° 회전',
-                    size: 'sm',
-                    key: 'rot-left',
-                    onClick: () => rotate(-15, i.id),
-                  }),
-                  IconButton({
-                    icon: 'rotate-right',
-                    label: '오른쪽으로 15° 회전',
-                    size: 'sm',
-                    key: 'rot-right',
-                    onClick: () => rotate(15, i.id),
-                  }),
-                ],
-              }),
-              Button({
-                label: '90° 회전',
-                icon: 'rotate-right',
-                size: 'sm',
-                variant: 'ghost',
-                key: 'rot-90',
-                onClick: () => rotate(90, i.id),
-              }),
-            ],
-          }),
-          PropertyRow({
-            label: '크기',
-            children: [
-              Slider({
-                label: '크기',
-                key: 'scale',
-                value: uniform ? i.scale[0] : 1,
-                min: 0.25,
-                max: 3,
-                step: 0.05,
-                format: (v) => '×' + v.toFixed(2),
-                onInput: (v) =>
-                  preview(
-                    (d) => (ops.find(d, 'items', i.id).scale = [v, v, v]),
-                  ),
-                onCommit: (v) => set({ scale: [v, v, v].map(ops.clampScale) }),
-              }),
-            ],
-          }),
-          Disclosure({
-            summary: uniform
-              ? '축별 크기'
-              : '축별 크기 · 슬라이더는 세 축을 같게 맞춥니다',
-            open: axesOpen || !uniform,
-            onToggle: (open) => (axesOpen = open),
-            children: [
-              PropertyRow({
-                children: ['X', 'Y', 'Z'].map((a, n) =>
-                  NumberInput({
-                    label: '크기 ' + a,
-                    prefix: a,
-                    key: 's' + a,
-                    step: 0.05,
-                    min: 0.01,
-                    max: 100,
-                    value: i.scale[n],
-                    onCommit: (v) => {
-                      const next = i.scale.slice()
-                      next[n] = ops.clampScale(v)
-                      set({ scale: next })
-                    },
-                  }),
-                ),
-              }),
-            ],
-          }),
-        ],
-      }),
-      PanelSection({
-        title: '외형',
-        children: [
-          PropertyRow({
-            label: '색',
-            children: [
-              SwatchPicker({
-                label: '가구 색',
-                value: i.color,
-                colors: anyColor ? ['original', ...palette] : allowed.colors,
-                allowCustom: anyColor,
-                onPreview: (c) =>
-                  preview((d) => (ops.find(d, 'items', i.id).color = c)),
-                onChange: (color) => set({ color }),
-              }),
-            ],
-          }),
-          PropertyRow({
-            label: '표면',
-            children: [
-              Segmented({
-                label: '표면',
-                key: 'finish',
-                value: i.finish,
-                options: ['original', 'matte', 'gloss']
-                  .filter((f) => allowed.finishes.includes(f))
-                  .map((f) => ({ value: f, label: finishNames[f] })),
-                onChange: (finish) => set({ finish }),
-              }),
-            ],
-          }),
-        ],
-      }),
-      spotSection(i.id),
-    ]
-  }
-  function spotSection(anchor) {
-    const spots = ops.spotsOn(shown, anchor)
-    return PanelSection({
-      title: '클릭 영역',
-      meta: spots.length + '개',
-      children: [
-        spots.length
-          ? ChipList(
-              spots.map((s) =>
-                Chip({
-                  label: s.label,
-                  icon: 'spot',
-                  key: 'spot:' + s.id,
-                  onClick: () =>
-                    select({ type: 'spot', id: s.id }, { frame: true }),
-                }),
-              ),
-            )
-          : null,
-        Button({
-          label: '클릭 영역 추가',
-          icon: 'add',
-          size: 'sm',
-          wide: true,
-          key: 'add-spot',
-          onClick: () => addClickArea(anchor),
-        }),
-      ].filter(Boolean),
-    })
-  }
-  function roomInspector(r) {
-    const items = shown.items.filter((i) => i.room === r.id)
-    return [
-      PanelHeader({
-        eyebrow: '방',
-        icon: 'room',
-        title: r.label,
-        description:
-          '가구 ' +
-          items.length +
-          '개 · 방 기준 클릭 영역 ' +
-          ops.spotsOn(shown, r.id).length +
-          '개',
-        actions: [
-          IconButton({
-            icon: 'fit',
-            label: '이 방 확대',
-            key: 'zoom-room',
-            onClick: () => world.selectRoom(r.id),
-          }),
-        ],
-      }),
-      PanelSection({
-        title: '가구 추가',
-        children: [
-          kinds.length
-            ? ChipList(
-                kinds.map((k) =>
-                  Chip({
-                    label: k.label,
-                    icon: 'add',
-                    key: 'add:' + k.kind,
-                    onClick: () => addFurniture(k.kind, r.id),
-                  }),
-                ),
-              )
-            : el(
-                'p',
-                { class: 'studio-muted' },
-                '추가할 수 있는 가구 종류가 없습니다.',
-              ),
-        ],
-      }),
-      PanelSection({
-        title: '가구',
-        meta: items.length + '개',
-        children: [
-          items.length
-            ? ChipList(
-                items.map((i) =>
-                  Chip({
-                    label: i.label,
-                    icon: 'furniture',
-                    key: 'item:' + i.id,
-                    onClick: () =>
-                      select({ type: 'item', id: i.id }, { frame: true }),
-                  }),
-                ),
-              )
-            : el(
-                'p',
-                { class: 'studio-muted' },
-                '이 방에는 아직 가구가 없습니다.',
-              ),
-        ],
-      }),
-      spotSection(r.id),
-    ]
-  }
-  function spotInspector(s) {
-    const set = (values) => patch('spots', s.id, values)
-    const external = s.action.type === 'url'
-    const linking = external || addressing === s.id
-    const urlRow = PropertyRow({
-      label: '주소',
-      children: [
-        TextInput({
-          label: '외부 주소',
-          key: 'url',
-          type: 'url',
-          size: 'sm',
-          placeholder: 'https://',
-          value: external ? s.action.url : '',
-          validate: (v) => ops.urlError(v),
-          onCommit: (u) => set({ action: { type: 'url', url: u } }),
-        }),
-      ],
-    })
-    urlRow.hidden = !linking
-    const editRow = linking
-      ? null
-      : PropertyRow({
-          children: [
-            Button({
-              label: '연결된 페이지 편집',
-              icon: 'page',
-              variant: 'ghost',
-              size: 'sm',
-              key: 'edit-page',
-              onClick: () => select({ type: 'page', id: s.action.page }),
-            }),
-          ],
-        })
-    const anchorIsRoom = rooms.some((r) => r.id === s.anchor)
-    return [
-      PanelHeader({
-        eyebrow: '클릭 영역',
-        icon: 'spot',
-        title: labelInput('표시 이름', s.label, (label) => set({ label })),
-        actions: [
-          IconButton({
-            icon: anchorIsRoom ? 'room' : 'furniture',
-            label: '기준 대상 선택',
-            key: 'anchor',
-            onClick: () =>
-              select(
-                anchorIsRoom
-                  ? { type: 'room', id: s.anchor }
-                  : { type: 'item', id: s.anchor },
-                { frame: true },
-              ),
-          }),
-          IconButton({
-            icon: 'delete',
-            label: '삭제',
-            variant: 'danger',
-            shortcut: 'Delete',
-            key: 'delete',
-            onClick: () => remove(),
-          }),
-        ],
-      }),
-      PanelSection({
-        title: '연결',
-        children: [
-          PropertyRow({
-            label: '누르면',
-            children: [
-              Select({
-                label: '연결 대상',
-                key: 'dest',
-                size: 'sm',
-                value: linking ? '__url' : s.action.page,
-                options: [
-                  ...shown.pages.map((p) => ({
-                    value: p.id,
-                    label: '페이지 · ' + p.title,
-                  })),
-                  { value: '__url', label: '외부 링크 열기' },
-                  { value: '__new', label: '＋ 새 페이지 만들어 연결' },
-                ],
-                onChange: (v) => {
-                  if (v === '__url') {
-                    // Keep the current link until a valid address is entered.
-                    addressing = s.id
-                    renderInspector()
-                    properties.querySelector('[data-key="url"]').focus()
-                    return
-                  }
-                  addressing = null
-                  if (v === '__new') {
-                    const id = newId()
-                    change((d) => {
-                      const page = ops.addPage(d, { id, title: s.label })
-                      ops.find(d, 'spots', s.id).action = {
-                        type: 'page',
-                        page: page.id,
-                      }
-                    })
-                    notify(
-                      '새 페이지를 만들어 연결했습니다. 행사 페이지 탭에서 내용을 채우세요.',
-                    )
-                  } else set({ action: { type: 'page', page: v } })
-                },
-              }),
-            ],
-          }),
-          urlRow,
-          editRow,
-        ].filter(Boolean),
-      }),
-      PanelSection({
-        title: '위치와 범위',
-        children: [
-          PropertyRow({
-            label: '기준',
-            children: [
-              Select({
-                label: '기준 방 또는 가구',
-                key: 'anchor-select',
-                size: 'sm',
-                value: s.anchor,
-                options: [
-                  ...rooms.map((r) => ({
-                    value: r.id,
-                    label: '방 · ' + r.label,
-                  })),
-                  ...shown.items.map((i) => ({
-                    value: i.id,
-                    label: '가구 · ' + i.label,
-                  })),
-                ],
-                onChange: (anchor) => set({ anchor }),
-              }),
-            ],
-          }),
-          PropertyRow({
-            label: '위치',
-            children: ['X', '높이', 'Z'].map((a, n) =>
-              NumberInput({
-                label: '상대 위치 ' + a,
-                prefix: a === '높이' ? 'Y' : a,
-                key: 'p' + n,
-                value: s.position[n],
-                onCommit: (v) => {
-                  const next = s.position.slice()
-                  next[n] = ops.clampPosition(v)
-                  set({ position: next })
-                },
-              }),
-            ),
-          }),
-          PropertyRow({
-            label: '범위',
-            children: ['W', 'H', 'D'].map((a, n) =>
-              NumberInput({
-                label: '클릭 범위 ' + a,
-                prefix: a,
-                key: 'z' + n,
-                min: 0.01,
-                max: 100,
-                value: s.size[n],
-                onCommit: (v) => {
-                  const next = s.size.slice()
-                  next[n] = ops.clampScale(v)
-                  set({ size: next })
-                },
-              }),
-            ),
-          }),
-          Callout({
-            message:
-              '장면의 안내 표시를 끌어 위치를 옮길 수 있습니다. 상자가 방문자가 누를 수 있는 범위입니다.',
-          }),
-        ],
-      }),
-    ]
-  }
-  function pageInspector(p) {
-    const set = (values) => patch('pages', p.id, values)
-    const linked = shown.spots.filter((s) => s.action.page === p.id)
-    return [
-      PanelHeader({
-        eyebrow: '행사 페이지',
-        icon: 'page',
-        title: labelInput('제목', p.title, (title) => set({ title })),
-        actions: [
-          IconButton({
-            icon: 'external',
-            label: '/events/' + p.id + ' 새 창에서 열기',
-            key: 'open-page',
-            onClick: () => window.open('/events/' + p.id, '_blank', 'noopener'),
-          }),
-          IconButton({
-            icon: 'delete',
-            label: '페이지 삭제',
-            variant: 'danger',
-            key: 'delete-page',
-            onClick: () => removePage(p.id),
-          }),
-        ],
-      }),
-      PanelSection({
-        title: '내용',
-        children: [
-          PropertyRow({
-            label: '개요',
-            stack: true,
-            children: [
-              TextArea({
-                label: '개요',
-                key: 'summary',
-                rows: 3,
-                value: p.summary,
-                validate: (v) =>
-                  v.length > 500 ? '500자 이내로 입력하세요.' : null,
-                onCommit: (summary) => set({ summary }),
-              }),
-            ],
-          }),
-          PropertyRow({
-            label: '본문',
-            stack: true,
-            children: [
-              TextArea({
-                label: '본문',
-                key: 'body',
-                rows: 8,
-                value: p.body,
-                validate: (v) =>
-                  v.length > 16000 ? '16000자 이내로 입력하세요.' : null,
-                onCommit: (body) => set({ body }),
-              }),
-            ],
-          }),
-          PropertyRow({
-            label: '원문 주소',
-            stack: true,
-            children: [
-              TextInput({
-                label: '원문 주소',
-                key: 'page-url',
-                type: 'url',
-                size: 'sm',
-                placeholder: 'https://',
-                value: p.url,
-                validate: (v) => ops.urlError(v, { optional: true }),
-                onCommit: (url) => set({ url }),
-              }),
-            ],
-          }),
-        ],
-      }),
-      PanelSection({
-        title: '연결된 클릭 영역',
-        meta: linked.length + '개',
-        children: [
-          linked.length
-            ? ChipList(
-                linked.map((s) =>
-                  Chip({
-                    label: s.label,
-                    icon: 'spot',
-                    key: 'spot:' + s.id,
-                    onClick: () =>
-                      select({ type: 'spot', id: s.id }, { frame: true }),
-                  }),
-                ),
-              )
-            : el(
-                'p',
-                { class: 'studio-muted' },
-                '방이나 가구를 선택해 클릭 영역을 추가하고 이 페이지를 연결하세요.',
-              ),
-        ],
-      }),
-    ]
-  }
-
   // ---- Render loop ----
   let frame = 0
   function render() {
@@ -1656,7 +807,7 @@ export async function studio() {
       /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||
       e.target.isContentEditable
     if (e.key === 'Escape') {
-      if (lightPick) return setLightPick(null)
+      if (ui.lightPick) return setLightPick(null)
       if (canvas?.cancel()) return
       if (!typing) select(null)
       return
@@ -1678,14 +829,14 @@ export async function studio() {
       duplicate()
     } else if (mod) return
     else if (e.key === 'Delete' || e.key === 'Backspace') {
-      if (selection && selection.type !== 'room') {
+      if (selection && entities.removable(selection)) {
         e.preventDefault()
         remove()
       }
     } else if (key === 'q' || key === 'e') {
       rotate((key === 'q' ? -1 : 1) * (e.shiftKey ? 90 : ops.ROTATE_STEP))
     } else if (key === 'f') {
-      if (selection) canvas?.frame(selection)
+      if (selection) select(selection, { frame: true })
     } else if (e.key === '?') {
       help.toggle()
     } else if (e.key.startsWith('Arrow') && selectedItem()) {
@@ -1713,7 +864,7 @@ export async function studio() {
     layout: () => shown,
     light: lightById,
     isSource: (id) => sourceMap.has(id),
-    lightTool: () => (lightPick ? null : lightTool),
+    lightTool: () => (ui.lightPick ? null : ui.lightTool),
     previewLight(id, values) {
       changeLight(id, values, true)
       if (values.position) showLightPosition(properties, values.position)
@@ -1723,7 +874,7 @@ export async function studio() {
     select: (sel) => select(sel),
     toolbar: floating,
     pickLightPoint(at) {
-      if (!lightPick) return false
+      if (!ui.lightPick) return false
       const light = selection?.type === 'light' && lightById(selection.id)
       if (!light) {
         setLightPick(null)
@@ -1739,7 +890,7 @@ export async function studio() {
         return true
       }
       let values
-      if (lightPick === 'aim') {
+      if (ui.lightPick === 'aim') {
         const shape = aimShape(light, point)
         if (!shape) {
           notify('조명과 떨어진 곳을 클릭하세요.')

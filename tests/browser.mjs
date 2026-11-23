@@ -73,7 +73,7 @@ try {
     (await page.request.get(origin + '/api/world').then((r) => r.json())).id,
     before.id,
   )
-  await tree('Blender 원본 조명').click()
+  await tree('월드').click()
   await checkLightHandles(page, origin, 'Large_softbox', true)
   await tree('Large_softbox').click()
   const output = page.getByLabel('정확한 조명 출력')
@@ -129,9 +129,9 @@ try {
       .layout.sourceLights,
     undefined,
   )
-  await tree('Blender 원본 조명').click()
+  await tree('월드').click()
   const addLight = async (kind) => {
-    await page.getByRole('button', { name: '조명 추가', exact: true }).click()
+    await page.getByRole('button', { name: '추가', exact: true }).click()
     await page.getByRole('menuitem', { name: new RegExp('^' + kind) }).click()
     await page.getByLabel('조명 이름').waitFor()
   }
@@ -404,7 +404,7 @@ try {
   await page.getByRole('button', { name: '새 페이지', exact: true }).click()
   await page.getByLabel('제목', { exact: true }).fill('벤치 이야기')
   await page.getByLabel('제목', { exact: true }).press('Tab')
-  await page.getByRole('tab', { name: '배치' }).click()
+  await page.getByRole('tab', { name: '장면' }).click()
   await tree('파란 벤치').click()
   await page
     .getByRole('button', { name: '클릭 영역 추가', exact: true })

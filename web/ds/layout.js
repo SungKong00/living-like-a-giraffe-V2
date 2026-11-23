@@ -1,6 +1,7 @@
 import { el, cx } from './dom.js'
 import { Icon } from './icon.js'
-import { options, is, viewClass } from './contract.js'
+import { options, is, invariant, viewClass } from './contract.js'
+import { IconButton } from './button.js'
 
 // Building blocks for property panels and toolbars. A panel reads top to
 // bottom as PanelHeader → PanelSection* and every labelled control sits in a
@@ -60,18 +61,70 @@ export function PanelSection(props) {
   )
 }
 
-/** Label on the left, one or more controls on the right. */
+/**
+ * Label on the left, one or more controls on the right.
+ *
+ * Values can be inherited from a wider scope (a Blender original, the model's
+ * own material, later the world defaults). When this row's value replaces the
+ * inherited one, pass `override: { from, onReset }`: the row is marked and
+ * offers a reset to the inherited value. Pass nothing (or a falsy value) while
+ * the row still follows its source, so every editor shows overrides the same
+ * way.
+ */
 export function PropertyRow(props) {
   const o = options('PropertyRow', props, {
     label: is.string(''),
     children: is.children().required,
     stack: is.boolean(),
+    override: is.any(),
   })
+  const override = o.override
+    ? options('PropertyRow.override', o.override, {
+        from: is.string().required,
+        onReset: is.func().required,
+        subject: is.string(),
+      })
+    : null
+  invariant(
+    !override || o.label || override.subject,
+    'PropertyRow',
+    '덮어쓴 행에는 label 또는 override.subject가 필요합니다.',
+  )
+  const subject = override?.subject || o.label
   return el(
     'div',
-    { class: cx('ui-property', o.stack && 'ui-property--stack') },
-    el('span', { class: 'ui-property__label' }, o.label),
-    el('div', { class: 'ui-property__controls' }, ...o.children),
+    {
+      class: cx(
+        'ui-property',
+        o.stack && 'ui-property--stack',
+        override && 'ui-property--overridden',
+      ),
+    },
+    el(
+      'span',
+      {
+        class: 'ui-property__label',
+        title: override ? override.from + ' 값을 덮어썼습니다' : null,
+      },
+      o.label,
+    ),
+    el(
+      'div',
+      { class: 'ui-property__controls' },
+      ...o.children,
+      override
+        ? el(
+            'span',
+            { class: 'ui-property__reset' },
+            IconButton({
+              icon: 'reset',
+              label: subject + ' ' + override.from + ' 값으로 되돌리기',
+              size: 'sm',
+              onClick: override.onReset,
+            }),
+          )
+        : null,
+    ),
   )
 }
 
