@@ -120,7 +120,7 @@ export function selectionPreview(world, canvas) {
       dirty = !!node
     },
     invalidate() {
-      version++
+      // Finish the in-flight thumbnail and draw the latest pose next frame.
       dirty = !!selected
     },
   })

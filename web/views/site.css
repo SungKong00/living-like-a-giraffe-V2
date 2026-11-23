@@ -314,6 +314,10 @@
     background: var(--color-surface);
     box-shadow: var(--shadow-lg), var(--ring-border);
   }
+  .sign-in__fields {
+    display: grid;
+    gap: var(--space-5);
+  }
   .sign-in__icon {
     display: grid;
     place-items: center;

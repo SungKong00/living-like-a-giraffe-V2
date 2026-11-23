@@ -100,8 +100,57 @@ try {
   )
   await page.getByRole('button', { name: '조명 삭제' }).click()
   await tree('나무 벤치').click()
-  // Selecting from the list opens the inspector; ⌘/Ctrl+D duplicates.
   await page.getByLabel('이름', { exact: true }).waitFor()
+  await saved()
+  // Pick an exposed part of the framed bench using the same grab affordance
+  // as the editor. Its anchor can be behind a pin or between the two tiers.
+  const viewport = page.locator('.studio-viewport canvas')
+  const bounds = await viewport.boundingBox()
+  let grabbed
+  for (const dx of [0, 16, -16, 32, -32, 48, -48]) {
+    for (const dy of [0, -8, 8, -18, 18]) {
+      const x = bounds.x + bounds.width / 2 + dx
+      const y = bounds.y + bounds.height / 2 + dy
+      await page.mouse.move(x, y)
+      if (
+        await viewport.evaluate(async (c) => {
+          await new Promise((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(done)),
+          )
+          return c.style.cursor === 'grab'
+        })
+      ) {
+        grabbed = { x, y }
+        break
+      }
+    }
+    if (grabbed) break
+  }
+  assert.ok(grabbed, '선택한 벤치를 장면에서 잡을 수 있어야 합니다')
+  const thumbnail = page.getByRole('img', { name: '선택 오브젝트 미리보기' })
+  const initialPortrait = await thumbnail.evaluate((c) => c.toDataURL())
+  const draftBeforeDrag = await (
+    await page.request.get(origin + '/api/admin/draft')
+  ).json()
+  await page.mouse.down()
+  await page.mouse.move(grabbed.x + 90, grabbed.y + 30, { steps: 6 })
+  await page.waitForFunction(
+    (initial) =>
+      document.querySelector('.ui-object-preview').toDataURL() !== initial,
+    initialPortrait,
+  )
+  assert.equal(
+    (await (await page.request.get(origin + '/api/admin/draft')).json()).id,
+    draftBeforeDrag.id,
+  )
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  await page.waitForFunction(
+    (initial) =>
+      document.querySelector('.ui-object-preview').toDataURL() === initial,
+    initialPortrait,
+  )
+  // Selecting from the list opens the inspector; ⌘/Ctrl+D duplicates.
   await page.keyboard.press('ControlOrMeta+d')
   // The inspector re-renders on the next frame; act on the duplicate only.
   const inspecting = (label) =>
@@ -120,14 +169,38 @@ try {
     )
   })
   const originalPortrait = await portrait.evaluate((c) => c.toDataURL())
+  // A missing session must not discard the current selection or pending edits.
+  await saved()
+  await page.context().clearCookies()
   await page.getByLabel('이름', { exact: true }).fill('파란 벤치')
   await page.getByLabel('이름', { exact: true }).press('Tab')
   await inspecting('파란 벤치')
+  const resume = page.getByRole('button', { name: '다시 로그인하고 저장' })
+  await resume.waitFor()
   await page.getByLabel('직접 고른 색').fill('#113355')
   await page.waitForFunction(
     (before) =>
       document.querySelector('.ui-object-preview').toDataURL() !== before,
     originalPortrait,
+  )
+  await resume.click()
+  const login = page.getByRole('dialog', { name: '다시 로그인' })
+  await login.getByLabel('관리자 키').fill('incorrect')
+  await login.getByRole('button', { name: '로그인하고 저장' }).click()
+  await login.getByText('관리자 키가 맞지 않습니다.').waitFor()
+  await login.getByLabel('관리자 키').fill(key)
+  await login.getByRole('button', { name: '로그인하고 저장' }).click()
+  await saved()
+  const resumed = await (
+    await page.request.get(origin + '/api/admin/draft')
+  ).json()
+  assert.equal(
+    resumed.layout.items.find((i) => i.label === '파란 벤치').color,
+    '#113355',
+  )
+  assert.equal(
+    (await (await fetch(origin + '/api/world')).json()).id,
+    before.id,
   )
   await page.getByRole('radio', { name: '무광' }).click()
   await page

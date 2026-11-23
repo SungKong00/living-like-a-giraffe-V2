@@ -30,6 +30,7 @@ import {
   PanelSection,
   PropertyRow,
   Disclosure,
+  Dialog,
   Toolbar,
   ToolbarDivider,
   Chip,
@@ -84,22 +85,18 @@ const saveStates = {
   saving: ['저장 중…', 'warning'],
 }
 
-function login() {
+function keyForm(label, onLogin) {
   const error = el('div', { class: 'sign-in__error' })
+  const submit = Button({
+    label,
+    type: 'submit',
+    variant: 'primary',
+    size: 'lg',
+    wide: true,
+  })
   const form = el(
     'form',
-    { class: 'sign-in__card' },
-    el('span', { class: 'sign-in__icon' }, Icon('key', 'lg')),
-    el(
-      'div',
-      { class: 'sign-in__heading' },
-      el('h1', { class: 'sign-in__title' }, '월드 스튜디오'),
-      el(
-        'p',
-        { class: 'sign-in__description' },
-        '관리자 키로 들어가 공간 배치와 행사 페이지를 편집합니다.',
-      ),
-    ),
+    { class: 'sign-in__fields' },
     Field({
       label: '관리자 키',
       control: TextInput({
@@ -112,19 +109,16 @@ function login() {
       }),
     }),
     error,
-    Button({
-      label: '스튜디오 열기',
-      type: 'submit',
-      variant: 'primary',
-      size: 'lg',
-      wide: true,
-    }),
+    submit,
   )
   form.onsubmit = async (e) => {
     e.preventDefault()
+    if (submit.disabled) return
+    submit.disabled = true
     try {
       await api('login', 'POST', { key: new FormData(form).get('key') })
-      await studio()
+      form.reset()
+      await onLogin()
     } catch (err) {
       error.replaceChildren(
         Callout({
@@ -134,9 +128,32 @@ function login() {
             err.status === 403 ? '관리자 키가 맞지 않습니다.' : err.message,
         }),
       )
+    } finally {
+      submit.disabled = false
     }
   }
-  app.replaceChildren(el('section', { class: 'sign-in' }, form))
+  return form
+}
+
+function login() {
+  const form = keyForm('스튜디오 열기', studio)
+  const card = el(
+    'div',
+    { class: 'sign-in__card' },
+    el('span', { class: 'sign-in__icon' }, Icon('key', 'lg')),
+    el(
+      'div',
+      { class: 'sign-in__heading' },
+      el('h1', { class: 'sign-in__title' }, '월드 스튜디오'),
+      el(
+        'p',
+        { class: 'sign-in__description' },
+        '관리자 키로 들어가 공간 배치와 행사 페이지를 편집합니다.',
+      ),
+    ),
+    form,
+  )
+  app.replaceChildren(el('section', { class: 'sign-in' }, card))
   form.querySelector('input').focus()
 }
 
@@ -373,6 +390,21 @@ export async function studio() {
     ),
   )
 
+  function resumeSave() {
+    const form = keyForm('로그인하고 저장', async () => {
+      dialog.close()
+      await flush().catch(() => {})
+    })
+    const dialog = Dialog({
+      title: '다시 로그인',
+      description: autosave.error,
+      size: 'sm',
+      children: [form],
+    })
+    dialog.open()
+    form.querySelector('input').focus()
+  }
+
   function renderSave() {
     const s = autosave.state
     saveStatus.dataset.saveState = s
@@ -382,22 +414,22 @@ export async function studio() {
       saveStatus.replaceChildren(
         StatusText({ label, tone, pulse: s === 'saving' }),
       )
-    } else
+    } else {
+      const [label, onClick] = {
+        conflict: ['다른 창에서 변경됨 · 다시 열기', () => location.reload()],
+        unauthorized: ['다시 로그인하고 저장', resumeSave],
+        error: ['저장 실패 · 다시 시도', () => flush().catch(() => {})],
+      }[s]
       saveStatus.replaceChildren(
         Button({
-          label:
-            s === 'conflict'
-              ? '다른 창에서 변경됨 · 다시 열기'
-              : '저장 실패 · 다시 시도',
+          label,
           icon: 'save-error',
           variant: 'danger',
           size: 'sm',
-          onClick:
-            s === 'conflict'
-              ? () => location.reload()
-              : () => flush().catch(() => {}),
+          onClick,
         }),
       )
+    }
     if (s === 'error') fail('저장하지 못했습니다 · ' + autosave.error)
   }
 
@@ -1539,7 +1571,7 @@ export async function studio() {
     }
   })
   addEventListener('beforeunload', (e) => {
-    if (autosave.busy || autosave.state === 'error') {
+    if (autosave.busy || ['error', 'unauthorized'].includes(autosave.state)) {
       e.preventDefault()
       e.returnValue = ''
       flush().catch(() => {})
@@ -1562,6 +1594,7 @@ export async function studio() {
     dragging(on) {
       view.host.classList.toggle('is-dragging', on)
     },
+    itemMoved: () => projection.invalidate(),
     revert: () => apply(),
     commitItem(id, values, { copy }) {
       const item = ops.find(shown, 'items', id)

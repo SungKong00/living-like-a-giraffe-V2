@@ -594,6 +594,13 @@ async function openScene(
         box.scaling = v(s.size)
       }
     },
+    itemMoved(changedRoom) {
+      wake()
+      if (changedRoom) {
+        applyLights(layout)
+        illumination.update(instances)
+      }
+    },
     update(next) {
       wake()
       layout = next

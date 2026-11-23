@@ -20,7 +20,7 @@ export class Autosave {
     this.#onState(state, error)
   }
   schedule() {
-    if (this.state === 'conflict') return
+    if (['conflict', 'unauthorized'].includes(this.state)) return
     clearTimeout(this.#timer)
     if (!this.#running) this.#set('pending')
     this.#timer = setTimeout(() => this.flush().catch(() => {}), this.#delay)
@@ -36,8 +36,7 @@ export class Autosave {
     if (this.#running) {
       this.#again = true
       await this.#running
-      if (this.state === 'error' || this.state === 'conflict')
-        throw Error(this.error)
+      if (this.state !== 'saved') throw Error(this.error)
       return
     }
     this.#running = this.#loop()
@@ -59,6 +58,11 @@ export class Autosave {
           this.#set(
             'conflict',
             '다른 창에서 먼저 저장했습니다. 다시 열어 최신 초안을 확인하세요.',
+          )
+        else if (error.status === 401)
+          this.#set(
+            'unauthorized',
+            '로그인이 만료되었습니다. 다시 로그인하면 현재 편집 내용을 저장합니다.',
           )
         else this.#set('error', error.message)
         return

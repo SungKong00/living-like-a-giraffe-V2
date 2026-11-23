@@ -1,4 +1,4 @@
-import { Vector3, Matrix, Quaternion } from '@babylonjs/core/Maths/math.vector'
+import { Vector3, Matrix } from '@babylonjs/core/Maths/math.vector'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { HighlightLayer } from '@babylonjs/core/Layers/highlightLayer'
 import '@babylonjs/core/Layers/effectLayerSceneComponent'
@@ -93,29 +93,6 @@ export function attachCanvas(world, view, hooks) {
     return bounds.find(inside)?.[0] || current
   }
 
-  // Re-express a node's room-local transform under another room so it stays
-  // exactly where it was dropped, even when rooms are rotated.
-  function reparent(node, from, to) {
-    const local = Matrix.Compose(
-      node.scaling,
-      node.rotationQuaternion || Quaternion.Identity(),
-      node.position,
-    )
-    const m = local
-      .multiply(rooms.get(from).computeWorldMatrix(true))
-      .multiply(inverse(rooms.get(to).computeWorldMatrix(true)))
-    const scale = new Vector3(),
-      rotation = new Quaternion(),
-      position = new Vector3()
-    m.decompose(scale, rotation, position)
-    return {
-      room: to,
-      position: position.asArray().map((v) => round(v)),
-      rotation: rotation.normalize().asArray(),
-      scale: scale.asArray().map((v) => round(v)),
-    }
-  }
-
   function beginItem(id, at, e) {
     const item = hooks.layout().items.find((i) => i.id === id)
     const node = instances.get(id)
@@ -128,25 +105,44 @@ export function attachCanvas(world, view, hooks) {
       node,
       positionAt: floorDrag(at, origin),
       copy: e.altKey,
-      dropped: origin,
+      room: item.room,
     }
   }
   function moveItem(g, at, e) {
-    g.dropped = g.positionAt(at)
-    const local = Vector3.TransformCoordinates(
-      g.dropped,
-      inverse(rooms.get(g.item.room).computeWorldMatrix(true)),
-    )
+    const dropped = g.positionAt(at)
+    const source = rooms.get(g.item.room).computeWorldMatrix(true)
+    const local = Vector3.TransformCoordinates(dropped, inverse(source))
     const fit = hooks.snapping() !== (e.metaKey || e.ctrlKey)
-    g.node.position.x = fit ? snap(local.x) : round(local.x)
-    g.node.position.z = fit ? snap(local.z) : round(local.z)
+    const align = fit ? snap : round
+    local.set(align(local.x), g.item.position[1], align(local.z))
+
+    // Keep the cursor and snapping in the starting plane. The live mesh must
+    // belong to the room under it so its light field changes before release.
+    const room = roomAt(dropped, g.item.room)
+    const changedRoom = room !== g.room
+    if (changedRoom) {
+      g.node.setParent(rooms.get(room))
+      g.room = room
+    }
+    const position =
+      room === g.item.room
+        ? local
+        : Vector3.TransformCoordinates(
+            Vector3.TransformCoordinates(local, source),
+            inverse(g.node.parent.computeWorldMatrix(true)),
+          )
+    if (!changedRoom && g.node.position.equals(position)) return
+    g.node.position.copyFrom(position)
+    world.itemMoved(changedRoom)
+    hooks.itemMoved()
   }
   function dropItem(g) {
-    const target = roomAt(g.dropped, g.item.room)
-    const patch =
-      target === g.item.room
-        ? { position: g.node.position.asArray().map((v) => round(v)) }
-        : reparent(g.node, g.item.room, target)
+    const patch = { position: g.node.position.asArray().map((v) => round(v)) }
+    if (g.room !== g.item.room) {
+      patch.room = g.room
+      patch.rotation = g.node.rotationQuaternion.normalizeToNew().asArray()
+      patch.scale = g.node.scaling.asArray().map((v) => round(v))
+    }
     hooks.commitItem(g.id, patch, { copy: g.copy })
   }
 

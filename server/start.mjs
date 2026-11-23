@@ -7,6 +7,7 @@ import { WorldStore, conflict } from './store.mjs'
 import { buildDir, root, modelDir, catalog } from './world-files.mjs'
 import { cachedLighting } from './baked-lighting.mjs'
 import { Jobs } from './jobs.mjs'
+import { StudioSessions, sessionLifetime } from './studio-sessions.mjs'
 // A second server must never race the first writer's atomic state-file swaps.
 if (!fs.existsSync(modelDir('initial')))
   throw Error('npm run prepare:world를 먼저 실행하세요.')
@@ -22,7 +23,6 @@ if (
   )
 const app = express(),
   server = createServer(app)
-const sessions = new Map()
 const tokenPath = path.join(root, 'admin-key')
 if (!process.env.RIRAGI_ADMIN_KEY && !fs.existsSync(tokenPath))
   fs.writeFileSync(tokenPath, randomBytes(24).toString('base64url'), {
@@ -31,6 +31,7 @@ if (!process.env.RIRAGI_ADMIN_KEY && !fs.existsSync(tokenPath))
   })
 const key =
   process.env.RIRAGI_ADMIN_KEY || fs.readFileSync(tokenPath, 'utf8').trim()
+const sessions = new StudioSessions(root, key)
 const hash = (s) => createHash('sha256').update(s).digest()
 app.disable('x-powered-by')
 app.use('/api', (req, res, next) => {
@@ -50,22 +51,19 @@ app.post('/api/login', (req, res) => {
     !timingSafeEqual(hash(key), hash(req.body.key))
   )
     return res.sendStatus(403)
-  const sid = randomBytes(32).toString('hex')
-  for (const [id, end] of sessions) if (end < Date.now()) sessions.delete(id)
-  sessions.set(sid, Date.now() + 8 * 3600e3)
   res
-    .cookie('riragi', sid, {
+    .cookie('riragi', sessions.issue(), {
       httpOnly: true,
       sameSite: 'strict',
       secure: req.secure,
-      maxAge: 8 * 3600e3,
+      maxAge: sessionLifetime,
       path: '/api',
     })
     .json({ ok: true })
 })
 app.use('/api/admin', (req, res, next) => {
   const sid = /\briragi=([a-f0-9]{64})\b/.exec(req.headers.cookie || '')?.[1]
-  if (!(sessions.get(sid) > Date.now())) return res.sendStatus(401)
+  if (!sessions.accepts(sid)) return res.sendStatus(401)
   next()
 })
 function editorView(snap) {
