@@ -1,0 +1,105 @@
+import { chromium, devices } from 'playwright'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { randomUUID } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import assert from 'node:assert/strict'
+const root = fs.mkdtempSync(path.resolve('.world/browser-'))
+for (const name of ['models', 'builds'])
+  fs.cpSync('.world/' + name + '/initial', path.join(root, name, 'initial'), {
+    recursive: true,
+  })
+const key = randomUUID()
+const server = spawn(process.execPath, ['server/start.mjs', '--production'], {
+  env: { ...process.env, PORT: '0', RIRAGI_DATA: root, RIRAGI_ADMIN_KEY: key },
+  stdio: ['ignore', 'pipe', 'inherit'],
+})
+let browser
+try {
+  const [line] = await Promise.race([
+    once(server.stdout, 'data'),
+    once(server, 'exit').then(() => {
+      throw Error('서버 시작 실패')
+    }),
+  ])
+  const origin = String(line).match(/http:\/\/127\.0\.0\.1:\d+/)[0]
+  browser = await chromium.launch({
+    channel: 'chrome',
+    args: ['--enable-unsafe-swiftshader'],
+  })
+  const errors = []
+  const page = await browser.newPage({ viewport: { width: 1280, height: 850 } })
+  page.on('pageerror', (e) => errors.push(e.message))
+  for (const [method, route] of [
+    ['PUT', 'draft'],
+    ['POST', 'publish'],
+    ['GET', 'download/draft'],
+  ]) {
+    assert.equal(
+      (await fetch(origin + '/api/admin/' + route, { method })).status,
+      401,
+    )
+  }
+  const before = await (await fetch(origin + '/api/world')).json()
+  await page.goto(origin + '/studio')
+  await page.getByLabel('관리자 키').fill(key)
+  await page.getByRole('button', { name: '스튜디오 열기' }).click()
+  await page.getByRole('button', { name: '이동', exact: true }).waitFor()
+  await page.getByRole('button', { name: '복제', exact: true }).click()
+  await page.getByLabel('이름', { exact: true }).fill('파란 벤치')
+  await page.getByLabel('이름', { exact: true }).press('Tab')
+  await page.getByLabel('가구 색').fill('#113355')
+  await page.getByLabel('표면').selectOption('matte')
+  await page.getByRole('button', { name: '초안 저장', exact: true }).click()
+  await page.getByText('저장됨', { exact: true }).waitFor()
+  await page.reload()
+  await page.getByRole('button', { name: '↳ 파란 벤치' }).click()
+  assert.equal(await page.getByLabel('가구 색').inputValue(), '#113355')
+  assert.equal(await page.getByLabel('표면').inputValue(), 'matte')
+  await page.getByRole('button', { name: '＋ 페이지' }).click()
+  await page.getByLabel('제목', { exact: true }).fill('벤치 이야기')
+  await page.getByLabel('제목', { exact: true }).press('Tab')
+  await page.getByRole('button', { name: '↳ 파란 벤치' }).click()
+  await page.getByRole('button', { name: '클릭 영역 추가' }).click()
+  await page
+    .getByLabel('연결', { exact: true })
+    .selectOption({ label: '벤치 이야기' })
+  await page.getByRole('button', { name: '초안 저장' }).click()
+  await page.getByText('저장됨', { exact: true }).waitFor()
+  await page.getByRole('button', { name: '미리보기', exact: true }).click()
+  const preview = page.getByRole('dialog')
+  await preview
+    .getByRole('button', { name: '멘탈 사우나', exact: true })
+    .click()
+  await preview.getByRole('button', { name: '새 안내', exact: true }).click()
+  await preview.getByRole('button', { name: '닫기' }).click()
+  assert.equal(
+    (await (await fetch(origin + '/api/world')).json()).id,
+    before.id,
+  )
+  for (const device of ['iPhone 13', 'Pixel 7']) {
+    const mobile = await browser.newPage({ ...devices[device] })
+    mobile.on('pageerror', (e) => errors.push(e.message))
+    const scripts = []
+    mobile.on('request', (r) => scripts.push(r.url()))
+    await mobile.goto(origin + '/studio')
+    await mobile.getByRole('button', { name: '멘탈 사우나', exact: true }).tap()
+    await mobile.locator('.pin.spot').first().tap()
+    await mobile.getByRole('link', { name: '행사 자세히 보기' }).tap()
+    assert.equal(await mobile.locator('h1').innerText(), '멘탈 사우나')
+    assert.ok(!scripts.some((u) => /\/assets\/studio-/.test(u)))
+    await mobile.route('**/api/world/*', (r) => r.abort())
+    await mobile.goto(origin + '/events')
+    assert.equal(await mobile.locator('.event-card').count(), 2)
+    await mobile.close()
+  }
+  assert.deepEqual(errors, [])
+  console.log('PC 저장·재접속·미리보기, 모바일 행사 탐색, 접근 권한 확인')
+} finally {
+  await browser?.close()
+  const ended = once(server, 'exit')
+  server.kill()
+  await ended
+  fs.rmSync(root, { recursive: true, force: true })
+}
