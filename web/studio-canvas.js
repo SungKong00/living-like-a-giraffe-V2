@@ -206,7 +206,7 @@ export function attachCanvas(world, view, hooks) {
     if (!gesture.moved) {
       gesture.moved = true
       canvas.style.cursor = gesture.kind === 'pan' ? 'move' : 'grabbing'
-      hooks.dragging(true)
+      hooks.dragging(true, gesture.kind)
     }
     if (gesture.kind === 'item') moveItem(gesture, at, e)
     else if (gesture.kind === 'spot') moveSpot(gesture, at, e)
@@ -219,7 +219,7 @@ export function attachCanvas(world, view, hooks) {
     const g = gesture
     gesture = null
     canvas.style.cursor = ''
-    if (g?.moved) hooks.dragging(false)
+    if (g?.moved) hooks.dragging(false, g.kind)
     return g
   }
   function onUp() {
@@ -320,6 +320,14 @@ export function attachCanvas(world, view, hooks) {
     const layout = hooks.layout()
     if (sel.type === 'item') return instances.get(sel.id)?.getAbsolutePosition()
     if (sel.type === 'room') return rooms.get(sel.id)?.getAbsolutePosition()
+    if (sel.type === 'light') {
+      const light = layout.lights?.find((l) => l.id === sel.id)
+      if (light)
+        return Vector3.TransformCoordinates(
+          Vector3.FromArray(light.position),
+          rooms.get(light.room).computeWorldMatrix(true),
+        )
+    }
     if (sel.type === 'spot') {
       const s = layout.spots.find((o) => o.id === sel.id)
       const anchor = s && (instances.get(s.anchor) || rooms.get(s.anchor))

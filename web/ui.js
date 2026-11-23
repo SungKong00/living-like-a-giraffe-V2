@@ -3,10 +3,11 @@
 // live in ./ds; import them from './ds/index.js'.
 import { el, IconButton, Spinner, Toolbar } from './ds/index.js'
 
-export async function api(path, method = 'GET', data) {
+export async function api(path, method = 'GET', data, signal) {
   const raw = data instanceof File
   const response = await fetch('/api/' + path, {
     method,
+    signal,
     headers: data
       ? {
           'Content-Type': raw ? 'application/octet-stream' : 'application/json',

@@ -1,110 +1,80 @@
-import { api, stage } from './ui.js'
-import { el, Segmented, Spinner } from './ds/index.js'
-import { openStudioLightingScene } from './scene.js'
+import { lightingInput } from '../shared/lighting-input.mjs'
+import { api } from './ui.js'
+import { el, StatusText, Button } from './ds/index.js'
 
-// Owns only the private viewing surface. Publishing is a separate control.
-export function lightingSwitcher({
-  editView,
-  editor,
-  flush,
-  revision,
-  lock,
-  fail,
-}) {
-  const host = el('div', { class: 'studio-viewport' })
-  const switchSlot = el('div', { class: 'studio-viewport__switch' })
-  host.append(editView.host, switchSlot)
-  let mode = 'edit',
-    sequence = 0,
-    cached
-  function drawSwitch() {
-    switchSlot.replaceChildren(
-      Segmented({
-        label: '중앙 화면',
-        value: mode,
-        options: [
-          { value: 'edit', label: '편집' },
-          { value: 'light', label: '방문자 조명' },
-        ],
-        onChange: change,
-      }),
-    )
+// The editor owns interaction and its camera throughout. A request can install
+// its result only while it still owns the current appearance.
+export function automaticLighting({ editView, editor, flush, revision }) {
+  const status = el('div', {
+    class: 'studio-viewport__lighting',
+    role: 'status',
+  })
+  const host = el('div', { class: 'studio-viewport' }, editView.host, status)
+  let timer, pending, requested, retained, latest
+  function display(state, label) {
+    status.removeAttribute('title')
+    host.dataset.lighting = state
+    status.replaceChildren(StatusText({ label, pulse: state === 'pending' }))
   }
-  function showMode(next) {
-    mode = next
-    editView.host.inert = next === 'light'
-    editView.host.hidden = next === 'light'
-    lock(next === 'light')
-    drawSwitch()
-    switchSlot
-      .querySelector('[aria-checked="true"]')
-      .focus({ preventScroll: true })
+  function cancel() {
+    clearTimeout(timer)
+    pending?.abort()
+    pending = null
+    requested = null
   }
-  let pendingView
-  async function change(next) {
+  function live() {
+    cancel()
+    editor()?.showBaked(false)
+    display('live', '실시간 조명')
+  }
+  function settle(layout) {
+    latest = layout
     const world = editor()
     if (!world) return
-    const request = ++sequence
-    pendingView?.host.remove()
-    pendingView = null
-    if (next === 'edit') {
-      const pose =
-        cached && !cached.view.host.hidden ? cached.scene.pose() : null
-      if (cached) {
-        cached.view.host.hidden = true
-        cached.view.host.inert = true
-        cached.view.host.remove()
-      }
-      showMode(next)
-      if (pose) world.restorePose(pose)
+    const key = JSON.stringify(lightingInput(layout))
+    if (key === requested) return
+    live()
+    requested = key
+    if (key === retained) {
+      world.showBaked(true)
+      display('baked', '구운 조명')
       return
     }
-    const pose = world.pose()
-    showMode(next)
-    const view = stage()
-    pendingView = view
-    view.loading.replaceChildren(Spinner(), '방문자 조명을 준비하는 중…')
-    host.insertBefore(view.host, switchSlot)
-    try {
-      await flush()
-      if (sequence !== request) return
-      const state = await api('admin/lighting', 'POST', {
-        revision: revision(),
-      })
-      if (sequence !== request) return
-      // This view displays geometry only. Text and links need no new GPU resources.
-      if (cached?.asset === state.asset) {
-        view.host.remove()
-        host.insertBefore(cached.view.host, switchSlot)
-        cached.view.host.hidden = false
-        cached.view.host.inert = false
-      } else {
-        if (cached) {
-          cached.scene.dispose()
-          cached.view.host.remove()
-          cached = null
-        }
-        const scene = await openStudioLightingScene(view, state)
-        if (sequence !== request) {
-          scene.dispose()
-          return
-        }
-        cached = { view, scene, asset: state.asset }
+    const controller = new AbortController()
+    pending = controller
+    const { signal } = controller
+    timer = setTimeout(async () => {
+      try {
+        display('pending', '조명 준비 중')
+        await flush()
+        signal.throwIfAborted()
+        const state = await api(
+          'admin/lighting',
+          'POST',
+          { revision: revision() },
+          signal,
+        )
+        signal.throwIfAborted()
+        await world.loadBaked(state.asset, signal)
+        signal.throwIfAborted()
+        retained = key
+        world.showBaked(true)
+        display('baked', '구운 조명')
+      } catch (error) {
+        if (signal.aborted) return
+        requested = null
+        display('error', '실시간 조명 · 굽기 실패')
+        status.append(
+          Button({
+            label: '다시 시도',
+            size: 'sm',
+            onClick: () => settle(latest),
+          }),
+        )
+        status.title = error.message
       }
-      pendingView = null
-      cached.scene.restorePose(pose)
-    } catch (error) {
-      if (sequence === request) {
-        await change('edit')
-        fail(error.message)
-      }
-    }
+    }, 1100)
   }
-  drawSwitch()
-  return Object.freeze({
-    host,
-    get viewing() {
-      return mode === 'light'
-    },
-  })
+  addEventListener('pagehide', cancel, { once: true })
+  return Object.freeze({ host, live, settle })
 }

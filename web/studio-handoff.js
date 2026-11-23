@@ -14,6 +14,7 @@ import { previewCandidate } from './preview.js'
 import { yawOf } from './edit-ops.js'
 
 const props = {
+  energy: '출력',
   position: '위치',
   rotation: '방향',
   scale: '크기',
@@ -123,9 +124,15 @@ export function openHandoff({ flush, draft, rooms, onError }) {
     const orphans = layout.spots.filter(
       (s) => !known.some((k) => k.id === s.anchor),
     )
-    const name = (id) =>
-      [...candidate.items, ...layout.items].find((i) => i.id === id)?.label ||
-      id
+    const name = (id) => {
+      const isLight = id.startsWith('light:')
+      const rows = isLight
+        ? [...(candidate.lights ?? []), ...(layout.lights ?? [])]
+        : [...candidate.items, ...layout.items]
+      return (
+        rows.find((row) => row.id === (isLight ? id.slice(6) : id))?.label || id
+      )
+    }
     const unresolved =
       candidate.conflicts.filter((c) => !choices[c.key]).length +
       orphans.filter((s) => !replacements[s.id]).length
@@ -134,7 +141,7 @@ export function openHandoff({ flush, draft, rooms, onError }) {
         const [id, prop] = c.key.split('.')
         return RadioCards({
           legend:
-            name(id) + (prop ? ' · ' + (props[prop] || prop) : ' · 가구 자체'),
+            name(id) + (prop ? ' · ' + (props[prop] || prop) : ' · 오브젝트'),
           name: c.key,
           value: choices[c.key],
           options: [

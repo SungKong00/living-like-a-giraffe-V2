@@ -40,7 +40,7 @@ export function withYaw(q, deg) {
   return rotateBy(q, deg - yawOf(q))
 }
 
-export const find = (layout, list, id) => layout[list].find((o) => o.id === id)
+export const find = (layout, list, id) => layout[list]?.find((o) => o.id === id)
 export const spotsOn = (layout, anchor) =>
   layout.spots.filter((s) => s.anchor === anchor)
 

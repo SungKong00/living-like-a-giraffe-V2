@@ -6,6 +6,7 @@ import { Scene } from '@babylonjs/core/scene'
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import { Camera } from '@babylonjs/core/Cameras/camera'
 import { Vector3, Quaternion, Matrix } from '@babylonjs/core/Maths/math.vector'
+import { bakedSurface, editorLayer } from './baked-surface.js'
 import { addStudioFloor, floorBackground } from './studio-floor.js'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
@@ -24,9 +25,6 @@ const v = (arr) => Vector3.FromArray(arr)
 export function openVisitorScene(view, state, actions) {
   return openScene(view, state, 'visitor', actions)
 }
-export function openStudioLightingScene(view, state) {
-  return openScene(view, state, 'lighting')
-}
 export function openEditorScene(view, state, actions) {
   return openScene(view, state, 'editor', actions)
 }
@@ -41,8 +39,7 @@ async function openScene(
   { onRoom, onSpot, onSpotDown, onReady } = {},
 ) {
   const editing = mode === 'editor'
-  const lighting = mode === 'lighting'
-  const studioCamera = editing || lighting
+  const studioCamera = editing
   const draft = editing || mode === 'layout'
   if (state.render !== (draft ? 'editor' : 'visitor'))
     throw Error('이 화면에 맞는 월드 모델을 다시 불러오세요.')
@@ -116,6 +113,12 @@ async function openScene(
     engine.dispose()
     throw e
   }
+  if (editing) {
+    for (const mesh of imported.meshes) mesh.layerMask = editorLayer
+    for (const light of scene.lights)
+      if (light !== fill && light !== sun)
+        light.includeOnlyWithLayerMask = editorLayer
+  }
   const nodes = [...imported.meshes, ...imported.transformNodes]
   const extras = (n) => n?.metadata?.gltf?.extras || {}
   const rooms = new Map(
@@ -170,6 +173,32 @@ async function openScene(
       mesh.receiveShadows = true
     }
   }
+  const webLights = new Map()
+  function applyLights(next) {
+    const lights = next.lights ?? []
+    for (const [id, point] of webLights) {
+      if (lights.some((light) => light.id === id)) continue
+      point.dispose()
+      webLights.delete(id)
+    }
+    const roomMeshes = new Map()
+    for (const light of lights) {
+      let point = webLights.get(light.id)
+      if (!point) {
+        point = new PointLight(light.label, Vector3.Zero(), scene)
+        point.renderPriority = 2
+        if (editing) point.includeOnlyWithLayerMask = editorLayer
+        webLights.set(light.id, point)
+      }
+      point.parent = rooms.get(light.room)
+      point.position.copyFromFloats(...light.position)
+      point.diffuse = Color3.FromHexString(light.color).toLinearSpace()
+      point.intensity = light.energy / (4 * Math.PI)
+      if (!roomMeshes.has(light.room))
+        roomMeshes.set(light.room, point.parent.getChildMeshes())
+      point.includedOnlyMeshes = roomMeshes.get(light.room)
+    }
+  }
   function applyItems(next) {
     for (const [id, n] of instances)
       if (!next.items.some((i) => i.id === id)) {
@@ -207,6 +236,7 @@ async function openScene(
         mesh.receiveShadows = true
       }
     }
+    applyLights(next)
     if (shadow)
       shadow.getShadowMap().renderList = [...instances.values()].flatMap((n) =>
         n.getChildMeshes(),
@@ -239,7 +269,6 @@ async function openScene(
   function markers() {
     view.overlay.replaceChildren()
     marks = []
-    if (lighting) return
     function add(label, pos, action, tone, down, selected = false) {
       const node = Pin({
         label,
@@ -529,7 +558,7 @@ async function openScene(
       wake()
     },
   }
-  if (lighting) return Object.freeze({ ...viewer, ...cameraView })
+
   // Floor footprints are measured once, before any furniture is added.
   const roomBounds = new Map(
     [...rooms].map(([id, n]) => {
@@ -540,6 +569,7 @@ async function openScene(
   return {
     ...viewer,
     ...cameraView,
+    ...bakedSurface(scene, camera, sun),
     scene,
     camera,
     rooms,
@@ -551,7 +581,15 @@ async function openScene(
     },
     // Furniture wins over the room that contains it.
     pick(x, y) {
-      const mesh = scene.pick(x, y)?.pickedMesh
+      const mesh = scene.pick(
+        x,
+        y,
+        (mesh) =>
+          mesh.layerMask === editorLayer &&
+          mesh.isPickable &&
+          mesh.isEnabled() &&
+          mesh.isVisible,
+      )?.pickedMesh
       const owners = new Map([...instances].map(([id, n]) => [n, id]))
       for (let n = mesh; n; n = n.parent) {
         if (owners.has(n)) return { type: 'item', id: owners.get(n) }

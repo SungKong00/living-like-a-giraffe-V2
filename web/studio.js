@@ -38,7 +38,8 @@ import {
 } from './ds/index.js'
 import { previewLayout } from './preview.js'
 import { EditHistory } from './history.js'
-import { lightingSwitcher } from './studio-lighting.js'
+import { lightInspector } from './light-inspector.js'
+import { automaticLighting } from './studio-lighting.js'
 import { selectionPreview } from './selection-preview.js'
 import { openEditorScene } from './scene.js'
 import { Autosave } from './autosave.js'
@@ -189,11 +190,16 @@ export async function studio() {
     onClick: () => redo(),
   })
 
+  // The server validates and reorders object fields. Compare successive local
+  // submissions so flushing an unchanged preview never creates a new revision.
+  let savedInput = JSON.stringify(history.value)
   const autosave = new Autosave({
     async save() {
       const layout = history.value
-      if (JSON.stringify(layout) === JSON.stringify(saved.layout)) return
+      const input = JSON.stringify(layout)
+      if (input === savedInput) return
       saved = await api('admin/draft', 'PUT', { revision: saved.id, layout })
+      savedInput = input
     },
     onState: (state) => {
       renderSave()
@@ -358,15 +364,11 @@ export async function studio() {
   const properties = el('div')
   inspector.append(portrait, properties)
   let projection
-  const lighting = lightingSwitcher({
+  const lighting = automaticLighting({
     editView: view,
     editor: () => world,
     flush,
     revision: () => saved.id,
-    lock(active) {
-      for (const panel of [top, outline, inspector]) panel.inert = active
-    },
-    fail,
   })
   app.replaceChildren(
     el(
@@ -405,10 +407,24 @@ export async function studio() {
     if (s === 'error') fail('저장하지 못했습니다 · ' + autosave.error)
   }
 
+  // Native color/range controls can finish at their starting value without a
+  // change event. Restore the committed appearance when such a preview ends.
+  let transient = false
+  function finishTransient() {
+    if (transient)
+      setTimeout(() => {
+        if (transient) apply()
+      }, 0)
+  }
+  for (const event of ['pointerup', 'pointercancel', 'focusout', 'cancel'])
+    properties.addEventListener(event, finishTransient, true)
+
   // ---- Edits ----
   function apply() {
+    transient = false
     shown = history.value
     world?.update(shown)
+    lighting.settle(shown)
     projection?.invalidate()
     if (selection && !exists(selection)) selection = null
     render()
@@ -422,7 +438,9 @@ export async function studio() {
   }
   // Slider previews touch only the scene; the release records one edit.
   function preview(edit) {
+    transient = true
     shown = history.value
+    lighting.live()
     edit(shown)
     world?.update(shown)
     projection?.invalidate()
@@ -437,7 +455,12 @@ export async function studio() {
     autosave.schedule()
     apply()
   }
-  const listOf = { item: 'items', spot: 'spots', page: 'pages' }
+  const listOf = {
+    light: 'lights',
+    item: 'items',
+    spot: 'spots',
+    page: 'pages',
+  }
   function exists(sel) {
     if (sel.type === 'room') return rooms.some((r) => r.id === sel.id)
     return !!ops.find(shown, listOf[sel.type], sel.id)
@@ -456,6 +479,7 @@ export async function studio() {
   const roomOf = (sel) => {
     if (!sel) return null
     if (sel.type === 'room') return sel.id
+    if (sel.type === 'light') return ops.find(shown, 'lights', sel.id)?.room
     if (sel.type === 'item') return ops.find(shown, 'items', sel.id)?.room
     if (sel.type === 'spot') {
       const s = ops.find(shown, 'spots', sel.id)
@@ -472,7 +496,12 @@ export async function studio() {
     notify('복제했습니다. 끌어서 원하는 곳에 놓으세요.')
   }
   function remove() {
-    if (selection?.type === 'item') {
+    if (selection?.type === 'light') {
+      change((d) => {
+        d.lights = d.lights.filter((l) => l.id !== selection.id)
+      })
+      notify('조명을 삭제했습니다.', true)
+    } else if (selection?.type === 'item') {
       const label = selectedItem().label
       const n = change((d) => ops.deleteItem(d, selection.id))
       notify(
@@ -626,6 +655,27 @@ export async function studio() {
           },
         }),
         menu.element,
+        Button({
+          label: '조명 추가',
+          size: 'sm',
+          disabled: (shown.lights?.length ?? 0) >= 16,
+          onClick() {
+            const id = newId()
+            const room = roomOf(selection) || rooms[0].id
+            const ordinal = (shown.lights?.length ?? 0) + 1
+            change((d) =>
+              (d.lights ??= []).push({
+                id,
+                room,
+                label: '점광원 ' + ordinal,
+                color: '#ffffff',
+                position: [0, 3, 0],
+                energy: 500,
+              }),
+            )
+            select({ type: 'light', id }, { frame: true })
+          },
+        }),
       ),
     ]
   }
@@ -636,7 +686,14 @@ export async function studio() {
       .map((r) => {
         const items = shown.items.filter((i) => i.room === r.id)
         const roomSpots = shown.spots.filter((s) => s.anchor === r.id)
-        const children = []
+        const children = (shown.lights ?? [])
+          .filter((l) => l.room === r.id && match(l.label))
+          .map((l) =>
+            row({ type: 'light', id: l.id }, l.label, {
+              depth: 1,
+              meta: '조명',
+            }),
+          )
         for (const i of items) {
           const spots = shown.spots.filter((s) => s.anchor === i.id)
           const shownSpots = spots.filter((s) => match(s.label))
@@ -726,6 +783,20 @@ export async function studio() {
   // ---- Inspector ----
   // Strategy: one builder per selection type. Add a type by adding a builder.
   const inspectors = {
+    light: () => {
+      const light = ops.find(shown, 'lights', selection.id)
+      const set = (values) => patch('lights', light.id, values)
+      return lightInspector(light, {
+        rooms,
+        title: labelInput('조명 이름', light.label, (label) => set({ label })),
+        set,
+        preview: (values) =>
+          preview((d) =>
+            Object.assign(ops.find(d, 'lights', light.id), values),
+          ),
+        remove,
+      })
+    },
     item: () => itemInspector(ops.find(shown, 'items', selection.id)),
     spot: () => spotInspector(ops.find(shown, 'spots', selection.id)),
     page: () => pageInspector(ops.find(shown, 'pages', selection.id)),
@@ -1212,9 +1283,8 @@ export async function studio() {
                   if (v === '__url') {
                     // Keep the current link until a valid address is entered.
                     addressing = s.id
-                    urlRow.hidden = false
-                    if (editRow) editRow.hidden = true
-                    urlRow.querySelector('input').focus()
+                    renderInspector()
+                    properties.querySelector('[data-key="url"]').focus()
                     return
                   }
                   addressing = null
@@ -1433,7 +1503,7 @@ export async function studio() {
   // ---- Keyboard ----
   // Escape first closes an open popover (handled by the overlay mediator).
   document.addEventListener('keydown', (e) => {
-    if (lighting.viewing || document.querySelector('dialog[open]')) return
+    if (document.querySelector('dialog[open]')) return
     const mod = e.metaKey || e.ctrlKey
     const key = e.key.toLowerCase()
     const typing =
@@ -1497,7 +1567,10 @@ export async function studio() {
     snapping: () => snapping,
     select: (sel) => select(sel),
     toolbar: floating,
-    dragging: (on) => view.host.classList.toggle('is-dragging', on),
+    dragging(on, kind) {
+      view.host.classList.toggle('is-dragging', on)
+      if (on && kind === 'item') lighting.live()
+    },
     revert: () => apply(),
     commitItem(id, values, { copy }) {
       const item = ops.find(shown, 'items', id)
@@ -1530,6 +1603,7 @@ export async function studio() {
     throw e
   }
   world.update(shown)
+  lighting.settle(shown)
   projection = selectionPreview(world, portrait)
   canvas = attachCanvas(world, view, hooks)
   render()

@@ -107,7 +107,10 @@
     min-width: 0;
     min-height: 0;
   }
-  .studio-viewport__switch {
+  .studio-viewport__lighting {
+    background: var(--color-surface-glass);
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-sm);
     position: absolute;
     top: var(--space-3);
     left: 50%;

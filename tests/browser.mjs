@@ -27,7 +27,9 @@ try {
     args: ['--enable-unsafe-swiftshader'],
   })
   const errors = []
-  const page = await browser.newPage({ viewport: { width: 1280, height: 850 } })
+  const page = await browser.newPage({
+    viewport: { width: 1280, height: 850 },
+  })
   page.on('pageerror', (e) => errors.push(e.message))
   for (const [method, route] of [
     ['PUT', 'draft'],
@@ -54,20 +56,8 @@ try {
   await page.waitForFunction(
     () => performance.getEntriesByName('riragi-world-ready').length,
   )
-  const lightMode = page.getByRole('radio', {
-    name: '방문자 조명',
-    exact: true,
-  })
-  const editMode = page.getByRole('radio', { name: '편집', exact: true })
-  const prepared = page.waitForResponse(
-    (r) => r.url() === origin + '/api/admin/lighting',
-  )
-  await lightMode.click()
-  const lighting = await (await prepared).json()
-  assert.equal(lighting.render, 'visitor')
-  await page.waitForFunction(
-    () => performance.getEntriesByName('riragi-world-ready').length >= 2,
-  )
+  await page.locator('[data-lighting="baked"]').waitFor()
+  assert.equal(await page.locator('.studio-viewport canvas').count(), 1)
   assert.equal(
     (await page.request.get(origin + '/api/admin/status').then((r) => r.json()))
       .job,
@@ -77,33 +67,57 @@ try {
     (await page.request.get(origin + '/api/world').then((r) => r.json())).id,
     before.id,
   )
-  assert.equal((await fetch(origin + lighting.asset)).status, 401)
-  await editMode.click()
-  // Returning to editing while a lighting request is in flight must win.
-  let releaseLighting
-  const gate = new Promise((resolve) => {
-    releaseLighting = resolve
+  const lightFiles = await page.evaluate(() =>
+    performance
+      .getEntriesByType('resource')
+      .map((r) => r.name)
+      .filter((u) => u.includes('/api/admin/lighting/')),
+  )
+  assert.equal(lightFiles.length, 1)
+  assert.equal((await fetch(lightFiles[0])).status, 401)
+  await page.getByRole('button', { name: '조명 추가', exact: true }).click()
+  await page.getByLabel('조명 이름').waitFor()
+  const energy = page.getByRole('slider', { name: '조명 출력' })
+  const bakes = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url() === origin + '/api/admin/lighting')
+      bakes.push(r.postDataJSON().revision)
   })
-  await page.route(
-    '**/api/admin/lighting',
-    async (route) => {
-      await gate
-      await route.continue()
-    },
-    { times: 1 },
+  // Keep a gesture open longer than the settle delay. Only its release may bake.
+  await energy.evaluate((input) => {
+    for (const value of [450, 420, 360]) {
+      input.value = String(value)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+  })
+  const priorRequests = bakes.length
+  await page.waitForTimeout(1300)
+  assert.equal(bakes.length, priorRequests)
+  await energy.dispatchEvent('change')
+  await page.getByLabel('직접 고른 조명 색').fill('#ffccaa')
+  await saved()
+  const edited = await page.request
+    .get(origin + '/api/admin/draft')
+    .then((r) => r.json())
+  assert.equal(edited.layout.lights[0].color, '#ffccaa')
+  assert.equal(edited.layout.lights[0].energy, 360)
+  const markers = () =>
+    page
+      .locator('.studio-viewport .ui-pin')
+      .evaluateAll((nodes) =>
+        nodes.map((node) => [node.style.left, node.style.top]),
+      )
+  const pose = await markers()
+  await page.locator('[data-lighting="baked"]').waitFor({ timeout: 180000 })
+  assert.deepEqual(bakes.slice(priorRequests), [edited.id])
+  assert.deepEqual(await markers(), pose)
+  assert.equal(await page.getByLabel('조명 이름').inputValue(), '점광원 1')
+  assert.equal(
+    (await page.request.get(origin + '/api/world').then((r) => r.json())).id,
+    before.id,
   )
-  const started = page.waitForRequest(
-    (r) => r.url() === origin + '/api/admin/lighting',
-  )
-  const completed = page.waitForResponse(
-    (r) => r.url() === origin + '/api/admin/lighting',
-  )
-  await lightMode.click()
-  await started
-  await editMode.click()
-  releaseLighting()
-  await completed
-  assert.equal(await editMode.getAttribute('aria-checked'), 'true')
+  await page.getByRole('button', { name: '조명 삭제' }).click()
+  await page.locator('[data-lighting="baked"]').waitFor()
   await tree('나무 벤치').click()
   // Selecting from the list opens the inspector; ⌘/Ctrl+D duplicates.
   await page.getByLabel('이름', { exact: true }).waitFor()
@@ -234,7 +248,10 @@ try {
     .click()
   // Editing the draft while the result is prepared cancels that result and
   // the publish popover asks for a fresh one.
-  await page.getByText('결과 준비 중').waitFor()
+  await page
+    .getByText(/결과 준비 중|구운 결과 열기/)
+    .first()
+    .waitFor()
   await tree('새 안내').click()
   await page.getByLabel('클릭 범위 W', { exact: true }).fill('2.5')
   await page.getByLabel('클릭 범위 W', { exact: true }).press('Enter')
