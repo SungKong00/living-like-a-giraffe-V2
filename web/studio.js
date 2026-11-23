@@ -42,6 +42,7 @@ import { openHandoff } from './studio-handoff.js'
 import * as ops from './edit-ops.js'
 import { giraffeLayer, giraffeMotion } from './studio-giraffes.js'
 import { clayLayer } from './studio-clay-layer.js'
+import { clayDefaults } from './clay-field.js'
 
 const newId = () => crypto.randomUUID()
 const mac = /Mac|iPhone|iPad/.test(navigator.platform)
@@ -196,18 +197,56 @@ export async function studio() {
     lightTool: 'move',
     // Giraffe waiting for a floor click to set its position.
     giraffePick: null,
+    // Which clay sections show their detail sliders, by section key.
+    clayDetail: {},
   }
   // Rigged model and motion files shared by every giraffe.
   let giraffeLibrary = saved.giraffes ?? { model: null, motions: [] }
   let herd = null
   const clay = clayLayer()
   // Scene parts drawn by the studio itself rather than by scene.js.
-  function refreshScene() {
+  // `moving`: a slider is still being dragged. Rooms are large, so their
+  // clay waits for the release.
+  function refreshScene({ moving = false } = {}) {
     if (!world) return
     herd?.update(shown)
-    const objects = new Map(world.instances)
-    for (const g of shown.giraffes ?? []) objects.set(g.id, herd?.root(g.id))
-    clay.update(shown, objects)
+    const owned = new Set(world.instances.values())
+    const giraffeRoots = (shown.giraffes ?? []).map((g) => herd?.root(g.id))
+    for (const root of giraffeRoots) if (root) owned.add(root)
+    // A room's own meshes: not furniture, giraffes, hidden template copies or
+    // editor helpers (which are not pickable).
+    const ownGeometry = (room) => () =>
+      room.getChildMeshes(false).filter((mesh) => {
+        if (!mesh.isEnabled() || !mesh.isPickable) return false
+        for (let n = mesh; n && n !== room; n = n.parent)
+          if (owned.has(n)) return false
+        return true
+      })
+    const subtree = (root) => () => root.getChildMeshes(false)
+    clay.update(
+      shown,
+      [
+        ...[...world.rooms].map(([id, root]) => ({
+          id,
+          root,
+          scope: 'world',
+          meshes: ownGeometry(root),
+        })),
+        ...[...world.instances].map(([id, root]) => ({
+          id,
+          root,
+          scope: 'objects',
+          meshes: subtree(root),
+        })),
+        ...(shown.giraffes ?? []).map((g, i) => ({
+          id: g.id,
+          root: giraffeRoots[i],
+          scope: 'giraffes',
+          meshes: subtree(giraffeRoots[i] ?? world.scene),
+        })),
+      ],
+      { skip: moving ? new Set(['world']) : undefined },
+    )
   }
   const entities = entityQueries({
     get layout() {
@@ -514,7 +553,7 @@ export async function studio() {
     shown = history.value
     edit(shown)
     world?.update(shown)
-    refreshScene()
+    refreshScene({ moving: true })
     projection?.invalidate()
   }
   function undo() {
@@ -586,8 +625,14 @@ export async function studio() {
   }
 
   // ---- Clay and giraffes ----
-  function setWorldClay(settings, temporary = false) {
-    const edit = (d) => ops.setDefault(d, 'clay', null, { ...settings })
+  // One default per scope: 'world' (rooms), 'objects', 'giraffes'.
+  function setWorldClay(scope, settings, temporary = false) {
+    const edit = (d) => {
+      // Older drafts kept one value for every scope; split it first.
+      d.defaults ??= {}
+      d.defaults.clay = { ...clayDefaults(d) }
+      ops.setDefault(d, 'clay', scope, { ...settings })
+    }
     temporary ? preview(edit) : change(edit)
   }
   function setClay(id, settings, temporary = false) {
@@ -606,9 +651,9 @@ export async function studio() {
     ui.collapsed.delete('room:' + room)
     change((d) => ops.addGiraffe(d, { id, room }))
     select({ type: 'giraffe', id }, { frame: true })
-    if (!giraffeLibrary.model)
-      notify(
-        '자리 표시로 놓았습니다. 월드의 기린 구역에서 리깅 모델을 올리세요.',
+    if (herd && !herd.rigged())
+      useLibrary(giraffeLibrary).catch((error) =>
+        fail('기린 모델을 열 수 없습니다 · ' + error.message),
       )
   }
   function setGiraffePick(id) {
@@ -623,6 +668,9 @@ export async function studio() {
     render()
     await herd?.useModel(next.model?.id ?? null)
     refreshScene()
+    inspectorKey = ''
+    render()
+    world?.wake()
   }
   async function upload(path, method, file, done) {
     try {
@@ -849,9 +897,24 @@ export async function studio() {
       return giraffeLibrary
     },
     giraffeMotion: (g) => giraffeMotion(shown, g),
+    supportsProportions: (id) => herd?.supportsProportions(id),
     setWorldClay,
+    setClayMotion: (settings) =>
+      change((d) => ops.setDefault(d, 'clayMotion', null, settings)),
+    previewClayMotion(settings) {
+      transient = true
+      world?.setClayMotion(settings)
+    },
     setClay,
     setGiraffeDefault,
+    setGiraffeProportion(id, key, value, temporary = false) {
+      const edit = (layout) => {
+        const g = ops.find(layout, 'giraffes', id)
+        g.proportions ??= {}
+        g.proportions[key] = value
+      }
+      temporary ? preview(edit) : change(edit)
+    },
     inheritGiraffe,
     addGiraffe,
     setGiraffePick,
@@ -888,6 +951,7 @@ export async function studio() {
       ui.addressing,
       ui.lightPick,
       ui.giraffePick,
+      ui.clayDetail,
       ui.lightTool,
     ])
     if (key === inspectorKey) return
@@ -1098,7 +1162,8 @@ export async function studio() {
   // Load the library before the first frame so giraffes appear as models.
   try {
     giraffeLibrary = await api('admin/giraffes')
-    await herd.useModel(giraffeLibrary.model?.id ?? null)
+    if (shown.giraffes?.length || giraffeLibrary.model)
+      await herd.useModel(giraffeLibrary.model?.id ?? null)
   } catch (e) {
     fail('기린 자료를 읽지 못했습니다 · ' + e.message)
   }

@@ -1,3 +1,4 @@
+import { clayMotion } from './clay-motion.js'
 import { resolvedSources } from '../shared/source-lights.mjs'
 import { MeshoptCompression } from '@babylonjs/core/Meshes/Compression/meshoptCompression'
 import decoderURL from '../node_modules/meshoptimizer/meshopt_decoder.cjs?url'
@@ -107,6 +108,9 @@ async function openScene(
     engine.dispose()
     throw e
   }
+  const motion = clayMotion(scene, camera)
+  motion.set(state.layout.defaults?.clayMotion)
+  for (const mesh of imported.meshes) motion.include(mesh)
   const nodes = [...imported.meshes, ...imported.transformNodes]
   const extras = (n) => n?.metadata?.gltf?.extras || {}
   const rooms = new Map(
@@ -193,6 +197,8 @@ async function openScene(
         if (!n) continue
         n.setEnabled(true)
         instances.set(i.id, n)
+        for (const mesh of [n, ...n.getChildMeshes()])
+          if (mesh.getTotalVertices) motion.include(mesh)
       }
       n.parent = rooms.get(i.room)
       n.position.copyFromFloats(...i.position)
@@ -501,8 +507,10 @@ async function openScene(
   let animating = () => false
   engine.runRenderLoop(() => {
     if (view.host.inert) return
+    const motionFrame = motion.advance(performance.now())
     if (
       ready &&
+      !motionFrame &&
       !animating() &&
       performance.now() > drawUntil &&
       !camera.inertialAlphaOffset &&
@@ -625,6 +633,11 @@ async function openScene(
     // Other editable things in the scene (giraffes) register their nodes here
     // as node → selection so a click on them selects them.
     owners: pickOwners,
+    includeClayGiraffe: motion.includeGiraffe,
+    setClayMotion(settings) {
+      motion.set(settings)
+      wake()
+    },
     /** Lights a material added by the studio like the room's furniture. */
     // Each material is styled once; meshes of a model often share one.
     styleMaterial(material) {
@@ -721,6 +734,7 @@ async function openScene(
     update(next) {
       wake()
       layout = next
+      motion.set(next.defaults?.clayMotion)
       applyItems(next)
       guide(activeLight())
       markers()

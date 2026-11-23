@@ -1,3 +1,4 @@
+import { giraffeClayInfluence } from './clay-field.js'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
 import { NodeGeometry } from '@babylonjs/core/Meshes/Node/nodeGeometry'
@@ -28,13 +29,13 @@ const presses = {
     [-0.48, 2.83],
   ],
   giraffe: [
-    [-0.72, 1.47],
-    [-0.25, 1.22],
-    [0.14, 1.55],
-    [0.52, 1.8],
-    [0.66, 2.23],
-    [0.68, 2.64],
-    [1.04, 2.98],
+    [-0.66, 1.7],
+    [-0.23, 1.51],
+    [0.16, 1.8],
+    [0.53, 2.01],
+    [0.69, 2.47],
+    [0.82, 2.96],
+    [1.18, 3.34],
   ],
 }
 const axisOffsets = [
@@ -43,7 +44,7 @@ const axisOffsets = [
   new Vector3(5, 9, 2),
 ]
 
-export function clayDeformer(mesh, kind) {
+export function clayDeformer(mesh, kind, giraffeHeight) {
   const graph = new NodeGeometry('점토 조형')
   const source = new GeometryInputBlock('원본', Type.Geometry)
   const data = new VertexData()
@@ -85,8 +86,8 @@ export function clayDeformer(mesh, kind) {
       warp.customFunction = (p) => {
         const grounded = Math.max(0, p.y) / (Math.max(0, p.y) + 0.18)
         // Ease off above the cheeks so the expression and ear fittings stay aligned.
-        const head = Math.min(1, Math.max(0, (3.23 - p.y) / 0.3))
-        const h = grounded * (bench ? 1 : head * head * (3 - 2 * head))
+        const h =
+          grounded * (bench ? 1 : giraffeClayInfluence(p.y / giraffeHeight))
         const sample = (offset) =>
           (noise.noise(0, 0, p, offset, freq) - 0.5) * 2
         let dent = 0

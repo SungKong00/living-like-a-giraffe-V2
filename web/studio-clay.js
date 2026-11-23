@@ -15,6 +15,12 @@ import {
   Spinner,
   renderKeepingFocus,
 } from './ds/index.js'
+import {
+  clayMotionSection,
+  hatchRow,
+  initialClayMotion,
+} from './clay-motion-controls.js'
+import { giraffeProportionSection } from './giraffe-proportion-controls.js'
 import { clayScene } from './clay-scene.js'
 import { presets } from './clay-geometry.js'
 import './views/studio-clay.css'
@@ -44,6 +50,20 @@ export async function studioClay() {
     pose = 'rest',
     scene,
     pending = 0
+  let motion = initialClayMotion,
+    proportions = {}
+  function previewSurface(value) {
+    motion = value
+    scene?.setMotion(value)
+  }
+  function commitSurface(value) {
+    previewSurface(value)
+    drawPanel()
+  }
+  function shape(key, value) {
+    proportions = { ...proportions, [key]: value }
+    scene?.setProportions(proportions)
+  }
   const settings = {
     bench: { ...presets.medium },
     giraffe: { ...presets.medium },
@@ -182,9 +202,21 @@ export async function studioClay() {
       }),
       PanelSection({ title: '모델', children: [subject] }),
       PanelSection({ title: '점토 강도', children: [presetRow] }),
-      PanelSection({ title: '세부 조절', children: fields }),
+      clayMotionSection(motion, commitSurface, previewSurface),
+      PanelSection({
+        title: '세부 조절',
+        children: [...fields, hatchRow(motion, commitSurface, previewSurface)],
+      }),
       ...(giraffe
         ? [
+            giraffeProportionSection(
+              proportions,
+              (key, value) => {
+                shape(key, value)
+                drawPanel()
+              },
+              shape,
+            ),
             PanelSection({
               title: '착용',
               children: [
@@ -266,6 +298,8 @@ export async function studioClay() {
     scene.dress(outfit)
     scene.pose(pose)
     scene.apply(settings[kind])
+    scene.setMotion(motion)
+    scene.setProportions(proportions)
     status.hidden = true
   } catch (error) {
     status.replaceChildren(

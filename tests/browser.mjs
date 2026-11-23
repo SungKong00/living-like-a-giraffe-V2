@@ -74,6 +74,28 @@ try {
     before.id,
   )
   await tree('월드').click()
+  const boil = page.getByRole('button', { name: '꿈틀거림', exact: true })
+  const amount = page.getByRole('slider', { name: '꿈틀거림 전체 강도' })
+  assert.equal(await boil.getAttribute('aria-pressed'), 'false')
+  await boil.click()
+  await amount.press('End')
+  await boil.click()
+  await saved()
+  const motionDraft = await page.request
+    .get(origin + '/api/admin/draft')
+    .then((r) => r.json())
+  assert.deepEqual(motionDraft.layout.defaults.clayMotion, {
+    enabled: false,
+    strength: 100,
+    style: 'surface',
+    hatch: 0,
+  })
+  await boil.click()
+  assert.equal(await amount.inputValue(), '100')
+  // Restore the seed before the remaining publication checks.
+  const undoMotion = page.getByRole('button', { name: '되돌리기', exact: true })
+  for (let i = 0; i < 4; i++) await undoMotion.click()
+  await saved()
   await checkLightHandles(page, origin, 'Large_softbox', true)
   await tree('Large_softbox').click()
   const output = page.getByLabel('정확한 조명 출력')

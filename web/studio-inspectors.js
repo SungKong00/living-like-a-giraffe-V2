@@ -23,9 +23,17 @@ import {
   TextArea,
   TextInput,
 } from './ds/index.js'
+import { giraffeProportionSection } from './giraffe-proportion-controls.js'
+import { clayMotionSection, hatchRow } from './clay-motion-controls.js'
 import { lightInspector } from './light-inspector.js'
 import * as ops from './edit-ops.js'
-import { clayFor, clayPresetOf, clayPresets } from './clay-field.js'
+import {
+  clayDefaults,
+  clayFor,
+  clayPresetOf,
+  clayPresets,
+  clayScopes,
+} from './clay-field.js'
 
 // The right panel. Strategy: one builder per entity type, looked up by the
 // selection's type. Each builder reads top to bottom as
@@ -157,7 +165,20 @@ const chips = (editor, sels, empty) =>
 // world-wide settings; defaults for objects, the background and giraffes join
 // this list as they are built, and the objects' own editors mark overrides
 // with PropertyRow's `override`.
-const worldSections = [composition, worldClay, worldGiraffes, worldLighting]
+const worldSections = [
+  composition,
+  (editor) =>
+    clayMotionSection(
+      editor.layout.defaults?.clayMotion,
+      editor.setClayMotion,
+      editor.previewClayMotion,
+    ),
+  worldClay('world'),
+  worldClay('objects'),
+  worldClay('giraffes'),
+  worldGiraffes,
+  worldLighting,
+]
 
 function worldInspector(_world, editor) {
   return [
@@ -349,6 +370,7 @@ function roomInspector(r, editor) {
         ),
       ],
     }),
+    claySection(r.id, editor, 'world'),
     spotSection(r.id, editor),
   ]
 }
@@ -577,7 +599,7 @@ function itemInspector(i, editor) {
         }),
       ],
     }),
-    claySection(i.id, editor),
+    claySection(i.id, editor, 'objects'),
     spotSection(i.id, editor),
   ]
 }
@@ -857,7 +879,7 @@ const notPublished =
 
 // Preset buttons and the three values behind them. `onPreview` follows a
 // slider while it moves; `onCommit` records one edit.
-function clayRows({ key, value, onPreview, onCommit, override }) {
+function clayRows({ key, value, onPreview, onCommit, override, editor }) {
   const slider = (label, prop) =>
     Slider({
       label: '점토 ' + label,
@@ -888,43 +910,83 @@ function clayRows({ key, value, onPreview, onCommit, override }) {
         }),
       ],
     }),
-    PropertyRow({ label: '굴곡', children: [slider('굴곡', 'strength')] }),
-    PropertyRow({ label: '눌림', children: [slider('눌림 깊이', 'depth')] }),
-    PropertyRow({ label: '자국', children: [slider('자국 크기', 'width')] }),
+    Disclosure({
+      summary: '세부 조절',
+      open: !!editor.view.clayDetail[key],
+      onToggle: (open) => (editor.view.clayDetail[key] = open),
+      children: [
+        ...(key === 'clay-world'
+          ? [
+              hatchRow(
+                editor.layout.defaults?.clayMotion,
+                editor.setClayMotion,
+                editor.previewClayMotion,
+              ),
+            ]
+          : []),
+        PropertyRow({ label: '굴곡', children: [slider('굴곡', 'strength')] }),
+        PropertyRow({
+          label: '눌림',
+          children: [slider('눌림 깊이', 'depth')],
+        }),
+        PropertyRow({
+          label: '자국',
+          children: [slider('자국 크기', 'width')],
+        }),
+      ],
+    }),
   ]
 }
 
-function worldClay(editor) {
-  const value = clayFor(editor.layout, null)
-  const preset = clayPresetOf(value)
-  return PanelSection({
-    title: '점토',
-    meta: preset === 'custom' ? '직접 조절' : presetNames[preset],
-    children: [
-      ...clayRows({
-        key: 'world-clay',
-        value,
-        onPreview: (v) => editor.setWorldClay(v, true),
-        onCommit: (v) => editor.setWorldClay(v),
-      }),
-      muted(
-        '덮어쓰지 않은 모든 가구와 기린에 적용됩니다. 개체 편집기에서 따로 정할 수 있습니다. ' +
-          notPublished,
-      ),
-    ],
-  })
+// One section per kind: the rooms' own geometry, movable furniture and
+// giraffes each have a world-wide default that their objects follow.
+function worldClay(scope) {
+  return (editor) => {
+    const value = clayDefaults(editor.layout)[scope] ?? clayPresets.original
+    const preset = clayPresetOf(value)
+    const overridden = Object.keys(editor.layout.overrides?.clay ?? {}).filter(
+      (id) => ownerScope(editor, id) === scope,
+    ).length
+    return PanelSection({
+      title: '점토 · ' + clayScopes[scope].label,
+      meta:
+        (preset === 'custom' ? '직접 조절' : presetNames[preset]) +
+        (overridden ? ' · 따로 정한 ' + overridden + '개' : ''),
+      children: [
+        muted(clayScopes[scope].hint + '의 기본 질감입니다.'),
+        ...clayRows({
+          key: 'clay-' + scope,
+          value,
+          editor,
+          onPreview: (v) => editor.setWorldClay(scope, v, true),
+          onCommit: (v) => editor.setWorldClay(scope, v),
+        }),
+        ...(scope === 'world' ? [muted(notPublished)] : []),
+      ],
+    })
+  }
 }
+const ownerScope = (editor, id) =>
+  editor.rooms.some((r) => r.id === id)
+    ? 'world'
+    : editor.layout.items.some((i) => i.id === id)
+      ? 'objects'
+      : 'giraffes'
 
-function claySection(id, editor) {
+function claySection(id, editor, scope) {
   const own = editor.layout.overrides?.clay?.[id]
+  const from = clayScopes[scope].label + ' 기본'
   return PanelSection({
     title: '점토',
-    meta: own ? '이 개체만 따로' : '월드 따름',
+    meta: own
+      ? '이 ' + (scope === 'world' ? '방' : '개체') + '만 따로'
+      : from + ' 따름',
     children: clayRows({
       key: 'clay',
-      value: clayFor(editor.layout, id),
+      value: clayFor(editor.layout, id, scope),
+      editor,
       override: own && {
-        from: WORLD_SCOPE,
+        from,
         subject: '점토',
         onReset: () => editor.setClay(id, null),
       },
@@ -968,7 +1030,7 @@ function worldGiraffes(editor) {
           muted(
             library.model
               ? library.model.name + ' · 관절 ' + library.model.joints + '개'
-              : '리깅된 기린 모델(GLB)을 올리면 자리 표시 대신 모델이 보입니다.',
+              : '리라지 기본 점토 기린',
           ),
           FileButton({
             label: library.model ? '모델 바꾸기' : '리깅 모델 올리기',
@@ -1089,11 +1151,16 @@ function giraffeInspector(g, editor) {
         }),
       ],
     }),
-    editor.giraffeLibrary.model
-      ? null
+    editor.supportsProportions(g.id)
+      ? giraffeProportionSection(
+          g.proportions,
+          (key, value) => editor.setGiraffeProportion(g.id, key, value),
+          (key, value) => editor.setGiraffeProportion(g.id, key, value, true),
+        )
       : Callout({
-          message:
-            '리깅된 기린 모델을 올리기 전까지 자리 표시로 보입니다. 월드 패널의 기린 구역에서 올립니다.',
+          message: editor.giraffeLibrary.model
+            ? '이 모델에서 체형을 조절하려면 리라지 기본 기린과 같은 관절 구성이 필요합니다.'
+            : '기본 기린을 여는 중입니다.',
         }),
     PanelSection({
       title: '배치',
@@ -1234,6 +1301,6 @@ function giraffeInspector(g, editor) {
         }),
       ],
     }),
-    claySection(g.id, editor),
+    claySection(g.id, editor, 'giraffes'),
   ].filter(Boolean)
 }

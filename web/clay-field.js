@@ -25,11 +25,30 @@ export function clayPresetOf(settings) {
   return 'custom'
 }
 
-/** The world default, unless the object overrides it. */
-export function clayFor(layout, id) {
+// Each kind of thing has its own world-wide default. 'world' is the rooms'
+// own geometry (floors, walls, fixed props), 'objects' the movable furniture,
+// 'giraffes' the characters. An object's override wins over its kind's
+// default.
+export const clayScopes = Object.freeze({
+  world: { label: '월드', hint: '방의 바닥·벽·고정 소품' },
+  objects: { label: '오브젝트', hint: '옮길 수 있는 가구' },
+  giraffes: { label: '기린', hint: '기린 캐릭터' },
+})
+
+/** Defaults per scope. Drafts saved before scopes existed held one value. */
+export function clayDefaults(layout) {
+  const stored = layout.defaults?.clay
+  if (!stored) return {}
+  if ('strength' in stored)
+    return { world: stored, objects: stored, giraffes: stored }
+  return stored
+}
+
+/** The object's override, else its scope's default, else the original. */
+export function clayFor(layout, id, scope) {
   return (
     (id && layout.overrides?.clay?.[id]) ||
-    layout.defaults?.clay ||
+    clayDefaults(layout)[scope] ||
     CLAY_ORIGINAL
   )
 }
@@ -85,11 +104,19 @@ function noise(seed, x, y, z) {
   return lerp(x0, x1, w) * 2 - 1
 }
 
+// Relative height in the standing character's rest mesh. The jaw gets a
+// trace of the press; eyes, nose, mouth and ear fittings keep their alignment.
+export function giraffeClayInfluence(relativeHeight) {
+  const ramp = (a, b) =>
+    fade(Math.max(0, Math.min(1, (relativeHeight - a) / (b - a))))
+  return (1 - 0.96 * ramp(0.67, 0.775)) * (1 - ramp(0.775, 0.815))
+}
+
 /**
  * Prepares the field for one object. `bounds` is `{ min, max }` in the
  * object's own space (metres); `seed` is usually the object id.
  */
-export function clayField(bounds, seed) {
+export function clayField(bounds, seed, scope = 'objects') {
   const [x0, y0, z0] = bounds.min
   const [x1, y1, z1] = bounds.max
   const size = [x1 - x0, y1 - y0, z1 - z0]
@@ -128,7 +155,12 @@ export function clayField(bounds, seed) {
     const pressure = (settings.depth / 100) * Math.min(0.19, span * 0.05)
     // Keep the base on the floor: displacement grows away from the bottom.
     const lifted = Math.max(0, y - y0)
-    const grounded = lifted / (lifted + Math.min(0.18, size[1] * 0.25 + 0.01))
+    const head =
+      scope === 'giraffes'
+        ? giraffeClayInfluence(lifted / Math.max(size[1], 0.01))
+        : 1
+    const grounded =
+      (lifted / (lifted + Math.min(0.18, size[1] * 0.25 + 0.01))) * head
     let dent = 0
     for (const [a, b] of presses) {
       const u = (x - a) / radius
@@ -153,12 +185,78 @@ export function clayField(bounds, seed) {
   }
 }
 
-/** Deforms a flat [x, y, z, …] array; returns a new Float32Array. */
-export function clayPositions(rest, field, settings) {
+/**
+ * Clay for a room's own geometry: walls, floors and fixed props. Unlike an
+ * object, a room is too large for a handful of presses, so thumb-sized dents
+ * are scattered on a 3D grid (one candidate per cell) and pushed in along the
+ * surface normal. The floor plane (room height 0) stays flat so furniture
+ * keeps standing on it; displacement fades in over the first 25cm.
+ */
+export function surfaceField(seed) {
+  const key = hashString(String(seed))
+  const rand = random(key)
+  const offsets = [0, 1, 2].map(() => [rand() * 50, rand() * 50, rand() * 50])
+  return function displace(x, y, z, settings, out, nx = 0, ny = 1, nz = 0) {
+    out[0] = x
+    out[1] = y
+    out[2] = z
+    if (isOriginalClay(settings)) return out
+    const radius = 0.3 * (0.55 + settings.width / 100)
+    const cell = radius * 2.6
+    const amplitude = (settings.strength / 100) * 0.13
+    const pressure = (settings.depth / 100) * 0.1
+    const lift = Math.min(1, Math.max(0, y / 0.25))
+    const fade = lift * lift * (3 - 2 * lift)
+    // Nearest dents: one jittered candidate per cell, about half kept.
+    const cx = Math.floor(x / cell),
+      cy = Math.floor(y / cell),
+      cz = Math.floor(z / cell)
+    let dent = 0
+    for (let i = -1; i <= 1; i++)
+      for (let j = -1; j <= 1; j++)
+        for (let k = -1; k <= 1; k++) {
+          const a = cx + i,
+            b = cy + j,
+            c = cz + k
+          if (lattice(key, a, b, c) < 0.5) continue
+          const px = (a + lattice(key + 1, a, b, c)) * cell
+          const py = (b + lattice(key + 2, a, b, c)) * cell
+          const pz = (c + lattice(key + 3, a, b, c)) * cell
+          const d2 =
+            ((x - px) ** 2 + (y - py) ** 2 + (z - pz) ** 2) / (radius * radius)
+          if (d2 < 9) dent += Math.exp(-1.7 * d2)
+        }
+    const press = Math.min(1.4, dent) * pressure * fade
+    const freq = 0.9
+    const n = (o) =>
+      noise(key, x * freq + o[0], y * freq + o[1], z * freq + o[2])
+    out[0] = x + amplitude * n(offsets[0]) * fade - nx * press
+    out[1] = y + amplitude * n(offsets[1]) * fade - ny * press
+    out[2] = z + amplitude * n(offsets[2]) * fade - nz * press
+    return out
+  }
+}
+
+/**
+ * Deforms a flat [x, y, z, …] array; returns a new Float32Array. `normals`
+ * (same layout) lets a surface field press along each vertex's normal.
+ */
+export function clayPositions(rest, field, settings, normals) {
   const next = new Float32Array(rest.length)
   const out = [0, 0, 0]
   for (let i = 0; i < rest.length; i += 3) {
-    field(rest[i], rest[i + 1], rest[i + 2], settings, out)
+    if (normals)
+      field(
+        rest[i],
+        rest[i + 1],
+        rest[i + 2],
+        settings,
+        out,
+        normals[i],
+        normals[i + 1],
+        normals[i + 2],
+      )
+    else field(rest[i], rest[i + 1], rest[i + 2], settings, out)
     next[i] = out[0]
     next[i + 1] = out[1]
     next[i + 2] = out[2]

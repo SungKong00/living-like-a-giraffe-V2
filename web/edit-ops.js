@@ -123,7 +123,24 @@ export function setDefault(layout, scope, key, value) {
 }
 
 // ---- Giraffes ----
-export function addGiraffe(layout, { id, room, position = [0, 0, 0] }) {
+export function addGiraffe(layout, { id, room, position }) {
+  // Place another giraffe beside its neighbours, keeping the first at the room origin.
+  if (!position) {
+    const neighbours = (layout.giraffes ?? []).filter((g) => g.room === room)
+    let slot = 0
+    do {
+      const column = slot % 7
+      const x = (column % 2 ? 1 : -1) * Math.ceil(column / 2) * 2
+      position = [x || 0, 0, 2 * Math.floor(slot / 7)]
+      slot++
+    } while (
+      neighbours.some(
+        (g) =>
+          Math.hypot(g.position[0] - position[0], g.position[2] - position[2]) <
+          1.5,
+      )
+    )
+  }
   const taken = new Set((layout.giraffes ?? []).map((g) => g.label))
   let n = 1
   while (taken.has('기린 ' + n)) n++

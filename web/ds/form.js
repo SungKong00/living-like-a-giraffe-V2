@@ -357,6 +357,7 @@ export function SwatchPicker(props) {
 /** A two-state button such as "격자 맞춤". Keeps its own pressed state. */
 export function Toggle(props) {
   const o = options('Toggle', props, {
+    key: is.string(),
     label: is.string().required,
     pressed: is.boolean(),
     icon: is.string(),
@@ -369,6 +370,7 @@ export function Toggle(props) {
     {
       type: 'button',
       class: 'ui-toggle',
+      'data-key': o.key,
       'aria-pressed': String(pressed),
       title: o.hint,
       onclick: () => {

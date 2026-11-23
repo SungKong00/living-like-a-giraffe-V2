@@ -1,52 +1,147 @@
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
+import { SubMesh } from '@babylonjs/core/Meshes/subMesh'
+import { tessellate } from './clay-tessellate.js'
 import {
   clayField,
   clayFor,
   clayPositions,
   isOriginalClay,
+  surfaceField,
 } from './clay-field.js'
 
-// Applies the clay look to every object in the editing scene. Each object's
-// meshes get their own geometry the first time they are deformed; the look is
-// always recomputed from the original vertices, so changes never accumulate.
-// Settings come from clayFor(): the object's override, else the world default.
+// Applies the clay look in the editing scene to three kinds of target:
+//   world    — a room's own geometry (floors, walls, fixed props)
+//   objects  — one movable piece of furniture
+//   giraffes — one giraffe
+// Settings come from clayFor(): the target's override, else its kind's
+// default. Meshes get their own geometry the first time they are deformed and
+// the look is always recomputed from the original vertices, so changes never
+// accumulate.
 
 const rightHanded = { useRightHandedSystem: true }
+
+// Splits a mesh's long edges so flat walls and benches can bend. Skinned
+// meshes keep their topology: bone indices cannot be interpolated.
+function densify(mesh, maxEdge) {
+  const kinds = mesh.getVerticesDataKinds()
+  if (mesh.skeleton || kinds.some((k) => k.startsWith('matrices'))) return
+  const indices = mesh.getIndices()
+  if (!indices?.length) return
+  const before = mesh.getTotalVertices()
+  const attributes = {}
+  for (const kind of kinds) {
+    const data = mesh.getVerticesData(kind)
+    const buffer = mesh.getVertexBuffer(kind)
+    if (data && buffer) attributes[kind] = { data, stride: buffer.getSize() }
+  }
+  const groups = (mesh.subMeshes ?? []).map((sm) => ({
+    start: sm.indexStart,
+    count: sm.indexCount,
+    material: sm.materialIndex,
+  }))
+  const result = tessellate(
+    {
+      attributes,
+      indices,
+      groups: groups.length ? groups : [{ start: 0, count: indices.length }],
+    },
+    { maxEdge, budget: Math.max(before * 4, 60000) },
+  )
+  if (result.vertices === before) return
+  const normals = result.attributes.normal
+  if (normals)
+    for (let i = 0; i < normals.length; i += 3) {
+      const l = Math.hypot(normals[i], normals[i + 1], normals[i + 2]) || 1
+      normals[i] /= l
+      normals[i + 1] /= l
+      normals[i + 2] /= l
+    }
+  for (const [kind, data] of Object.entries(result.attributes))
+    mesh.setVerticesData(kind, data, kind === 'position' || kind === 'normal')
+  mesh.setIndices(result.indices, result.vertices)
+  if (groups.length > 1) {
+    mesh.subMeshes = []
+    result.groups.forEach(
+      (g, i) =>
+        new SubMesh(
+          groups[i].material,
+          0,
+          result.vertices,
+          g.start,
+          g.count,
+          mesh,
+        ),
+    )
+  }
+}
+
+// Averages normals over vertices that share a position, so a dent pressed
+// along the normal moves both sides of a hard edge together.
+function weldedNormals(positions, normals) {
+  const sums = new Map()
+  const key = (i) =>
+    Math.round(positions[i] * 1e4) +
+    ',' +
+    Math.round(positions[i + 1] * 1e4) +
+    ',' +
+    Math.round(positions[i + 2] * 1e4)
+  for (let i = 0; i < positions.length; i += 3) {
+    const k = key(i)
+    const sum = sums.get(k) ?? [0, 0, 0]
+    sum[0] += normals[i]
+    sum[1] += normals[i + 1]
+    sum[2] += normals[i + 2]
+    sums.set(k, sum)
+  }
+  const out = new Float32Array(normals.length)
+  for (let i = 0; i < positions.length; i += 3) {
+    const [x, y, z] = sums.get(key(i))
+    const l = Math.hypot(x, y, z) || 1
+    out[i] = x / l
+    out[i + 1] = y / l
+    out[i + 2] = z / l
+  }
+  return out
+}
 
 export function clayLayer() {
   const shaped = new Map()
 
-  // Rest geometry of an object's meshes, expressed in the object's own space
-  // so all of its parts share one continuous field.
-  function prepare(id, root) {
+  // Rest geometry of the target's meshes in the target's own space, so all
+  // of its parts share one continuous field.
+  function prepare(target) {
+    const { id, root, scope } = target
     root.computeWorldMatrix(true)
     const toRoot = root.getWorldMatrix().clone().invert()
     const min = [Infinity, Infinity, Infinity],
       max = [-Infinity, -Infinity, -Infinity]
-    const parts = root
-      .getChildMeshes(false)
+    const room = scope === 'world'
+    const parts = target
+      .meshes()
       .filter((m) => m.getTotalVertices() && m.getVerticesData('position'))
       .map((mesh) => {
         mesh.makeGeometryUnique()
-        // Low-poly parts (a box-like bench) need vertices along their long
-        // faces for dents and undulation to show. Aim for ~25cm edges.
-        // Skinned meshes keep their topology: their bone weights cannot be
-        // interpolated onto new vertices.
-        if (!mesh.skeleton && mesh.getTotalVertices() < 4000) {
-          const info = mesh.getBoundingInfo().boundingBox.extendSize
-          const span = 2 * Math.max(info.x, info.y, info.z)
-          const extra = Math.min(23, Math.round(span / 0.25))
-          if (extra > 0) mesh.increaseVertices(extra)
-        }
         const meshToRoot = mesh.computeWorldMatrix(true).multiply(toRoot)
         const rootToMesh = meshToRoot.clone().invert()
+        // Long flat faces need vertices for dents and undulation to show.
+        // Edge length is in metres even when the mesh is stored quantized.
+        const unit = Math.max(
+          ...[0, 1, 2].map((axis) =>
+            Vector3.TransformNormal(
+              new Vector3(+(axis === 0), +(axis === 1), +(axis === 2)),
+              meshToRoot,
+            ).length(),
+          ),
+        )
+        densify(mesh, (room ? 0.3 : 0.18) / unit)
         const rest = mesh.getVerticesData('position').slice()
         const normals = mesh.getVerticesData('normal')?.slice()
         // Loaded buffers are static; replace them with updatable copies.
         mesh.setVerticesData('position', rest.slice(), true)
         if (normals) mesh.setVerticesData('normal', normals.slice(), true)
         const local = new Float32Array(rest.length)
+        const localNormals = room && normals && new Float32Array(rest.length)
         const p = new Vector3()
         for (let i = 0; i < rest.length; i += 3) {
           Vector3.TransformCoordinatesFromFloatsToRef(
@@ -61,17 +156,37 @@ export function clayLayer() {
             min[k] = Math.min(min[k], local[i + k])
             max[k] = Math.max(max[k], local[i + k])
           }
+          if (localNormals) {
+            Vector3.TransformNormalFromFloatsToRef(
+              normals[i],
+              normals[i + 1],
+              normals[i + 2],
+              meshToRoot,
+              p,
+            )
+            p.normalize().toArray(localNormals, i)
+          }
         }
+        if (localNormals) localNormals.set(weldedNormals(local, localNormals))
         const indices = mesh.getIndices()
         const baseline = normals && new Float32Array(normals.length)
         if (normals)
           VertexData.ComputeNormals(rest, indices, baseline, rightHanded)
-        return { mesh, rest, normals, baseline, local, rootToMesh, indices }
+        return {
+          mesh,
+          rest,
+          normals,
+          baseline,
+          local,
+          localNormals,
+          rootToMesh,
+          indices,
+        }
       })
     return {
       root,
       parts,
-      field: clayField({ min, max }, id),
+      field: room ? surfaceField(id) : clayField({ min, max }, id, scope),
       key: null,
     }
   }
@@ -88,7 +203,12 @@ export function clayLayer() {
         if (normals) mesh.updateVerticesData('normal', normals)
         continue
       }
-      const moved = clayPositions(local, entry.field, settings)
+      const moved = clayPositions(
+        local,
+        entry.field,
+        settings,
+        part.localNormals,
+      )
       for (let i = 0; i < moved.length; i += 3) {
         Vector3.TransformCoordinatesFromFloatsToRef(
           moved[i],
@@ -125,18 +245,24 @@ export function clayLayer() {
   }
 
   return Object.freeze({
-    /** `objects` maps object id → its root node in the scene. */
-    update(layout, objects) {
+    /**
+     * `targets`: `[{ id, scope, root, meshes() }]`. `meshes()` lists the
+     * meshes that belong to the target and is read once, when it first needs
+     * clay. Pass `skip` (a set of scopes) to leave those targets as they are,
+     * e.g. rooms while a slider is still moving.
+     */
+    update(layout, targets, { skip } = {}) {
+      const byId = new Map(targets.map((t) => [t.id, t]))
       for (const [id, entry] of shaped)
-        if (objects.get(id) !== entry.root || entry.root.isDisposed())
+        if (byId.get(id)?.root !== entry.root || entry.root.isDisposed())
           shaped.delete(id)
-      for (const [id, root] of objects) {
-        if (!root) continue
-        const settings = clayFor(layout, id)
-        let entry = shaped.get(id)
-        // Shared geometry stays shared until an object first needs clay.
+      for (const target of targets) {
+        if (!target.root || skip?.has(target.scope)) continue
+        const settings = clayFor(layout, target.id, target.scope)
+        let entry = shaped.get(target.id)
+        // Shared geometry stays shared until a target first needs clay.
         if (!entry && isOriginalClay(settings)) continue
-        if (!entry) shaped.set(id, (entry = prepare(id, root)))
+        if (!entry) shaped.set(target.id, (entry = prepare(target)))
         shape(entry, settings)
       }
     },

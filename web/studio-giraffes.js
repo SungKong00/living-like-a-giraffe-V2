@@ -1,3 +1,4 @@
+import { giraffeProportions } from './giraffe-proportions.js'
 import { LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader'
 import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup'
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode'
@@ -10,8 +11,8 @@ import '@babylonjs/loaders/glTF/2.0'
 // Giraffes in the editing scene. The rigged model is read once and cloned
 // with its skeleton for each giraffe; a motion file's clip is copied onto a
 // giraffe by matching node names, so any motion made on the same armature
-// plays on every giraffe. Before a model is uploaded each giraffe shows a
-// life-size translucent stand-in.
+// plays on every giraffe. A translucent stand-in marks the placement while
+// the bundled or uploaded model loads.
 
 const fileUrl = (id) => '/api/admin/giraffes/files/' + id + '.glb'
 
@@ -29,7 +30,7 @@ export function giraffeLayer(world) {
   const herd = new Map()
   const motions = new Map()
   let model = null,
-    modelId = null,
+    modelId,
     loading = null,
     standIn = null
   let generation = 0
@@ -67,6 +68,7 @@ export function giraffeLayer(world) {
     for (const node of [entry.root, ...entry.root.getDescendants(false)])
       world.owners.delete(node)
     entry.group?.dispose()
+    entry.proportions?.dispose()
     entry.root.dispose(false, false)
     for (const skeleton of entry.skeletons) skeleton.dispose()
   }
@@ -100,7 +102,18 @@ export function giraffeLayer(world) {
       body.material = standInMaterial()
       body.parent = root
     }
-    const entry = { root, nodes, skeletons, group: null, motionKey: null }
+    world.includeClayGiraffe(
+      root.getChildMeshes().filter((mesh) => mesh.getTotalVertices()),
+    )
+    const proportions = giraffeProportions(scene, nodes)
+    const entry = {
+      root,
+      nodes,
+      skeletons,
+      proportions,
+      group: null,
+      motionKey: null,
+    }
     register(entry, g.id)
     return entry
   }
@@ -134,18 +147,31 @@ export function giraffeLayer(world) {
       if (id === modelId) return loading
       modelId = id
       const mine = ++generation
-      loading = (id ? load(id) : Promise.resolve(null)).then((container) => {
-        if (mine !== generation) {
-          container?.dispose()
-          return
-        }
-        model?.dispose()
-        model = container
-        for (const [gid, entry] of herd) {
-          release(entry)
-          herd.delete(gid)
-        }
-      })
+      loading = (
+        id
+          ? load(id)
+          : LoadAssetContainerAsync(
+              '/api/admin/clay-giraffe?outfit=base',
+              scene,
+              { pluginExtension: '.glb' },
+            )
+      )
+        .then((container) => {
+          if (mine !== generation) {
+            container?.dispose()
+            return
+          }
+          model?.dispose()
+          model = container
+          for (const [gid, entry] of herd) {
+            release(entry)
+            herd.delete(gid)
+          }
+        })
+        .catch((error) => {
+          if (mine === generation) modelId = undefined
+          throw error
+        })
       return loading
     },
     update(layout) {
@@ -167,6 +193,7 @@ export function giraffeLayer(world) {
         entry.root.rotationQuaternion = null
         entry.root.rotation.set(0, (g.yaw * Math.PI) / 180, 0)
         entry.root.scaling.setAll(g.scale)
+        entry.proportions?.set(g.proportions)
         play(entry, giraffeMotion(layout, g))
       }
     },
@@ -174,6 +201,7 @@ export function giraffeLayer(world) {
     root: (id) => herd.get(id)?.root,
     /** Whether a giraffe shows the rigged model (not the stand-in). */
     rigged: () => !!model,
+    supportsProportions: (id) => !!herd.get(id)?.proportions,
     /** True while the giraffe is playing a clip (for tests and the inspector). */
     playing(id) {
       return !!herd.get(id)?.group?.isPlaying

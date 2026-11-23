@@ -155,7 +155,13 @@ export function Brand(props) {
   return el(
     'a',
     { class: 'ui-brand', href: o.href, 'aria-label': '리라지 홈' },
-    el('span', { class: 'ui-brand__mark', 'aria-hidden': 'true' }, '리'),
+    el('img', {
+      class: 'ui-brand__mark',
+      src: '/brand/giraffe.png',
+      alt: '',
+      width: '28',
+      height: '28',
+    }),
     el('span', { class: 'ui-brand__name' }, '리라지'),
     o.product ? el('span', { class: 'ui-brand__product' }, o.product) : null,
   )

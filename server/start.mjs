@@ -117,11 +117,16 @@ app.get('/api/world/:id', (req, res) => {
 app.get('/api/admin/draft', (req, res) =>
   res.json(editorView(store.state.draft)),
 )
-app.get('/api/admin/clay-giraffe', (_req, res) =>
+app.get('/api/admin/clay-giraffe', (req, res) =>
   res
     .type('model/gltf-binary')
     .sendFile(
-      path.resolve('assets-source/characters/riragi-clay/riragi-giraffe.glb'),
+      path.resolve(
+        'assets-source/characters/riragi-clay',
+        req.query.outfit === 'base'
+          ? 'riragi-giraffe-base.glb'
+          : 'riragi-giraffe.glb',
+      ),
     ),
 )
 app.get('/api/admin/clay-samples', async (_req, res) => {

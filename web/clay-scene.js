@@ -11,9 +11,14 @@ import { Mesh } from '@babylonjs/core/Meshes/mesh'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial'
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture'
-import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader'
+import { giraffeProportions } from './giraffe-proportions.js'
+import {
+  LoadAssetContainerAsync,
+  ImportMeshAsync,
+} from '@babylonjs/core/Loading/sceneLoader'
 import '@babylonjs/loaders/glTF/2.0'
 import '@babylonjs/loaders/glTF/glTFFileLoader'
+import { clayMotion } from './clay-motion.js'
 import { clayDeformer } from './clay-geometry.js'
 
 function contactShadow(scene) {
@@ -43,12 +48,17 @@ function contactShadow(scene) {
   return ground
 }
 
-function compareMesh(original, kind, deforms, wearable = null) {
-  const sample = original.clone(original.name + ' 점토', original.parent, true)
+function compareMesh(
+  original,
+  kind,
+  deforms,
+  wearable = null,
+  giraffeHeight,
+  sample = original.clone(original.name + ' 점토', original.parent, true),
+) {
   original.layerMask = 1
   sample.layerMask = 2
   original.isPickable = sample.isPickable = false
-  sample.skeleton = original.skeleton
   let deform
   if (deforms) {
     sample.makeGeometryUnique()
@@ -58,7 +68,7 @@ function compareMesh(original, kind, deforms, wearable = null) {
         sample.getVerticesData(attribute).slice(),
         true,
       )
-    deform = clayDeformer(sample, kind)
+    deform = clayDeformer(sample, kind, giraffeHeight)
   }
   return { original, sample, deform, wearable }
 }
@@ -73,14 +83,43 @@ async function loadComparison(scene) {
     })
   const [bench, giraffe] = await Promise.all([
     load('/api/admin/clay-samples'),
-    load('/api/admin/clay-giraffe'),
+    LoadAssetContainerAsync('/api/admin/clay-giraffe', scene, {
+      pluginExtension: '.glb',
+      pluginOptions: {
+        gltf: { createInstances: false, animationStartMode: 0 },
+      },
+    }),
   ])
+  giraffe.addAllToScene()
+  const copy = giraffe.instantiateModelsToScene((name) => name, false, {
+    doNotInstantiate: true,
+  })
+  const nodes = new Map(
+    copy.rootNodes
+      .flatMap((root) => [root, ...root.getDescendants()])
+      .map((node) => [node.name, node]),
+  )
+  const proportions = giraffeProportions(scene, nodes)
+  // A single clock drives both independent rigs so clothing and pose match.
+  const glance = giraffe.animationGroups.find((g) => g.name === 'LookAround')
+  for (const group of copy.animationGroups) {
+    if (group.name === glance?.name)
+      for (const track of group.targetedAnimations)
+        glance.addTargetedAnimation(track.animation, track.target)
+    group.dispose()
+  }
   const pieces = bench.meshes.filter((mesh) => mesh.getTotalVertices())
   for (const mesh of pieces) {
     mesh.computeWorldMatrix(true)
     mesh.increaseVertices(23)
   }
   const original = Mesh.MergeMeshes(pieces, true, true, undefined, false, true)
+  // The studio asset's skinned vertex buffers share one ground-based rest space.
+  const giraffeHeight = Math.max(
+    ...giraffe.meshes
+      .filter((mesh) => mesh.skeleton && mesh.getTotalVertices())
+      .map((mesh) => mesh.getBoundingInfo().boundingBox.maximum.y),
+  )
   const parts = giraffe.meshes
     .filter((m) => m.getTotalVertices())
     .map((m) => {
@@ -96,13 +135,19 @@ async function loadComparison(scene) {
           ? 'flower'
           : null
       // The clip's geometry is local to a bone socket. Its attachment is rigid.
-      return compareMesh(m, 'giraffe', wearable !== 'flower', wearable)
+      return compareMesh(
+        m,
+        'giraffe',
+        wearable !== 'flower',
+        wearable,
+        giraffeHeight,
+        nodes.get(m.name),
+      )
     })
   return {
     parts: { bench: [compareMesh(original, 'bench', true)], giraffe: parts },
-    glance: giraffe.animationGroups.find(
-      (group) => group.name === 'LookAround',
-    ),
+    glance,
+    proportions,
   }
 }
 
@@ -144,8 +189,11 @@ export async function clayScene(canvas) {
   )
   key.intensity = 2.0
   const shadow = contactShadow(scene)
+  const motion = clayMotion(scene, twin)
   let models = {},
     glance,
+    proportions,
+    extraHeight = 0,
     outfit = 'none',
     moving = false
   let selected = 'bench'
@@ -153,6 +201,7 @@ export async function clayScene(canvas) {
   resize.observe(canvas)
   function dispose() {
     resize.disconnect()
+    proportions?.dispose()
     for (const part of Object.values(models).flat()) part.deform?.dispose()
     scene.dispose()
     engine.dispose()
@@ -163,7 +212,9 @@ export async function clayScene(canvas) {
       camera.inertialBetaOffset =
       camera.inertialRadiusOffset =
         0
-    camera.setTarget(new Vector3(0, bench ? 0.32 : 1.85, bench ? 0 : 0.1))
+    camera.setTarget(
+      new Vector3(0, bench ? 0.32 : 2.05 + extraHeight / 2, bench ? 0 : 0.1),
+    )
     camera.alpha = bench ? 0.66 : 1.01
     camera.beta = bench ? 1.02 : 1.32
     camera.radius = 10
@@ -199,6 +250,13 @@ export async function clayScene(canvas) {
   try {
     const comparison = await loadComparison(scene)
     models = comparison.parts
+    motion.include(models.bench[0].sample)
+    motion.includeGiraffe(
+      models.giraffe
+        .filter((part) => part.wearable !== 'flower')
+        .map((part) => part.sample),
+    )
+    proportions = comparison.proportions
     glance = comparison.glance
     show(selected)
     scene.onBeforeCameraRenderObservable.add((drawing) => {
@@ -209,10 +267,14 @@ export async function clayScene(canvas) {
         twin.target.copyFrom(camera.target)
         twin.getViewMatrix(true)
       }
-      const aspect = engine.getRenderWidth() / (2 * engine.getRenderHeight())
+      const aspect =
+        engine.getRenderWidth(true) / (2 * engine.getRenderHeight(true))
       const bench = selected === 'bench'
       const height =
-        (Math.max(bench ? 1.85 : 2.34, (bench ? 3.72 : 1.38) / aspect) *
+        (Math.max(
+          bench ? 1.85 : 2.52 + extraHeight / 2,
+          (bench ? 3.72 : 1.38) / aspect,
+        ) *
           camera.radius) /
         10
       drawing.orthoTop = height
@@ -225,9 +287,24 @@ export async function clayScene(canvas) {
         drawing.getProjectionMatrix(),
       )
     })
-    engine.runRenderLoop(() => scene.render())
+    engine.runRenderLoop(() => {
+      motion.advance(performance.now())
+      scene.render()
+    })
     return {
       show,
+      setMotion: motion.set,
+      setProportions(values) {
+        proportions?.set(values)
+        extraHeight = Math.max(
+          0,
+          ((values.legs ?? 1) - 1) * 1.32 +
+            ((values.neck ?? 1) - 1) * 1.5 +
+            ((values.head ?? 1) - 1) * 0.7 +
+            ((values.body ?? 1) - 1) * 0.32,
+        )
+        if (selected === 'giraffe') camera.target.y = 2.05 + extraHeight / 2
+      },
       apply: (settings) => {
         for (const part of models[selected]) part.deform?.apply(settings)
       },

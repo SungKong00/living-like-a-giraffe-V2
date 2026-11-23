@@ -1,3 +1,4 @@
+import { giraffeDimensions } from '../shared/giraffe-proportions.mjs'
 import { sourceDifference, sourceValues } from '../shared/source-lights.mjs'
 import { lightLimit, lightWithDefaults } from '../shared/studio-lights.mjs'
 import { z } from 'zod'
@@ -88,6 +89,16 @@ const clay = z.strictObject({
   depth: percent,
   width: percent,
 })
+// One default per kind of thing: the rooms' own geometry, movable furniture
+// and giraffes. Drafts saved before the split held a single value for all.
+const clayDefaults = z.union([
+  clay.transform((v) => ({ world: v, objects: v, giraffes: v })),
+  z.strictObject({
+    world: clay.optional(),
+    objects: clay.optional(),
+    giraffes: clay.optional(),
+  }),
+])
 // `동작파일ID/클립이름`; null means "standing still" when it overrides.
 const motion = z
   .string()
@@ -105,6 +116,16 @@ const giraffe = z.strictObject({
   position: vector,
   yaw: z.number().min(-360).max(360),
   scale: z.number().min(0.1).max(5),
+  proportions: z
+    .strictObject(
+      Object.fromEntries(
+        Object.entries(giraffeDimensions).map(([key, { min, max }]) => [
+          key,
+          z.number().min(min).max(max).optional(),
+        ]),
+      ),
+    )
+    .optional(),
   motion: motion.optional(),
   speed: speed.optional(),
 })
@@ -112,7 +133,15 @@ const layout = z.strictObject({
   // World-wide values every object follows unless it overrides them.
   defaults: z
     .strictObject({
-      clay: clay.optional(),
+      clay: clayDefaults.optional(),
+      clayMotion: z
+        .strictObject({
+          enabled: z.boolean(),
+          strength: percent,
+          style: z.enum(['surface', 'screen']).optional(),
+          hatch: percent.optional(),
+        })
+        .optional(),
       giraffe: z
         .strictObject({ motion: motion.optional(), speed: speed.optional() })
         .optional(),
@@ -184,7 +213,11 @@ export function validate(input, catalog) {
     if (!rooms.includes(g.room)) throw Error(g.label + '의 방을 확인하세요.')
   // An object removed here or by a Blender handoff takes its overrides along.
   if (data.overrides?.clay) {
-    const owners = new Set([...data.items.map((i) => i.id), ...giraffeIds])
+    const owners = new Set([
+      ...rooms,
+      ...data.items.map((i) => i.id),
+      ...giraffeIds,
+    ])
     for (const key of Object.keys(data.overrides.clay))
       if (!owners.has(key)) delete data.overrides.clay[key]
     if (!Object.keys(data.overrides.clay).length) delete data.overrides.clay
