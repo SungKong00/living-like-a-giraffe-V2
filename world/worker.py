@@ -55,36 +55,13 @@ def run(command, source, out, request=None):
         wrap_mesh_anchors(scene)
         bake(scene, out)
         export_glb(scene, out / "raw.glb")
+    elif command == "studio":
+        from studio_lighting import prepare
+        prepare(scene, out)
+        export_glb(scene, out / "raw.glb")
     else:
         manifest["handoff"] = scene.get("handoff", "")
         (out / "catalog.json").write_text(json.dumps(manifest, ensure_ascii=False))
-        # The editable scene builds web lights from the draft.
-        apply_web_lights(scene, [])
-        # Merge fixed surfaces only inside their owner's local space.
-        from bake import render_meshes
-        from model import tagged, appearance
-
-        wrap_mesh_anchors(scene)
-        cache = {}
-        for item in tagged(scene, "itemId").values():
-            appearance(item, {"color": "original", "finish": "original"}, cache)
-
-        for room in tagged(scene, "roomId").values():
-            fixed = [
-                obj
-                for obj in room.children_recursive
-                if obj.type in {"MESH", "FONT", "CURVE"}
-                and not any("itemId" in parent for parent in [obj, *ancestors(obj)])
-            ]
-            if fixed:
-                render_meshes(fixed, room)
-        export_glb(scene, out / "raw.glb")
-
-
-def ancestors(obj):
-    while obj.parent:
-        obj = obj.parent
-        yield obj
 
 
 if __name__ == "__main__":

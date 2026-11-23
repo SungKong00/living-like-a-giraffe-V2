@@ -39,7 +39,6 @@ import {
 import { previewLayout } from './preview.js'
 import { EditHistory } from './history.js'
 import { lightInspector } from './light-inspector.js'
-import { automaticLighting } from './studio-lighting.js'
 import { selectionPreview } from './selection-preview.js'
 import { openEditorScene } from './scene.js'
 import { Autosave } from './autosave.js'
@@ -364,18 +363,13 @@ export async function studio() {
   const properties = el('div')
   inspector.append(portrait, properties)
   let projection
-  const lighting = automaticLighting({
-    editView: view,
-    editor: () => world,
-    flush,
-    revision: () => saved.id,
-  })
+  const viewport = el('div', { class: 'studio-viewport' }, view.host)
   app.replaceChildren(
     el(
       'div',
       { class: 'studio' },
       top,
-      el('div', { class: 'studio-body' }, outline, lighting.host, inspector),
+      el('div', { class: 'studio-body' }, outline, viewport, inspector),
     ),
   )
 
@@ -424,7 +418,6 @@ export async function studio() {
     transient = false
     shown = history.value
     world?.update(shown)
-    lighting.settle(shown)
     projection?.invalidate()
     if (selection && !exists(selection)) selection = null
     render()
@@ -440,7 +433,6 @@ export async function studio() {
   function preview(edit) {
     transient = true
     shown = history.value
-    lighting.live()
     edit(shown)
     world?.update(shown)
     projection?.invalidate()
@@ -1567,9 +1559,8 @@ export async function studio() {
     snapping: () => snapping,
     select: (sel) => select(sel),
     toolbar: floating,
-    dragging(on, kind) {
+    dragging(on) {
       view.host.classList.toggle('is-dragging', on)
-      if (on && kind === 'item') lighting.live()
     },
     revert: () => apply(),
     commitItem(id, values, { copy }) {
@@ -1603,7 +1594,6 @@ export async function studio() {
     throw e
   }
   world.update(shown)
-  lighting.settle(shown)
   projection = selectionPreview(world, portrait)
   canvas = attachCanvas(world, view, hooks)
   render()

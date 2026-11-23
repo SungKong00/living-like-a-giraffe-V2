@@ -113,10 +113,12 @@ app.get('/api/world/:id', (req, res) => {
 app.get('/api/admin/draft', (req, res) =>
   res.json(editorView(store.state.draft)),
 )
-app.get('/api/admin/model/:id', (req, res) => {
+app.get('/api/admin/model/:id', async (req, res) => {
   if (!/^(initial|[a-f0-9-]{36})$/.test(req.params.id))
     return res.sendStatus(404)
-  res.sendFile(path.join(modelDir(req.params.id), 'editor.glb'), {
+  if (!fs.existsSync(path.join(modelDir(req.params.id), 'source.blend')))
+    return res.sendStatus(404)
+  res.sendFile(await jobs.studioAsset(req.params.id), {
     dotfiles: 'allow',
   })
 })

@@ -71,9 +71,9 @@ async function optimize(input, output, expectedRooms, visitor) {
   const doc = await io.read(input)
   const before = identities(doc)
   await Promise.all([MeshoptEncoder.ready, MeshoptDecoder.ready])
-  const baked = visitor && (await finishBakedMaterials(doc))
+  const baked = await finishBakedMaterials(doc)
   await doc.transform(weld(), dedup())
-  if (baked) batchRoomCopies(doc)
+  if (visitor && baked) batchRoomCopies(doc)
   await doc.transform(
     prune({ keepExtras: true, keepLeaves: true }),
     meshopt({ encoder: MeshoptEncoder, level: 'medium' }),

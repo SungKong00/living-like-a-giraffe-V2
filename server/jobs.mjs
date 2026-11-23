@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { optimizeEditor } from '../world/optimize.mjs'
+import { studioFile, buildStudioAsset } from './studio-asset.mjs'
 import { catalog, root, modelDir, put, json } from './world-files.mjs'
 import { conflict } from './store.mjs'
 import { blender } from './blender.mjs'
@@ -83,6 +83,12 @@ export class Jobs {
     }
     return this.#downloads.get(snap.id)
   }
+  studioAsset(model) {
+    const file = studioFile(model)
+    return fs.existsSync(file)
+      ? Promise.resolve(file)
+      : this.#enqueue(() => buildStudioAsset(model))
+  }
   async upload(buffer) {
     const id = randomUUID(),
       dir = modelDir(id)
@@ -99,12 +105,7 @@ export class Jobs {
         )
       )
         throw conflict('이 파일의 인계 기준을 찾을 수 없습니다.')
-      await optimizeEditor(
-        path.join(dir, 'raw.glb'),
-        path.join(dir, 'editor.glb'),
-        candidate.rooms.map((r) => r.id),
-      )
-      fs.rmSync(path.join(dir, 'raw.glb'))
+      await this.studioAsset(id)
       return this.compare(id)
     } catch (e) {
       fs.rmSync(dir, { recursive: true, force: true })

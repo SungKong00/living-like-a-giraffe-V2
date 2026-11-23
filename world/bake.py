@@ -62,7 +62,7 @@ def display_texture(scene, linear_image, out):
         return texture
 
 
-def bake(scene, out):
+def bake(scene, out, *, fixed_only=False):
     rooms = tagged(scene, "roomId")
     visible = {
         obj for room in rooms.values() for obj in [room, *room.children_recursive]
@@ -75,11 +75,15 @@ def bake(scene, out):
     scene.cycles.samples = 6
     scene.render.threads_mode = "FIXED"
     scene.render.threads = 4
+    field = None
+    if fixed_only:
+        from light_field import capture
+        field = capture(scene, rooms)
     outputs = []
     groups = []
     for key, room in rooms.items():
         owners = [room, *[child for child in room.children if "itemId" in child]]
-        for owner in owners:
+        for owner in ([room] if fixed_only else owners):
             children = [owner, *owner.children_recursive]
             if owner == room:
                 editable = {
@@ -156,3 +160,4 @@ def bake(scene, out):
         links.new(emit.outputs[0], output.inputs["Surface"])
         mesh.data.materials.clear()
         mesh.data.materials.append(mat)
+    return field

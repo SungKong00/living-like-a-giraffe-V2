@@ -89,6 +89,26 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
     /missing-riragi-image/,
   )
   const candidate = await jobs.upload(fs.readFileSync(changed))
+  const studioPath = await jobs.studioAsset(candidate.model)
+  const studioBytes = fs.readFileSync(studioPath)
+  const studio = JSON.parse(
+    studioBytes.subarray(20, 20 + studioBytes.readUInt32LE(12)),
+  )
+  const lighting = JSON.parse(
+    studio.nodes.find((n) => n.extras?.studioLighting).extras.studioLighting,
+  )
+  assert.equal(Object.keys(lighting.field).length, 4)
+  for (const field of Object.values(lighting.field)) {
+    assert.equal(field.samples.length, field.size ** 2 * 6 * 3)
+    assert.ok(field.samples.some((value) => value > 0))
+  }
+  assert.ok(
+    lighting.areas.every(
+      (light) => light.width > 0 && light.rotation.length === 4,
+    ),
+  )
+  assert.equal(studio.materials.filter((m) => m.extras?.riragiBaked).length, 4)
+  assert.ok(studio.nodes.some((n) => n.extras?.itemId === twin.id))
   assert.equal(candidate.conflicts.length, 0)
   assert.deepEqual(candidate.lights, [{ ...layout.lights[0], energy: 600 }])
   const result = candidate.items.find((i) => i.id === twin.id)

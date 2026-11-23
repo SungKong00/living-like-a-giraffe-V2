@@ -6,7 +6,6 @@ import { Scene } from '@babylonjs/core/scene'
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import { Camera } from '@babylonjs/core/Cameras/camera'
 import { Vector3, Quaternion, Matrix } from '@babylonjs/core/Maths/math.vector'
-import { bakedSurface, editorLayer } from './baked-surface.js'
 import { addStudioFloor, floorBackground } from './studio-floor.js'
 import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
@@ -86,22 +85,17 @@ async function openScene(
       interaction: 'rotate',
     })
   }
-  const fill = new HemisphericLight('환경', new Vector3(0, 1, 0), scene)
-  fill.intensity = 0.85
-  const sun = new DirectionalLight(
-    '편집 조명',
-    new Vector3(-0.5, -1, -0.4),
-    scene,
-  )
-  sun.intensity = draft ? 1.5 : 0.65
-  sun.position = new Vector3(60, 70, 12)
-  if (draft)
-    for (const light of state.lights || []) {
-      const point = new PointLight('제작 광원', v(light.position), scene)
-      point.diffuse = Color3.FromArray(light.color)
-      point.intensity = light.energy / (4 * Math.PI)
-      point.radius = Math.max(0.1, light.size / 2)
-    }
+  if (!draft) {
+    const fill = new HemisphericLight('환경', new Vector3(0, 1, 0), scene)
+    fill.intensity = 0.85
+    const sun = new DirectionalLight(
+      '관람 조명',
+      new Vector3(-0.5, -1, -0.4),
+      scene,
+    )
+    sun.intensity = 0.65
+    sun.position = new Vector3(60, 70, 12)
+  }
   let imported
   try {
     imported = await ImportMeshAsync(state.asset, scene, {
@@ -112,12 +106,6 @@ async function openScene(
     scene.dispose()
     engine.dispose()
     throw e
-  }
-  if (editing) {
-    for (const mesh of imported.meshes) mesh.layerMask = editorLayer
-    for (const light of scene.lights)
-      if (light !== fill && light !== sun)
-        light.includeOnlyWithLayerMask = editorLayer
   }
   const nodes = [...imported.meshes, ...imported.transformNodes]
   const extras = (n) => n?.metadata?.gltf?.extras || {}
@@ -138,6 +126,17 @@ async function openScene(
   const originals = new Map(
     nodes.filter((n) => extras(n).itemId).map((n) => [extras(n).itemId, n]),
   )
+  let illumination
+  if (draft) {
+    try {
+      const { studioIllumination } = await import('./studio-illumination.js')
+      illumination = studioIllumination(scene, rooms, imported.meshes)
+    } catch (error) {
+      scene.dispose()
+      engine.dispose()
+      throw error
+    }
+  }
   const templates = new Map()
   if (draft) {
     for (const node of originals.values()) {
@@ -157,22 +156,6 @@ async function openScene(
   const styled = new Map(),
     materials = new WeakMap(),
     instances = new Map(originals)
-  let shadow
-  if (draft) {
-    const { ShadowGenerator } =
-      await import('@babylonjs/core/Lights/Shadows/shadowGenerator')
-    await import('@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent')
-    // Register the shadow shaders before the generator compiles them.
-    await Promise.all([
-      import('@babylonjs/core/Shaders/shadowMap.vertex'),
-      import('@babylonjs/core/Shaders/shadowMap.fragment'),
-    ])
-    shadow = new ShadowGenerator(1024, sun)
-    shadow.usePercentageCloserFiltering = true
-    for (const mesh of imported.meshes) {
-      mesh.receiveShadows = true
-    }
-  }
   const webLights = new Map()
   function applyLights(next) {
     const lights = next.lights ?? []
@@ -187,7 +170,6 @@ async function openScene(
       if (!point) {
         point = new PointLight(light.label, Vector3.Zero(), scene)
         point.renderPriority = 2
-        if (editing) point.includeOnlyWithLayerMask = editorLayer
         webLights.set(light.id, point)
       }
       point.parent = rooms.get(light.room)
@@ -230,6 +212,7 @@ async function openScene(
             mat.albedoColor = Color3.FromHexString(i.color).toLinearSpace()
           if (i.finish !== 'original')
             mat.roughness = i.finish === 'matte' ? 0.88 : 0.22
+          illumination.style(mat)
           styled.set(key, mat)
         }
         mesh.material = styled.get(key)
@@ -237,10 +220,7 @@ async function openScene(
       }
     }
     applyLights(next)
-    if (shadow)
-      shadow.getShadowMap().renderList = [...instances.values()].flatMap((n) =>
-        n.getChildMeshes(),
-      )
+    illumination.update(instances)
   }
   // Anchors are independent of baked triangles and survive material batching.
   function spotWorld(s) {
@@ -337,6 +317,7 @@ async function openScene(
     onRoom?.(id)
   }
   function look(target, nextZoom = zoom) {
+    wake()
     camera.setTarget(target.clone())
     zoom = Math.min(10, Math.max(0.5, nextZoom))
     resize()
@@ -485,7 +466,6 @@ async function openScene(
   engine.runRenderLoop(() => {
     if (view.host.inert) return
     if (
-      !draft &&
       ready &&
       performance.now() > drawUntil &&
       !camera.inertialAlphaOffset &&
@@ -569,7 +549,6 @@ async function openScene(
   return {
     ...viewer,
     ...cameraView,
-    ...bakedSurface(scene, camera, sun),
     scene,
     camera,
     rooms,
@@ -584,11 +563,7 @@ async function openScene(
       const mesh = scene.pick(
         x,
         y,
-        (mesh) =>
-          mesh.layerMask === editorLayer &&
-          mesh.isPickable &&
-          mesh.isEnabled() &&
-          mesh.isVisible,
+        (mesh) => mesh.isPickable && mesh.isEnabled() && mesh.isVisible,
       )?.pickedMesh
       const owners = new Map([...instances].map(([id, n]) => [n, id]))
       for (let n = mesh; n; n = n.parent) {
@@ -603,6 +578,7 @@ async function openScene(
       markers()
     },
     showBox(s) {
+      wake()
       if (!box) {
         box = MeshBuilder.CreateBox('클릭 범위', { size: 1 }, scene)
         box.isPickable = false
@@ -619,6 +595,7 @@ async function openScene(
       }
     },
     update(next) {
+      wake()
       layout = next
       applyItems(next)
       markers()

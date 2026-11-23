@@ -47,6 +47,11 @@ try {
     )
   }
   const before = await (await fetch(origin + '/api/world')).json()
+  const bakes = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url() === origin + '/api/admin/lighting')
+      bakes.push(r.url())
+  })
   await page.goto(origin + '/studio')
   await page.getByLabel('관리자 키').fill(key)
   await page.getByRole('button', { name: '스튜디오 열기' }).click()
@@ -56,7 +61,6 @@ try {
   await page.waitForFunction(
     () => performance.getEntriesByName('riragi-world-ready').length,
   )
-  await page.locator('[data-lighting="baked"]').waitFor()
   assert.equal(await page.locator('.studio-viewport canvas').count(), 1)
   assert.equal(
     (await page.request.get(origin + '/api/admin/status').then((r) => r.json()))
@@ -67,23 +71,9 @@ try {
     (await page.request.get(origin + '/api/world').then((r) => r.json())).id,
     before.id,
   )
-  const lightFiles = await page.evaluate(() =>
-    performance
-      .getEntriesByType('resource')
-      .map((r) => r.name)
-      .filter((u) => u.includes('/api/admin/lighting/')),
-  )
-  assert.equal(lightFiles.length, 1)
-  assert.equal((await fetch(lightFiles[0])).status, 401)
   await page.getByRole('button', { name: '조명 추가', exact: true }).click()
   await page.getByLabel('조명 이름').waitFor()
   const energy = page.getByRole('slider', { name: '조명 출력' })
-  const bakes = []
-  page.on('request', (r) => {
-    if (r.method() === 'POST' && r.url() === origin + '/api/admin/lighting')
-      bakes.push(r.postDataJSON().revision)
-  })
-  // Keep a gesture open longer than the settle delay. Only its release may bake.
   await energy.evaluate((input) => {
     for (const value of [450, 420, 360]) {
       input.value = String(value)
@@ -101,23 +91,14 @@ try {
     .then((r) => r.json())
   assert.equal(edited.layout.lights[0].color, '#ffccaa')
   assert.equal(edited.layout.lights[0].energy, 360)
-  const markers = () =>
-    page
-      .locator('.studio-viewport .ui-pin')
-      .evaluateAll((nodes) =>
-        nodes.map((node) => [node.style.left, node.style.top]),
-      )
-  const pose = await markers()
-  await page.locator('[data-lighting="baked"]').waitFor({ timeout: 180000 })
-  assert.deepEqual(bakes.slice(priorRequests), [edited.id])
-  assert.deepEqual(await markers(), pose)
+  await page.waitForTimeout(1300)
+  assert.deepEqual(bakes, [])
   assert.equal(await page.getByLabel('조명 이름').inputValue(), '점광원 1')
   assert.equal(
     (await page.request.get(origin + '/api/world').then((r) => r.json())).id,
     before.id,
   )
   await page.getByRole('button', { name: '조명 삭제' }).click()
-  await page.locator('[data-lighting="baked"]').waitFor()
   await tree('나무 벤치').click()
   // Selecting from the list opens the inspector; ⌘/Ctrl+D duplicates.
   await page.getByLabel('이름', { exact: true }).waitFor()
@@ -238,6 +219,7 @@ try {
     .click()
   await preview.getByRole('button', { name: '새 안내', exact: true }).click()
   await preview.getByRole('button', { name: '닫기' }).click()
+  assert.deepEqual(bakes, [])
   assert.equal(
     (await (await fetch(origin + '/api/world')).json()).id,
     before.id,

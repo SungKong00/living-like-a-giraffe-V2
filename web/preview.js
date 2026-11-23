@@ -17,13 +17,15 @@ export async function previewCandidate(candidate, choices) {
   const state = await api('admin/candidate/' + candidate.model)
   for (const c of candidate.conflicts) {
     if (!choices[c.key]) continue
-    const [id, prop] = c.key.split('.')
+    const isLight = c.key.startsWith('light:')
+    const list = isLight ? 'lights' : 'items'
+    const [id, prop] = (isLight ? c.key.slice(6) : c.key).split('.')
     const val = c[choices[c.key]],
-      item = state.layout.items.find((i) => i.id === id)
+      item = state.layout[list].find((i) => i.id === id)
     if (prop && item) item[prop] = val
     else if (!prop) {
-      state.layout.items = state.layout.items.filter((i) => i.id !== id)
-      if (val) state.layout.items.push(val)
+      state.layout[list] = state.layout[list].filter((i) => i.id !== id)
+      if (val) state.layout[list].push(val)
     }
   }
   return showPreview(state, {
