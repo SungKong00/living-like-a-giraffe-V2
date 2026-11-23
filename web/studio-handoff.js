@@ -1,4 +1,15 @@
-import { api, el, button } from './ui.js'
+import { api } from './ui.js'
+import {
+  el,
+  Button,
+  ColorDot,
+  Dialog,
+  Icon,
+  RadioCards,
+  Select,
+  Spinner,
+  Steps,
+} from './ds/index.js'
 import { previewCandidate } from './preview.js'
 import { yawOf } from './edit-ops.js'
 
@@ -14,28 +25,18 @@ const props = {
 const finishes = { original: '원본', matte: '무광', gloss: '유광' }
 
 function describe(prop, value, rooms) {
-  if (value == null) return el('span', { class: 'muted' }, '삭제됨')
-  if (!prop) return el('span', {}, '있음 · ' + value.label)
-  if (prop === 'rotation') return el('span', {}, yawOf(value) + '°')
+  if (value == null) return '삭제됨'
+  if (!prop) return '있음 · ' + value.label
+  if (prop === 'rotation') return yawOf(value) + '°'
   if (prop === 'position' || prop === 'scale')
-    return el(
-      'span',
-      {},
-      value.map((v) => Math.round(v * 100) / 100).join(' · '),
-    )
+    return value.map((v) => Math.round(v * 100) / 100).join(' · ')
   if (prop === 'color')
     return value === 'original'
-      ? el('span', {}, '원본 색')
-      : el(
-          'span',
-          {},
-          el('i', { class: 'chip', style: 'background:' + value }),
-          value,
-        )
-  if (prop === 'finish') return el('span', {}, finishes[value] || value)
-  if (prop === 'room')
-    return el('span', {}, rooms.find((r) => r.id === value)?.label || value)
-  return el('span', {}, String(value))
+      ? '원본 색'
+      : el('span', { class: 'handoff-color' }, ColorDot(value), value)
+  if (prop === 'finish') return finishes[value] || value
+  if (prop === 'room') return rooms.find((r) => r.id === value)?.label || value
+  return String(value)
 }
 
 // Blender round trip as three steps: send the full file, take the edited file
@@ -45,19 +46,12 @@ export function openHandoff({ flush, draft, rooms, onError }) {
     choices = {},
     replacements = {},
     busy = ''
-  const dialog = el('dialog', { class: 'sheet', 'aria-label': 'Blender 인계' })
-  const body = el('div', { class: 'sheet-body' })
-  dialog.append(
-    el(
-      'div',
-      { class: 'sheet-head' },
-      el('strong', {}, 'Blender 인계'),
-      button('닫기', () => dialog.close()),
-    ),
-    body,
-  )
-  document.body.append(dialog)
-  dialog.addEventListener('close', () => dialog.remove())
+  const dialog = Dialog({
+    title: 'Blender 인계',
+    description:
+      '제작자와 전체 .blend 파일을 주고받고, 바뀐 점을 확인해 초안에 합칩니다.',
+    size: 'lg',
+  })
 
   async function task(message, fn) {
     busy = message
@@ -100,155 +94,185 @@ export function openHandoff({ flush, draft, rooms, onError }) {
     location.reload()
   }
 
-  function render() {
-    const layout = draft()
+  function dropzone() {
     const file = el('input', {
       type: 'file',
       accept: '.blend',
-      id: 'handoff-file',
+      class: 'sr-only',
+      disabled: !!busy,
     })
     file.onchange = () =>
       file.files[0] &&
       task('Blender 파일을 확인하는 중…', () => upload(file.files[0]))
-    const parts = [
+    return el(
+      'label',
+      { class: 'dropzone' },
+      file,
+      el('span', { class: 'dropzone__icon' }, Icon('upload', 'lg')),
       el(
-        'section',
-        { class: 'sheet-step' },
-        el('h3', {}, '1. 제작자에게 보낼 파일'),
-        el(
-          'p',
-          {},
-          '마지막으로 저장한 초안의 배치·복제본·옵션이 담긴 전체 .blend 파일입니다.',
-        ),
+        'strong',
+        {},
+        candidate ? '다른 .blend 파일 선택' : '.blend 파일 선택',
+      ),
+      el('small', {}, '외부 데이터를 패킹해 저장한 전체 파일 하나'),
+    )
+  }
+
+  function review(layout) {
+    const known = [...candidate.rooms, ...candidate.items]
+    const orphans = layout.spots.filter(
+      (s) => !known.some((k) => k.id === s.anchor),
+    )
+    const name = (id) =>
+      [...candidate.items, ...layout.items].find((i) => i.id === id)?.label ||
+      id
+    const unresolved =
+      candidate.conflicts.filter((c) => !choices[c.key]).length +
+      orphans.filter((s) => !replacements[s.id]).length
+    const decisions = [
+      ...candidate.conflicts.map((c) => {
+        const [id, prop] = c.key.split('.')
+        return RadioCards({
+          legend:
+            name(id) + (prop ? ' · ' + (props[prop] || prop) : ' · 가구 자체'),
+          name: c.key,
+          value: choices[c.key],
+          options: [
+            {
+              value: 'web',
+              title: '웹',
+              content: describe(prop, c.web, rooms),
+            },
+            {
+              value: 'file',
+              title: '제작본',
+              content: describe(prop, c.file, rooms),
+            },
+          ],
+          onChange: (side) => {
+            choices[c.key] = side
+            render()
+          },
+        })
+      }),
+      ...orphans.map((s) =>
         el(
           'div',
-          { class: 'button-row' },
-          button(
-            '초안 내려받기',
-            () => task('전체 파일을 만드는 중…', () => download('draft')),
-            'primary',
-          ),
-          button('공개본 내려받기', () =>
-            task('전체 파일을 만드는 중…', () => download('published')),
-          ),
-        ),
-      ),
-      el(
-        'section',
-        { class: 'sheet-step' },
-        el('h3', {}, '2. 수정한 파일 올리기'),
-        el('p', {}, '외부 데이터를 패킹해 저장한 전체 파일 하나를 올립니다.'),
-        el(
-          'label',
-          { class: 'drop', for: 'handoff-file' },
-          '.blend 파일 선택',
-          file,
+          { class: 'handoff-orphan' },
+          el('strong', {}, s.label + ' · 연결 대상이 사라짐'),
+          Select({
+            label: s.label + ' 연결 복구',
+            value: replacements[s.id] || '',
+            options: [
+              { value: '', label: '연결할 대상을 고르세요' },
+              ...known.map((k) => ({ value: k.id, label: k.label })),
+              { value: '__delete', label: '이 클릭 영역 삭제' },
+            ],
+            onChange: (v) => {
+              replacements[s.id] = v
+              render()
+            },
+          }),
         ),
       ),
     ]
-    if (candidate) {
-      const known = [...candidate.rooms, ...candidate.items]
-      const orphans = layout.spots.filter(
-        (s) => !known.some((k) => k.id === s.anchor),
-      )
-      const name = (id) =>
-        [...candidate.items, ...layout.items].find((i) => i.id === id)?.label ||
-        id
-      const unresolved =
-        candidate.conflicts.filter((c) => !choices[c.key]).length +
-        orphans.filter((s) => !replacements[s.id]).length
-      const apply = button(
-        '검토 결과를 초안에 적용',
-        () => task('초안에 적용하는 중…', accept),
-        'primary',
-      )
-      apply.disabled = unresolved > 0
-      parts.push(
-        el(
-          'section',
-          { class: 'sheet-step' },
-          el('h3', {}, '3. 바뀐 점 확인'),
-          el(
-            'p',
-            {},
-            candidate.conflicts.length || orphans.length
-              ? '웹과 제작본이 같은 항목을 다르게 바꿨습니다. 남길 값을 고르세요.'
-              : '충돌이 없습니다. 미리 보고 초안에 적용하세요.',
-          ),
-          ...candidate.conflicts.map((c) => {
-            const [id, prop] = c.key.split('.')
-            return el(
-              'fieldset',
-              { class: 'conflict' },
-              el(
-                'legend',
-                {},
-                name(id) +
-                  (prop ? ' · ' + (props[prop] || prop) : ' · 가구 자체'),
-              ),
-              ...[
-                ['web', '웹', c.web],
-                ['file', '제작본', c.file],
-              ].map(([side, title, value]) =>
-                el(
-                  'label',
-                  { class: choices[c.key] === side ? 'on' : null },
-                  el('input', {
-                    type: 'radio',
-                    name: c.key,
-                    checked: choices[c.key] === side ? '' : null,
-                    onchange: () => {
-                      choices[c.key] = side
-                      render()
-                    },
-                  }),
-                  el('b', {}, title),
-                  describe(prop, value, rooms),
-                ),
-              ),
-            )
-          }),
-          ...orphans.map((s) => {
-            const select = el(
-              'select',
-              { 'aria-label': s.label + ' 연결 복구' },
-              el('option', { value: '' }, '연결할 대상을 고르세요'),
-              ...known.map((k) => el('option', { value: k.id }, k.label)),
-              el('option', { value: '__delete' }, '이 클릭 영역 삭제'),
-            )
-            select.value = replacements[s.id] || ''
-            select.onchange = () => {
-              replacements[s.id] = select.value
-              render()
-            }
-            return el(
-              'fieldset',
-              { class: 'conflict' },
-              el('legend', {}, s.label + ' · 연결 대상이 사라짐'),
-              select,
-            )
-          }),
-          el(
-            'div',
-            { class: 'button-row' },
-            button('최신 초안과 다시 비교', () =>
-              task('다시 비교하는 중…', compare),
+    const apply = Button({
+      label: '검토 결과를 초안에 적용',
+      variant: 'primary',
+      icon: 'check',
+      disabled: unresolved > 0 || !!busy,
+      onClick: () => task('초안에 적용하는 중…', accept),
+    })
+    dialog.setFooter(
+      unresolved
+        ? el(
+            'small',
+            { class: 'handoff-remaining' },
+            '남은 선택 ' + unresolved + '건',
+          )
+        : null,
+      el('span', { class: 'dialog-spacer' }),
+      Button({
+        label: '최신 초안과 다시 비교',
+        variant: 'ghost',
+        disabled: !!busy,
+        onClick: () => task('다시 비교하는 중…', compare),
+      }),
+      Button({
+        label: '선택한 결과 미리보기',
+        icon: 'preview',
+        disabled: !!busy,
+        onClick: () => task('', () => previewCandidate(candidate, choices)),
+      }),
+      apply,
+    )
+    return el(
+      'div',
+      { class: 'handoff-review' },
+      el(
+        'p',
+        { class: 'handoff-note' },
+        candidate.conflicts.length || orphans.length
+          ? '웹과 제작본이 같은 항목을 다르게 바꿨습니다. 남길 값을 고르세요.'
+          : '충돌이 없습니다. 미리 보고 초안에 적용하세요.',
+      ),
+      ...decisions,
+    )
+  }
+
+  function render() {
+    const layout = draft()
+    dialog.body.replaceChildren(
+      Steps({
+        label: 'Blender 인계 단계',
+        steps: [
+          {
+            title: '제작자에게 보낼 파일',
+            description:
+              '마지막으로 저장한 초안의 배치·복제본·옵션이 담긴 전체 .blend 파일입니다.',
+            state: candidate ? 'done' : 'current',
+            content: el(
+              'div',
+              { class: 'handoff-actions' },
+              Button({
+                label: '초안 내려받기',
+                icon: 'download',
+                variant: 'primary',
+                disabled: !!busy,
+                onClick: () =>
+                  task('전체 파일을 만드는 중…', () => download('draft')),
+              }),
+              Button({
+                label: '공개본 내려받기',
+                icon: 'download',
+                disabled: !!busy,
+                onClick: () =>
+                  task('전체 파일을 만드는 중…', () => download('published')),
+              }),
             ),
-            button('선택한 결과 미리보기', () =>
-              task('', () => previewCandidate(candidate, choices)),
-            ),
-            apply,
-          ),
-          unresolved
-            ? el('small', { class: 'muted' }, '남은 선택 ' + unresolved + '건')
-            : null,
-        ),
-      )
-    }
-    if (busy) parts.push(el('p', { class: 'callout', role: 'status' }, busy))
-    body.replaceChildren(...parts)
-    for (const b of body.querySelectorAll('button')) b.disabled ||= !!busy
+          },
+          {
+            title: '수정한 파일 올리기',
+            description: '제작자가 고친 파일을 올리면 웹 초안과 비교합니다.',
+            state: candidate ? 'done' : 'upcoming',
+            content: dropzone(),
+          },
+          {
+            title: '바뀐 점 확인',
+            description: candidate
+              ? null
+              : '파일을 올리면 웹과 다르게 바뀐 항목이 여기에 나타납니다.',
+            state: candidate ? 'current' : 'upcoming',
+            content: candidate ? review(layout) : null,
+          },
+        ],
+      }),
+      busy
+        ? el('div', { class: 'handoff-busy', role: 'status' }, Spinner(), busy)
+        : '',
+    )
+    if (!candidate) dialog.setFooter()
   }
   render()
-  dialog.showModal()
+  dialog.open()
 }

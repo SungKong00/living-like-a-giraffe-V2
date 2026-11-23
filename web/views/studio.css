@@ -1,0 +1,361 @@
+/*
+ * Studio layout. Loaded with the studio chunk only, so phones never fetch it.
+ * Like site.css it places design-system components; it does not restyle them.
+ */
+@layer views {
+  body[data-surface='studio'] {
+    overflow: hidden;
+    background: var(--color-bg);
+  }
+  .studio {
+    display: grid;
+    grid-template-rows: var(--studio-bar-height) minmax(0, 1fr);
+    height: 100svh;
+    font: var(--text-ui);
+  }
+
+  /* ---------- Top bar ---------- */
+  .studio-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: 0 var(--space-3) 0 var(--space-4);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .studio-bar__start,
+  .studio-bar__end {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+  .studio-bar__divider {
+    width: 1px;
+    height: 20px;
+    margin: 0 var(--space-1);
+    background: var(--color-border);
+  }
+  .save-status {
+    display: flex;
+    align-items: center;
+    min-width: 92px;
+    padding: 0 var(--space-1);
+  }
+  .publish-badge:empty {
+    display: none;
+  }
+
+  /* ---------- Body ---------- */
+  .studio-body {
+    display: grid;
+    grid-template-columns: 268px minmax(0, 1fr) 316px;
+    min-height: 0;
+  }
+  .studio-outline,
+  .studio-inspector {
+    min-height: 0;
+    overflow: auto;
+    background: var(--color-surface);
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+  .studio-outline {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--color-border-subtle);
+  }
+  .studio-inspector {
+    padding: var(--space-4) var(--space-4) var(--space-10);
+    border-left: 1px solid var(--color-border-subtle);
+  }
+
+  /* ---------- Outline ---------- */
+  .studio-outline__head {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-raised);
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .studio-outline__tools {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-1-5);
+  }
+  .studio-outline__list {
+    display: grid;
+    align-content: start;
+    gap: var(--space-0-5);
+    padding: var(--space-2) var(--space-2) var(--space-8);
+  }
+  .studio-outline__group {
+    display: grid;
+    gap: var(--space-0-5);
+  }
+  .studio-outline__group + .studio-outline__group {
+    margin-top: var(--space-1);
+  }
+
+  /* ---------- Canvas ---------- */
+  .studio-viewport {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+  }
+  .studio-viewport__switch {
+    position: absolute;
+    top: var(--space-3);
+    left: 50%;
+    translate: -50% 0;
+    z-index: var(--z-overlay);
+    white-space: nowrap;
+  }
+  .studio-body .stage {
+    height: 100%;
+    min-height: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .studio-viewbar {
+    position: absolute;
+    left: 50%;
+    bottom: var(--space-4);
+    translate: -50% 0;
+  }
+  .studio-hint {
+    position: absolute;
+    bottom: calc(var(--control-xl) + var(--space-6));
+    left: var(--space-3);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    max-width: calc(100% - 24px);
+    padding: var(--space-1-5) var(--space-3);
+    border-radius: var(--radius-full);
+    background: var(--color-surface-glass);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    font: var(--text-caption);
+    color: var(--color-text-secondary);
+    pointer-events: none;
+  }
+  .studio-hint span + span::before {
+    content: '·';
+    margin-right: var(--space-3);
+    color: var(--color-text-tertiary);
+  }
+  .float-tools {
+    position: absolute;
+    z-index: var(--z-overlay);
+    transform: translate(-50%, -100%);
+  }
+  .stage.is-dragging .float-tools {
+    display: none;
+  }
+  .studio-body .ui-pin--event {
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .shortcut-list__title {
+    display: block;
+    padding: var(--space-2) var(--space-2) var(--space-3);
+    font: var(--text-ui-strong);
+  }
+  .shortcut-list {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: 0 var(--space-2) var(--space-2);
+  }
+  .shortcut-list dt {
+    justify-self: start;
+  }
+  .shortcut-list dd {
+    font: var(--text-caption);
+    color: var(--color-text-secondary);
+  }
+
+  /* ---------- Inspector ---------- */
+  .studio-muted {
+    font: var(--text-caption);
+    color: var(--color-text-tertiary);
+  }
+  .studio-tips {
+    display: grid;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding: var(--space-3);
+    list-style: none;
+    border-radius: var(--radius-lg);
+    background: var(--color-surface-muted);
+    box-shadow: var(--ring-border);
+    text-align: left;
+  }
+  .studio-tips li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-2);
+    font: var(--text-caption);
+    color: var(--color-text-secondary);
+  }
+  .studio-tips .ui-icon {
+    margin-top: 1px;
+    color: var(--color-text-tertiary);
+  }
+
+  /* ---------- Publish popover ---------- */
+  .publish-panel__head {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .publish-panel__title {
+    font: var(--text-h3);
+    letter-spacing: var(--tracking-heading);
+  }
+  .publish-panel {
+    display: grid;
+    gap: var(--space-3);
+    padding: var(--space-1-5);
+  }
+  .publish-panel > .ui-steps {
+    padding: 0 var(--space-2);
+  }
+  .publish-meter {
+    display: flex;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+  }
+  .publish-meter__stage {
+    flex: 1;
+    padding: var(--space-1);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-sunken);
+    text-align: center;
+    font: var(--text-label);
+    color: var(--color-text-tertiary);
+  }
+  .publish-meter__stage[data-state='done'] {
+    background: var(--color-accent-soft-strong);
+    color: var(--color-accent-strong);
+  }
+  .publish-meter__stage[data-state='current'] {
+    background: var(--color-highlight);
+    color: var(--color-text);
+  }
+  .publish-panel__foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    padding: var(--space-2) var(--space-2) var(--space-1);
+  }
+  .publish-panel__version {
+    margin-left: auto;
+    font: var(--text-mono);
+    color: var(--color-text-tertiary);
+  }
+  .publish-panel__loading {
+    padding: var(--space-3);
+    color: var(--color-text-secondary);
+  }
+
+  /* ---------- Blender handoff ---------- */
+  .handoff-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+  .dropzone {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-1);
+    margin-top: var(--space-3);
+    padding: var(--space-6) var(--space-4);
+    border: 1.5px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface-muted);
+    text-align: center;
+    cursor: pointer;
+    transition:
+      border-color var(--duration-fast) var(--ease-out),
+      background-color var(--duration-fast) var(--ease-out);
+  }
+  .dropzone:hover,
+  .dropzone:focus-within {
+    border-color: var(--color-accent);
+    background: var(--color-accent-soft);
+  }
+  .dropzone__icon {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    margin-bottom: var(--space-1);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    box-shadow: var(--shadow-sm);
+  }
+  .dropzone strong {
+    font: var(--text-ui-strong);
+  }
+  .dropzone small {
+    font: var(--text-caption);
+    color: var(--color-text-tertiary);
+  }
+  .handoff-review {
+    display: grid;
+    gap: var(--space-4);
+    margin-top: var(--space-3);
+  }
+  .handoff-note {
+    font: var(--text-ui);
+    color: var(--color-text-secondary);
+  }
+  .handoff-color {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1-5);
+  }
+  .handoff-orphan {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .handoff-orphan strong {
+    font: var(--text-ui-strong);
+  }
+  .handoff-remaining {
+    font: var(--text-caption);
+    color: var(--color-warning-text);
+  }
+  .handoff-busy {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding: var(--space-2-5) var(--space-3);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-sunken);
+    font: var(--text-ui);
+    color: var(--color-text-secondary);
+  }
+
+  @media (max-width: 1180px) {
+    .studio-body {
+      grid-template-columns: 236px minmax(0, 1fr) 296px;
+    }
+    .studio-hint {
+      display: none;
+    }
+  }
+}

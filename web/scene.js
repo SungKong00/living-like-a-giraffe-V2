@@ -18,11 +18,14 @@ import { ImportMeshAsync } from '@babylonjs/core/Loading/sceneLoader'
 import '@babylonjs/core/Culling/ray'
 import '@babylonjs/loaders/glTF/2.0'
 import '@babylonjs/loaders/glTF/glTFFileLoader'
-import { el } from './ui.js'
+import { Pin } from './ds/index.js'
 
 const v = (arr) => Vector3.FromArray(arr)
 export function openVisitorScene(view, state, actions) {
   return openScene(view, state, 'visitor', actions)
+}
+export function openStudioLightingScene(view, state) {
+  return openScene(view, state, 'lighting')
 }
 export function openEditorScene(view, state, actions) {
   return openScene(view, state, 'editor', actions)
@@ -38,7 +41,9 @@ async function openScene(
   { onRoom, onSpot, onSpotDown, onReady } = {},
 ) {
   const editing = mode === 'editor'
-  const draft = mode !== 'visitor'
+  const lighting = mode === 'lighting'
+  const studioCamera = editing || lighting
+  const draft = editing || mode === 'layout'
   if (state.render !== (draft ? 'editor' : 'visitor'))
     throw Error('이 화면에 맞는 월드 모델을 다시 불러오세요.')
   const engine = new Engine(
@@ -61,16 +66,29 @@ async function openScene(
     scene,
   )
   camera.mode = Camera.ORTHOGRAPHIC_CAMERA
-  camera.lowerAlphaLimit = alpha - Math.PI / 6
-  camera.upperAlphaLimit = alpha + Math.PI / 6
-  camera.lowerBetaLimit = Math.PI / 9
-  camera.upperBetaLimit = (5 * Math.PI) / 12
+  if (studioCamera) {
+    camera.lowerBetaLimit = null
+    camera.upperBetaLimit = null
+    camera.allowUpsideDown = true
+  } else {
+    camera.lowerAlphaLimit = alpha - Math.PI / 6
+    camera.upperAlphaLimit = alpha + Math.PI / 6
+    camera.lowerBetaLimit = Math.PI / 9
+    camera.upperBetaLimit = (5 * Math.PI) / 12
+  }
   camera.lowerRadiusLimit = camera.upperRadiusLimit = 150
   camera.inputs.removeByType('ArcRotateCameraMouseWheelInput')
   camera.panningSensibility = 0
-  camera.attachControl(view.canvas, true)
+  camera.attachControl(view.canvas, true, true, studioCamera ? -1 : 2)
   // The studio keeps the left button for selecting, moving and panning.
-  if (editing) camera.inputs.attached.pointers.buttons = [2]
+  if (studioCamera) {
+    camera.inputs.attached.pointers.buttons = [2]
+    camera.movement.input.addEntry({
+      source: 'pointer',
+      button: 2,
+      interaction: 'rotate',
+    })
+  }
   const fill = new HemisphericLight('환경', new Vector3(0, 1, 0), scene)
   fill.intensity = 0.85
   const sun = new DirectionalLight(
@@ -104,7 +122,11 @@ async function openScene(
     nodes.filter((n) => extras(n).roomId).map((n) => [extras(n).roomId, n]),
   )
   try {
-    await addStudioFloor(scene, rooms)
+    const floor = await addStudioFloor(scene, rooms)
+    if (studioCamera && floor)
+      scene.onBeforeRenderObservable.add(() => {
+        floor.isVisible = camera.position.y >= floor.position.y
+      })
   } catch (error) {
     scene.dispose()
     engine.dispose()
@@ -217,17 +239,15 @@ async function openScene(
   function markers() {
     view.overlay.replaceChildren()
     marks = []
-    function add(label, pos, action, cls, down) {
-      const node = el(
-        'button',
-        {
-          class: 'pin ' + cls,
-          type: 'button',
-          onclick: action,
-          onpointerdown: down,
-        },
+    if (lighting) return
+    function add(label, pos, action, tone, down, selected = false) {
+      const node = Pin({
         label,
-      )
+        tone,
+        selected,
+        onClick: action,
+        onPointerDown: down,
+      })
       view.overlay.append(node)
       marks.push({
         node,
@@ -244,7 +264,7 @@ async function openScene(
             r.label,
             () => n.getAbsolutePosition(),
             () => selectRoom(r.id),
-            'room',
+            'place',
           )
       }
     else
@@ -259,8 +279,9 @@ async function openScene(
           s.label,
           () => spotWorld(s),
           () => onSpot?.(s),
-          'spot' + (s.id === chosenSpot ? ' chosen' : ''),
+          'event',
           editing ? (event) => onSpotDown?.(s, event) : undefined,
+          s.id === chosenSpot,
         )
       }
   }
@@ -361,13 +382,13 @@ async function openScene(
   const obs = new ResizeObserver(resize)
   obs.observe(view.host)
   const previous = { x: 0, y: 0 }
-  if (!editing)
+  if (!studioCamera)
     view.canvas.onpointerdown = (e) => {
       if (e.isPrimary) multiTouch = false
       previous.x = e.clientX
       previous.y = e.clientY
     }
-  if (!editing)
+  if (!studioCamera)
     view.canvas.onpointerup = (e) => {
       if (multiTouch) return
       if (Math.hypot(e.clientX - previous.x, e.clientY - previous.y) > 6) return
@@ -433,6 +454,7 @@ async function openScene(
     performance.mark('riragi-world-ready')
   })
   engine.runRenderLoop(() => {
+    if (view.host.inert) return
     if (
       !draft &&
       ready &&
@@ -486,7 +508,28 @@ async function openScene(
       engine.dispose()
     },
   }
-  if (!editing) return viewer
+  if (!studioCamera) return viewer
+  const cameraView = {
+    pose: () => ({
+      target: camera.target.asArray(),
+      alpha: camera.alpha,
+      beta: camera.beta,
+      zoom,
+      focus,
+    }),
+    restorePose(pose) {
+      camera.setTarget(v(pose.target))
+      camera.alpha = pose.alpha
+      camera.beta = pose.beta
+      camera.inertialAlphaOffset = camera.inertialBetaOffset = 0
+      zoom = pose.zoom
+      focus = pose.focus
+      resize()
+      markers()
+      wake()
+    },
+  }
+  if (lighting) return Object.freeze({ ...viewer, ...cameraView })
   // Floor footprints are measured once, before any furniture is added.
   const roomBounds = new Map(
     [...rooms].map(([id, n]) => {
@@ -496,6 +539,7 @@ async function openScene(
   )
   return {
     ...viewer,
+    ...cameraView,
     scene,
     camera,
     rooms,

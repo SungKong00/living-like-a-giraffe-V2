@@ -1,0 +1,459 @@
+/*
+ * Visitor-site layout: header, the 3D world page, the event archive and
+ * shared viewport chrome. Rules here only place design-system components and
+ * lay out view-specific structure; they never restyle a `ui-*` component.
+ */
+@layer views {
+  /* ---------- Site header ---------- */
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: var(--space-4);
+    height: var(--header-height);
+    padding: 0 var(--gutter);
+    background: var(--color-surface-glass);
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    border-bottom: 1px solid var(--color-border-subtle);
+  }
+  .site-header__end {
+    justify-self: end;
+  }
+  body[data-surface='studio'] .site-header {
+    display: none;
+  }
+
+  /* ---------- 3D viewport ---------- */
+  .stage {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    height: calc(100svh - var(--header-height));
+    min-height: 420px;
+    background: var(--color-scene);
+  }
+  .stage canvas,
+  .stage__markers {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .stage canvas {
+    touch-action: none;
+    outline: 0;
+  }
+  .stage__markers {
+    pointer-events: none;
+  }
+  .stage__loading {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    translate: -50% -50%;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-md);
+    font: var(--text-ui);
+    color: var(--color-text-secondary);
+  }
+  .stage__loading a {
+    color: var(--color-text);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .zoom-controls--vertical {
+    flex-direction: column;
+  }
+
+  /* ---------- World page ---------- */
+  .world-intro {
+    position: absolute;
+    top: clamp(20px, 5vh, 56px);
+    left: var(--gutter);
+    display: grid;
+    gap: var(--space-3);
+    max-width: 440px;
+    pointer-events: none;
+  }
+  .world-intro__eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1-5);
+    font: var(--text-label);
+    letter-spacing: var(--tracking-label);
+    color: var(--color-text-secondary);
+  }
+  .world-intro__title {
+    font: var(--text-display);
+    letter-spacing: var(--tracking-display);
+  }
+  .world-intro__description {
+    font: var(--text-body);
+    color: var(--color-text-secondary);
+  }
+  .world-back {
+    position: absolute;
+    left: var(--gutter);
+    bottom: var(--space-6);
+  }
+  .world-zoom {
+    position: absolute;
+    right: var(--gutter);
+    bottom: var(--space-6);
+  }
+
+  /* The card that opens from a pin. */
+  .place-card {
+    position: absolute;
+    left: 50%;
+    bottom: var(--space-6);
+    translate: -50% 0;
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    gap: var(--space-4);
+    width: min(500px, calc(100% - 32px));
+    padding: var(--space-3);
+    border-radius: var(--radius-xl);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-xl), var(--ring-border);
+    animation: place-card-in var(--duration-slow) var(--ease-out);
+  }
+  .place-card--text-only {
+    grid-template-columns: minmax(0, 1fr);
+    padding-left: var(--space-5);
+  }
+  @keyframes place-card-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+  }
+  .place-card__media {
+    width: 100%;
+    height: 100%;
+    min-height: 112px;
+    border-radius: var(--radius-lg);
+    object-fit: cover;
+  }
+  .place-card__body {
+    display: grid;
+    align-content: start;
+    gap: var(--space-1-5);
+    padding: var(--space-1) var(--space-8) var(--space-1) 0;
+  }
+  .place-card__eyebrow {
+    font: var(--text-label);
+    letter-spacing: var(--tracking-label);
+    color: var(--color-accent);
+  }
+  .place-card__title {
+    font: var(--text-h3);
+    letter-spacing: var(--tracking-heading);
+  }
+  .place-card__summary {
+    font: var(--text-ui);
+    line-height: 1.55;
+    color: var(--color-text-secondary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .place-card__action {
+    justify-self: start;
+    margin-top: var(--space-1-5);
+  }
+  .place-card__close {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+  }
+
+  /* Event shortcuts shown over the map on tall phones. */
+  .world-events {
+    display: none;
+  }
+
+  /* ---------- Page shell ---------- */
+  .page {
+    width: min(100%, calc(var(--content-width) + 2 * var(--gutter)));
+    margin: 0 auto;
+    padding: clamp(40px, 7vw, 88px) var(--gutter) var(--space-20);
+  }
+  .page--reading {
+    width: min(100%, calc(var(--reading-width) + 2 * var(--gutter)));
+  }
+  .page-header {
+    display: grid;
+    gap: var(--space-3);
+    margin-bottom: clamp(32px, 5vw, 56px);
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font: var(--text-label);
+    letter-spacing: var(--tracking-label);
+    color: var(--color-accent);
+  }
+  .page-title {
+    font: var(--text-display);
+    letter-spacing: var(--tracking-display);
+  }
+  .page-lead {
+    max-width: 52ch;
+    font: var(--text-lead);
+    color: var(--color-text-secondary);
+  }
+
+  /* ---------- Event archive ---------- */
+  .event-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+    gap: clamp(24px, 3vw, 40px) clamp(20px, 2.5vw, 32px);
+  }
+  .event-card {
+    display: grid;
+    gap: var(--space-4);
+    border-radius: var(--radius-xl);
+  }
+  .event-card:focus-visible {
+    outline-offset: 6px;
+  }
+  .event-card__media {
+    overflow: hidden;
+    border-radius: var(--radius-xl);
+    background: var(--color-surface-sunken);
+    box-shadow: var(--ring-border);
+  }
+  .event-card__media img {
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    object-fit: cover;
+    transition: transform var(--duration-slow) var(--ease-out);
+  }
+  .event-card:hover .event-card__media img {
+    transform: scale(1.03);
+  }
+  .event-card__body {
+    display: grid;
+    gap: var(--space-2);
+  }
+  .event-card__title {
+    font: var(--text-h2);
+    letter-spacing: var(--tracking-heading);
+  }
+  .event-card__summary {
+    font: var(--text-body);
+    color: var(--color-text-secondary);
+  }
+  .event-card__more {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    margin-top: var(--space-1);
+    font: var(--text-ui-strong);
+    color: var(--color-text);
+  }
+  .event-card__more .ui-icon {
+    transition: translate var(--duration-base) var(--ease-out);
+  }
+  .event-card:hover .event-card__more .ui-icon {
+    translate: 3px 0;
+  }
+
+  /* ---------- Event detail ---------- */
+  .event-detail__back {
+    margin: 0 0 var(--space-6) calc(var(--space-2) * -1);
+  }
+  .event-detail__cover {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    margin: var(--space-8) 0 var(--space-10);
+    border-radius: var(--radius-2xl);
+    object-fit: cover;
+    box-shadow: var(--ring-border);
+  }
+  .prose {
+    font: var(--text-prose);
+    letter-spacing: -0.003em;
+    white-space: pre-wrap;
+    color: var(--color-text);
+  }
+  .event-detail__footer {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-10);
+    padding-top: var(--space-6);
+    border-top: 1px solid var(--color-border);
+  }
+
+  /* ---------- Sign-in ---------- */
+  .sign-in {
+    display: grid;
+    place-items: center;
+    min-height: calc(100svh - var(--header-height));
+    padding: var(--space-6) var(--space-4);
+  }
+  .sign-in__card {
+    display: grid;
+    gap: var(--space-5);
+    width: min(400px, 100%);
+    padding: var(--space-8);
+    border-radius: var(--radius-2xl);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-lg), var(--ring-border);
+  }
+  .sign-in__icon {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-lg);
+    background: var(--color-brand);
+    color: var(--color-highlight);
+  }
+  .sign-in__heading {
+    display: grid;
+    gap: var(--space-1-5);
+  }
+  .sign-in__title {
+    font: var(--text-h2);
+    letter-spacing: var(--tracking-heading);
+  }
+  .sign-in__description {
+    font: var(--text-ui);
+    color: var(--color-text-secondary);
+  }
+
+  /* ---------- Preview dialog viewport ---------- */
+  .preview-stage {
+    height: min(68svh, 720px);
+    min-height: 360px;
+  }
+  .preview-zoom {
+    position: absolute;
+    right: var(--space-4);
+    bottom: var(--space-4);
+  }
+  .dialog-spacer {
+    flex: 1;
+  }
+  .preview-note {
+    padding: var(--space-3) var(--space-5);
+    font: var(--text-ui);
+    color: var(--color-text-secondary);
+    border-top: 1px solid var(--color-border-subtle);
+  }
+  .preview-note:empty {
+    display: none;
+  }
+
+  /* ---------- Small screens ---------- */
+  @media (max-width: 760px) {
+    :root {
+      --header-height: 56px;
+    }
+    .site-header {
+      grid-template-columns: auto 1fr;
+    }
+    .site-header .ui-nav {
+      justify-self: end;
+    }
+    .site-header__end {
+      display: none;
+    }
+    .world-intro {
+      max-width: calc(100% - 2 * var(--gutter));
+      gap: var(--space-2);
+    }
+    .world-intro__description {
+      font: var(--text-ui);
+    }
+    .world-back {
+      bottom: auto;
+      top: var(--space-4);
+      left: auto;
+      right: var(--gutter);
+    }
+    .world-intro:has(+ .world-back:not([hidden])) {
+      max-width: calc(100% - 2 * var(--gutter) - 120px);
+    }
+    .world-zoom {
+      bottom: var(--space-4);
+    }
+    /* The open card owns the bottom edge; zoom returns when it closes. */
+    .stage:has(.place-card:not([hidden])) .world-zoom {
+      display: none;
+    }
+    .place-card {
+      bottom: var(--space-3);
+      grid-template-columns: 88px minmax(0, 1fr);
+      gap: var(--space-3);
+    }
+    .place-card__media {
+      min-height: 88px;
+    }
+  }
+  @media (max-width: 760px) and (min-height: 690px) {
+    .world-events {
+      position: absolute;
+      left: var(--gutter);
+      right: var(--gutter);
+      bottom: var(--space-4);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-2);
+    }
+    .world-events__title {
+      grid-column: span 2;
+      font: var(--text-label);
+      letter-spacing: var(--tracking-label);
+      color: var(--color-text-secondary);
+    }
+    .world-events__link {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-1-5);
+      border-radius: var(--radius-lg);
+      background: var(--color-surface);
+      box-shadow: var(--shadow-sm), var(--ring-border);
+      font: var(--text-ui-strong);
+    }
+    .world-events__link img {
+      width: 36px;
+      height: 36px;
+      border-radius: var(--radius-md);
+      object-fit: cover;
+    }
+    .world-events__link span {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .world-events__link .ui-icon {
+      color: var(--color-text-tertiary);
+    }
+    .world-events:not([hidden]) ~ .world-zoom {
+      bottom: 120px;
+    }
+  }
+  @media (pointer: coarse) and (max-device-width: 960px) {
+    .site-header__end {
+      display: none;
+    }
+  }
+}

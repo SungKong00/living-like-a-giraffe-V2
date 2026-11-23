@@ -1,0 +1,213 @@
+/*
+ * Design tokens. Two tiers:
+ *   1. Primitives (--gray-*, --green-*, …) describe raw values. Never use
+ *      them outside this file.
+ *   2. Semantic tokens (--color-*, --space-*, --radius-*, …) describe roles.
+ *      Components and views use only these.
+ * Add a role here before reaching for a new literal value elsewhere.
+ */
+@layer tokens {
+  :root {
+    /* ---- Primitives ---- */
+    --gray-0: #ffffff;
+    --gray-25: #fcfcfa;
+    --gray-50: #f7f6f2;
+    --gray-100: #efeee9;
+    --gray-150: #e7e5de;
+    --gray-200: #dddad1;
+    --gray-300: #c6c2b6;
+    --gray-400: #9e9a8f;
+    --gray-500: #7a766c;
+    --gray-600: #5d5a53;
+    --gray-700: #45433e;
+    --gray-800: #2d2c28;
+    --gray-900: #1c1b18;
+    --gray-950: #121210;
+
+    --green-50: #f1f7ea;
+    --green-100: #e1efd2;
+    --green-200: #c6e2a8;
+    --green-400: #8fcf3a;
+    --green-500: #6aa82a;
+    --green-600: #4d8a1d;
+    --green-700: #3a6b17;
+    --green-900: #1d3d32;
+
+    --lime-200: #ecf8bf;
+    --lime-300: #dcf28a;
+    --lime-400: #c9e85c;
+
+    --clay-400: #d9895a;
+    --clay-500: #c4703f;
+
+    --red-50: #fdf1ed;
+    --red-100: #fadcd2;
+    --red-500: #d24a2e;
+    --red-600: #b43c22;
+    --red-700: #8e2e19;
+
+    --amber-50: #fdf6e4;
+    --amber-100: #f8e7b9;
+    --amber-500: #d99a1e;
+    --amber-700: #7f5604;
+
+    /* ---- Color roles ---- */
+    --color-bg: var(--gray-50);
+    --color-bg-subtle: var(--gray-100);
+    --color-surface: var(--gray-0);
+    --color-surface-raised: var(--gray-0);
+    --color-surface-muted: var(--gray-25);
+    --color-surface-sunken: var(--gray-100);
+    --color-surface-hover: color-mix(in srgb, var(--gray-900) 5%, transparent);
+    --color-surface-pressed: color-mix(
+      in srgb,
+      var(--gray-900) 9%,
+      transparent
+    );
+    --color-surface-glass: color-mix(in srgb, var(--gray-0) 82%, transparent);
+    --color-surface-inverse: var(--gray-900);
+    --color-surface-inverse-hover: var(--gray-800);
+
+    --color-text: var(--gray-900);
+    --color-text-secondary: var(--gray-600);
+    --color-text-tertiary: var(--gray-500);
+    --color-text-disabled: var(--gray-400);
+    --color-text-inverse: var(--gray-0);
+    --color-text-inverse-secondary: color-mix(
+      in srgb,
+      var(--gray-0) 68%,
+      transparent
+    );
+
+    --color-border: var(--gray-200);
+    --color-border-subtle: var(--gray-150);
+    --color-border-strong: var(--gray-300);
+    --color-border-inverse: color-mix(in srgb, var(--gray-0) 16%, transparent);
+
+    --color-brand: var(--green-900);
+    --color-accent: var(--green-600);
+    --color-accent-strong: var(--green-700);
+    --color-accent-soft: var(--green-50);
+    --color-accent-soft-strong: var(--green-100);
+    --color-highlight: var(--lime-300);
+    --color-highlight-strong: var(--lime-400);
+    --color-marker: var(--clay-500);
+
+    --color-success: var(--green-600);
+    --color-success-soft: var(--green-50);
+    --color-warning: var(--amber-500);
+    --color-warning-text: var(--amber-700);
+    --color-warning-soft: var(--amber-50);
+    --color-danger: var(--red-600);
+    --color-danger-strong: var(--red-700);
+    --color-danger-soft: var(--red-50);
+    --color-danger-soft-strong: var(--red-100);
+    --color-danger-on-inverse: #ffb4a2;
+    --color-warning-soft-strong: var(--amber-100);
+
+    --color-focus: var(--green-500);
+    --color-backdrop: color-mix(in srgb, var(--gray-950) 48%, transparent);
+    --color-scene: #eeeae3;
+
+    /* ---- Typography ---- */
+    --font-sans:
+      'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+      system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+    --text-display: 600 clamp(2.25rem, 1.6rem + 2.6vw, 4rem) / 1.08
+      var(--font-sans);
+    --text-h1: 650 2rem/1.2 var(--font-sans);
+    --text-h2: 650 1.375rem/1.3 var(--font-sans);
+    --text-h3: 600 1.0625rem/1.4 var(--font-sans);
+    --text-title: 600 0.9375rem/1.4 var(--font-sans);
+    --text-lead: 400 1.125rem/1.65 var(--font-sans);
+    --text-body: 400 0.9375rem/1.6 var(--font-sans);
+    --text-prose: 400 1.0625rem/1.85 var(--font-sans);
+    --text-ui: 500 0.8125rem/1.35 var(--font-sans);
+    --text-ui-strong: 600 0.8125rem/1.35 var(--font-sans);
+    --text-caption: 400 0.75rem/1.45 var(--font-sans);
+    --text-label: 600 0.6875rem/1.3 var(--font-sans);
+    --text-mono: 500 0.6875rem/1.3 var(--font-mono);
+
+    --tracking-display: -0.035em;
+    --tracking-heading: -0.022em;
+    --tracking-ui: -0.006em;
+    --tracking-label: 0.02em;
+
+    /* ---- Space (4px grid) ---- */
+    --space-0-5: 2px;
+    --space-1: 4px;
+    --space-1-5: 6px;
+    --space-2: 8px;
+    --space-2-5: 10px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+    --space-16: 64px;
+    --space-20: 80px;
+    --gutter: clamp(16px, 4vw, 48px);
+
+    /* ---- Size ---- */
+    --control-xs: 24px;
+    --control-sm: 28px;
+    --control-md: 32px;
+    --control-lg: 40px;
+    --control-xl: 48px;
+    --icon-xs: 12px;
+    --icon-sm: 14px;
+    --icon-md: 16px;
+    --icon-lg: 20px;
+    --header-height: 64px;
+    --studio-bar-height: 52px;
+    --content-width: 1120px;
+    --reading-width: 720px;
+
+    /* ---- Radius ---- */
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-2xl: 22px;
+    --radius-full: 999px;
+
+    /* ---- Elevation ---- */
+    --shadow-xs: 0 1px 2px rgb(28 27 24 / 0.06);
+    --shadow-sm: 0 1px 2px rgb(28 27 24 / 0.06), 0 2px 6px rgb(28 27 24 / 0.05);
+    --shadow-md:
+      0 2px 4px rgb(28 27 24 / 0.05), 0 8px 20px rgb(28 27 24 / 0.08);
+    --shadow-lg:
+      0 4px 10px rgb(28 27 24 / 0.06), 0 18px 44px rgb(28 27 24 / 0.14);
+    --shadow-xl:
+      0 8px 18px rgb(28 27 24 / 0.08), 0 32px 72px rgb(28 27 24 / 0.22);
+    --ring-border: 0 0 0 1px var(--color-border);
+    --ring-focus: 0 0 0 2px var(--color-surface), 0 0 0 4px var(--color-focus);
+
+    /* ---- Motion ---- */
+    --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --duration-fast: 120ms;
+    --duration-base: 180ms;
+    --duration-slow: 280ms;
+
+    /* ---- Layers ---- */
+    --z-raised: 1;
+    --z-sticky: 10;
+    --z-overlay: 20;
+    --z-popover: 30;
+    --z-toast: 50;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root {
+      --duration-fast: 0ms;
+      --duration-base: 0ms;
+      --duration-slow: 0ms;
+    }
+  }
+}

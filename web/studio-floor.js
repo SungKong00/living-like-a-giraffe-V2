@@ -69,4 +69,5 @@ export async function addStudioFloor(scene, rooms) {
   mat.emissiveTexture = texture
   mat.backFaceCulling = false
   floor.material = mat
+  return floor
 }

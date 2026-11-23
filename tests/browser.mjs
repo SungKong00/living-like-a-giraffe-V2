@@ -33,6 +33,8 @@ try {
     ['PUT', 'draft'],
     ['POST', 'publish'],
     ['POST', 'reviews'],
+    ['POST', 'lighting'],
+    ['GET', 'lighting/' + '0'.repeat(64)],
     ['GET', 'reviews/unknown/asset'],
     ['POST', 'reviews/unknown/publish'],
     ['GET', 'download/draft'],
@@ -46,8 +48,62 @@ try {
   await page.goto(origin + '/studio')
   await page.getByLabel('관리자 키').fill(key)
   await page.getByRole('button', { name: '스튜디오 열기' }).click()
-  const saved = () => page.locator('.save-chip.saved').waitFor()
-  const tree = (name) => page.locator('.tree-row', { hasText: name }).first()
+  const saved = () => page.locator('[data-save-state="saved"]').waitFor()
+  const tree = (name) =>
+    page.locator('.ui-tree-item__main', { hasText: name }).first()
+  await page.waitForFunction(
+    () => performance.getEntriesByName('riragi-world-ready').length,
+  )
+  const lightMode = page.getByRole('radio', {
+    name: '방문자 조명',
+    exact: true,
+  })
+  const editMode = page.getByRole('radio', { name: '편집', exact: true })
+  const prepared = page.waitForResponse(
+    (r) => r.url() === origin + '/api/admin/lighting',
+  )
+  await lightMode.click()
+  const lighting = await (await prepared).json()
+  assert.equal(lighting.render, 'visitor')
+  await page.waitForFunction(
+    () => performance.getEntriesByName('riragi-world-ready').length >= 2,
+  )
+  assert.equal(
+    (await page.request.get(origin + '/api/admin/status').then((r) => r.json()))
+      .job,
+    null,
+  )
+  assert.equal(
+    (await page.request.get(origin + '/api/world').then((r) => r.json())).id,
+    before.id,
+  )
+  assert.equal((await fetch(origin + lighting.asset)).status, 401)
+  await editMode.click()
+  // Returning to editing while a lighting request is in flight must win.
+  let releaseLighting
+  const gate = new Promise((resolve) => {
+    releaseLighting = resolve
+  })
+  await page.route(
+    '**/api/admin/lighting',
+    async (route) => {
+      await gate
+      await route.continue()
+    },
+    { times: 1 },
+  )
+  const started = page.waitForRequest(
+    (r) => r.url() === origin + '/api/admin/lighting',
+  )
+  const completed = page.waitForResponse(
+    (r) => r.url() === origin + '/api/admin/lighting',
+  )
+  await lightMode.click()
+  await started
+  await editMode.click()
+  releaseLighting()
+  await completed
+  assert.equal(await editMode.getAttribute('aria-checked'), 'true')
   await tree('나무 벤치').click()
   // Selecting from the list opens the inspector; ⌘/Ctrl+D duplicates.
   await page.getByLabel('이름', { exact: true }).waitFor()
@@ -59,16 +115,35 @@ try {
       label,
     )
   await inspecting('나무 벤치 2')
+  const portrait = page.getByRole('img', { name: '선택 오브젝트 미리보기' })
+  await portrait.waitFor()
+  await page.waitForFunction(() => {
+    const c = document.querySelector('.ui-object-preview')
+    const pixels = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+    return pixels.some(
+      (value, i) => i % 4 === 0 && Math.abs(value - pixels[0]) > 20,
+    )
+  })
+  const originalPortrait = await portrait.evaluate((c) => c.toDataURL())
   await page.getByLabel('이름', { exact: true }).fill('파란 벤치')
   await page.getByLabel('이름', { exact: true }).press('Tab')
   await inspecting('파란 벤치')
   await page.getByLabel('직접 고른 색').fill('#113355')
+  await page.waitForFunction(
+    (before) =>
+      document.querySelector('.ui-object-preview').toDataURL() !== before,
+    originalPortrait,
+  )
   await page.getByRole('radio', { name: '무광' }).click()
   await page
     .locator('[role="radio"][aria-checked="true"]', { hasText: '무광' })
     .waitFor()
-  await page.getByRole('button', { name: '↻ 15°' }).click()
-  await page.getByRole('button', { name: '↻ 15°' }).click()
+  await page
+    .getByRole('button', { name: '오른쪽으로 15° 회전', exact: true })
+    .click()
+  await page
+    .getByRole('button', { name: '오른쪽으로 15° 회전', exact: true })
+    .click()
   await page.getByText('축별 크기').click()
   for (const [field, value] of [
     ['위치 X', '4'],
@@ -114,17 +189,19 @@ try {
   // Deleting is undoable from the notice.
   await page.keyboard.press('Delete')
   await page
-    .locator('#notice')
+    .locator('.ui-toaster')
     .getByRole('button', { name: '되돌리기', exact: true })
     .click()
   await tree('파란 벤치').waitFor()
   await page.getByRole('tab', { name: '행사 페이지' }).click()
-  await page.getByRole('button', { name: '＋ 새 페이지' }).click()
+  await page.getByRole('button', { name: '새 페이지', exact: true }).click()
   await page.getByLabel('제목', { exact: true }).fill('벤치 이야기')
   await page.getByLabel('제목', { exact: true }).press('Tab')
   await page.getByRole('tab', { name: '배치' }).click()
   await tree('파란 벤치').click()
-  await page.getByRole('button', { name: '＋ 클릭 영역 추가' }).click()
+  await page
+    .getByRole('button', { name: '클릭 영역 추가', exact: true })
+    .click()
   await page.getByLabel('표시 이름').fill('새 안내')
   await page.getByLabel('표시 이름').press('Tab')
   await page
@@ -247,7 +324,7 @@ try {
     mobile.on('request', (r) => scripts.push(r.url()))
     await mobile.goto(origin + '/studio')
     await mobile.getByRole('button', { name: '멘탈 사우나', exact: true }).tap()
-    await mobile.locator('.pin.spot').first().tap()
+    await mobile.locator('.ui-pin--event').first().tap()
     await mobile.getByRole('link', { name: '행사 자세히 보기' }).tap()
     assert.equal(await mobile.locator('h1').innerText(), '멘탈 사우나')
     assert.ok(!scripts.some((u) => /\/assets\/studio-/.test(u)))

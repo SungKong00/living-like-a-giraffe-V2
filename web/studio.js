@@ -1,24 +1,51 @@
-import { app, api, el, stage } from './ui.js'
-import { field } from './fields.js'
+import './views/studio.css'
+import { app, api, stage } from './ui.js'
+import {
+  el,
+  renderKeepingFocus,
+  Brand,
+  Button,
+  IconButton,
+  ButtonGroup,
+  TextInput,
+  TextArea,
+  NumberInput,
+  Slider,
+  Select,
+  Segmented,
+  SwatchPicker,
+  Toggle,
+  Field,
+  StatusText,
+  Callout,
+  Kbd,
+  EmptyState,
+  toast,
+  Popover,
+  Menu,
+  Tabs,
+  TreeItem,
+  ObjectPreview,
+  PanelHeader,
+  PanelSection,
+  PropertyRow,
+  Disclosure,
+  Toolbar,
+  ToolbarDivider,
+  Chip,
+  ChipList,
+  Icon,
+} from './ds/index.js'
 import { previewLayout } from './preview.js'
 import { EditHistory } from './history.js'
+import { lightingSwitcher } from './studio-lighting.js'
+import { selectionPreview } from './selection-preview.js'
 import { openEditorScene } from './scene.js'
 import { Autosave } from './autosave.js'
 import { attachCanvas } from './studio-canvas.js'
 import { publishControl } from './studio-publish.js'
 import { openHandoff } from './studio-handoff.js'
 import * as ops from './edit-ops.js'
-import {
-  section,
-  row,
-  text,
-  number,
-  slider,
-  segmented,
-  choice,
-  action,
-  keepFocus,
-} from './studio-fields.js'
 
 const newId = () => crypto.randomUUID()
 const mac = /Mac|iPhone|iPad/.test(navigator.platform)
@@ -51,34 +78,66 @@ const shortcuts = [
   [cmd + 'Z', '되돌리기'],
   ['Esc', '끌기 취소·선택 해제'],
 ]
+const saveStates = {
+  saved: ['저장됨', 'success'],
+  pending: ['저장 대기', 'neutral'],
+  saving: ['저장 중…', 'warning'],
+}
 
 function login() {
-  const secret = el('input', {
-    type: 'password',
-    autocomplete: 'current-password',
-    required: '',
-  })
+  const error = el('div', { class: 'sign-in__error' })
   const form = el(
     'form',
-    { class: 'login' },
-    el('h1', {}, '월드 스튜디오'),
-    field('관리자 키', secret),
-    el('button', { class: 'primary' }, '스튜디오 열기'),
+    { class: 'sign-in__card' },
+    el('span', { class: 'sign-in__icon' }, Icon('key', 'lg')),
+    el(
+      'div',
+      { class: 'sign-in__heading' },
+      el('h1', { class: 'sign-in__title' }, '월드 스튜디오'),
+      el(
+        'p',
+        { class: 'sign-in__description' },
+        '관리자 키로 들어가 공간 배치와 행사 페이지를 편집합니다.',
+      ),
+    ),
+    Field({
+      label: '관리자 키',
+      control: TextInput({
+        label: '관리자 키',
+        name: 'key',
+        type: 'password',
+        autocomplete: 'current-password',
+        required: true,
+        size: 'lg',
+      }),
+    }),
+    error,
+    Button({
+      label: '스튜디오 열기',
+      type: 'submit',
+      variant: 'primary',
+      size: 'lg',
+      wide: true,
+    }),
   )
-  const error = el('p', { class: 'error', role: 'alert' })
-  form.append(error)
   form.onsubmit = async (e) => {
     e.preventDefault()
     try {
-      await api('login', 'POST', { key: secret.value })
+      await api('login', 'POST', { key: new FormData(form).get('key') })
       await studio()
     } catch (err) {
-      error.textContent =
-        err.status === 403 ? '관리자 키가 맞지 않습니다.' : err.message
+      error.replaceChildren(
+        Callout({
+          tone: 'danger',
+          live: true,
+          message:
+            err.status === 403 ? '관리자 키가 맞지 않습니다.' : err.message,
+        }),
+      )
     }
   }
-  app.replaceChildren(form)
-  secret.focus()
+  app.replaceChildren(el('section', { class: 'sign-in' }, form))
+  form.querySelector('input').focus()
 }
 
 export async function studio() {
@@ -89,6 +148,7 @@ export async function studio() {
     if (e.status === 401) return login()
     throw e
   }
+  document.body.dataset.surface = 'studio'
   const history = new EditHistory(saved.layout)
   const rooms = saved.rooms
   const kinds = saved.kinds || []
@@ -101,22 +161,33 @@ export async function studio() {
     canvas = null
   const collapsed = new Set()
   let axesOpen = false
+  // Spot whose destination was switched to an external link that has not been
+  // typed yet. Kept as state so a re-render does not hide the address field.
+  let addressing = null
 
-  // ---- Shell ----
-  const view = stage()
-  const outline = el('aside', { class: 'outline', 'aria-label': '장면 목록' })
-  const inspector = el('aside', { class: 'inspector', 'aria-label': '속성' })
-  const saveChip = el('button', { type: 'button', class: 'save-chip' })
-  const undoButton = action('↶', () => undo(), {
-    title: '되돌리기 (' + cmd + 'Z)',
-    key: 'undo',
+  // ---- Feedback ----
+  function notify(message, undoable) {
+    toast(
+      message,
+      undoable ? { action: { label: '되돌리기', onClick: () => undo() } } : {},
+    )
+  }
+  const fail = (message) => toast(message, { tone: 'danger' })
+
+  // ---- Top bar ----
+  const saveStatus = el('div', { class: 'save-status' })
+  const undoButton = IconButton({
+    icon: 'undo',
+    label: '되돌리기',
+    shortcut: cmd + 'Z',
+    onClick: () => undo(),
   })
-  const redoButton = action('↷', () => redo(), {
-    title: '다시 실행 (' + cmd + '⇧Z)',
-    key: 'redo',
+  const redoButton = IconButton({
+    icon: 'redo',
+    label: '다시 실행',
+    shortcut: cmd + '⇧Z',
+    onClick: () => redo(),
   })
-  undoButton.setAttribute('aria-label', '되돌리기')
-  redoButton.setAttribute('aria-label', '다시 실행')
 
   const autosave = new Autosave({
     async save() {
@@ -134,167 +205,211 @@ export async function studio() {
   const publish = publishControl({
     flush,
     revision: () => saved.id,
-    onError: (m) => toast(m),
+    onError: fail,
   })
 
   const top = el(
     'header',
-    { class: 'studio-top' },
-    el('strong', { class: 'studio-title' }, '월드 스튜디오'),
-    saveChip,
-    el('div', { class: 'history-buttons' }, undoButton, redoButton),
-    el('span', { class: 'spacer' }),
-    action('미리보기', () =>
-      previewLayout(saved, history.value).catch((e) => toast(e.message)),
-    ),
-    action('Blender 인계', () =>
-      openHandoff({
-        flush,
-        draft: () => history.value,
-        rooms,
-        onError: (m) => toast(m),
-      }),
-    ),
-    publish.element,
-  )
-  const snapButton = el(
-    'button',
-    {
-      type: 'button',
-      class: 'toggle on',
-      'aria-pressed': 'true',
-      title: '0.25m 격자와 15° 단위에 맞춥니다',
-      onclick: () => {
-        snapping = !snapping
-        snapButton.classList.toggle('on', snapping)
-        snapButton.setAttribute('aria-pressed', String(snapping))
-      },
-    },
-    '격자 맞춤',
-  )
-  const help = el(
-    'div',
-    { class: 'popover help-pop', hidden: '' },
-    el('strong', {}, '조작 방법'),
-    el(
-      'dl',
-      {},
-      ...shortcuts.flatMap(([k, d]) => [el('dt', {}, k), el('dd', {}, d)]),
-    ),
-  )
-  const helpButton = el(
-    'button',
-    {
-      type: 'button',
-      'aria-label': '조작 방법',
-      title: '조작 방법 (?)',
-      onclick: () => (help.hidden = !help.hidden),
-    },
-    '?',
-  )
-  const viewTools = el(
-    'div',
-    { class: 'view-tools' },
-    snapButton,
-    el(
-      'button',
-      { type: 'button', onclick: () => world?.selectRoom(null) },
-      '전체 보기',
-    ),
-    el(
-      'button',
-      {
-        type: 'button',
-        'aria-label': '축소',
-        onclick: () => world?.zoom(1 / 1.4),
-      },
-      '−',
-    ),
-    el(
-      'button',
-      { type: 'button', 'aria-label': '확대', onclick: () => world?.zoom(1.4) },
-      '＋',
-    ),
-    helpButton,
-  )
-  const hint = el(
-    'p',
-    { class: 'canvas-hint' },
-    '가구를 끌어 옮기기 · 빈 곳을 끌어 화면 이동 · 오른쪽 버튼으로 시점 회전 · 휠로 확대',
-  )
-  const floating = el(
-    'div',
-    {
-      class: 'float-tools',
-      role: 'toolbar',
-      'aria-label': '선택한 가구',
-      hidden: '',
-    },
-    action('복제', () => duplicate(), { title: '복제 (' + cmd + 'D)' }),
-    action('↺', () => rotate(-ops.ROTATE_STEP), { title: '왼쪽으로 15° (Q)' }),
-    action('↻', () => rotate(ops.ROTATE_STEP), { title: '오른쪽으로 15° (E)' }),
-    action('삭제', () => remove(), { cls: 'danger', title: '삭제 (Delete)' }),
-  )
-  floating
-    .querySelectorAll('button')[1]
-    .setAttribute('aria-label', '왼쪽으로 회전')
-  floating
-    .querySelectorAll('button')[2]
-    .setAttribute('aria-label', '오른쪽으로 회전')
-  view.host.append(viewTools, help, hint)
-  app.replaceChildren(
+    { class: 'studio-bar' },
     el(
       'div',
-      { class: 'studio-app' },
-      top,
-      el('div', { class: 'studio-body' }, outline, view.host, inspector),
+      { class: 'studio-bar__start' },
+      Brand({ product: '스튜디오' }),
+      el('span', { class: 'studio-bar__divider', 'aria-hidden': 'true' }),
+      saveStatus,
+      ButtonGroup({ label: '편집 기록', children: [undoButton, redoButton] }),
+    ),
+    el(
+      'div',
+      { class: 'studio-bar__end' },
+      Button({
+        label: '미리보기',
+        icon: 'preview',
+        variant: 'ghost',
+        onClick: () =>
+          previewLayout(saved, history.value).catch((e) => fail(e.message)),
+      }),
+      Button({
+        label: 'Blender 인계',
+        icon: 'handoff',
+        variant: 'ghost',
+        onClick: () =>
+          openHandoff({
+            flush,
+            draft: () => history.value,
+            rooms,
+            onError: fail,
+          }),
+      }),
+      publish.element,
     ),
   )
 
-  // ---- Feedback ----
-  let toastTimer
-  function toast(message, undoable) {
-    const n = document.querySelector('#notice')
-    n.replaceChildren(el('span', {}, message))
-    if (undoable)
-      n.append(
-        el(
-          'button',
-          {
-            type: 'button',
-            onclick: () => {
-              undo()
-              n.hidden = true
-            },
-          },
-          '되돌리기',
-        ),
-      )
-    n.hidden = false
-    clearTimeout(toastTimer)
-    toastTimer = setTimeout(() => (n.hidden = true), 6000)
-  }
+  // ---- Canvas chrome ----
+  const view = stage()
+  const helpButton = IconButton({
+    icon: 'keyboard',
+    label: '조작 방법',
+    shortcut: '?',
+  })
+  const help = Popover({
+    trigger: helpButton,
+    label: '조작 방법',
+    placement: 'top-end',
+    width: 'md',
+    content: () => [
+      el('strong', { class: 'shortcut-list__title' }, '조작 방법'),
+      el(
+        'dl',
+        { class: 'shortcut-list' },
+        ...shortcuts.flatMap(([k, d]) => [
+          el('dt', {}, Kbd(k)),
+          el('dd', {}, d),
+        ]),
+      ),
+    ],
+  })
+  const viewTools = Toolbar({
+    label: '보기 도구',
+    className: 'studio-viewbar',
+    children: [
+      Toggle({
+        label: '격자 맞춤',
+        icon: 'snap',
+        pressed: snapping,
+        hint: '0.25m 격자와 15° 단위에 맞춥니다',
+        onChange: (on) => (snapping = on),
+      }),
+      ToolbarDivider(),
+      IconButton({
+        icon: 'fit',
+        label: '전체 보기',
+        onClick: () => world?.selectRoom(null),
+      }),
+      IconButton({
+        icon: 'minus',
+        label: '축소',
+        onClick: () => world?.zoom(1 / 1.4),
+      }),
+      IconButton({
+        icon: 'add',
+        label: '확대',
+        onClick: () => world?.zoom(1.4),
+      }),
+      ToolbarDivider(),
+      help.element,
+    ],
+  })
+  const hint = el(
+    'p',
+    { class: 'studio-hint' },
+    el('span', {}, '가구를 끌어 옮기기'),
+    el('span', {}, '빈 곳을 끌어 화면 이동'),
+    el('span', {}, '오른쪽 버튼으로 시점 회전'),
+  )
+  const floating = Toolbar({
+    label: '선택한 가구',
+    appearance: 'inverse',
+    className: 'float-tools',
+    hidden: true,
+    children: [
+      IconButton({
+        icon: 'copy',
+        label: '복제',
+        variant: 'inverse',
+        shortcut: cmd + 'D',
+        onClick: () => duplicate(),
+      }),
+      IconButton({
+        icon: 'rotate-left',
+        label: '왼쪽으로 회전',
+        variant: 'inverse',
+        shortcut: 'Q',
+        onClick: () => rotate(-ops.ROTATE_STEP),
+      }),
+      IconButton({
+        icon: 'rotate-right',
+        label: '오른쪽으로 회전',
+        variant: 'inverse',
+        shortcut: 'E',
+        onClick: () => rotate(ops.ROTATE_STEP),
+      }),
+      ToolbarDivider(),
+      IconButton({
+        icon: 'delete',
+        label: '삭제',
+        variant: 'danger',
+        shortcut: 'Delete',
+        onClick: () => remove(),
+      }),
+    ],
+  })
+  view.host.append(hint, viewTools)
+
+  const outline = el('aside', {
+    class: 'studio-outline',
+    'aria-label': '장면 목록',
+  })
+  const inspector = el('aside', {
+    class: 'studio-inspector',
+    'aria-label': '속성',
+  })
+  const portrait = ObjectPreview({ label: '선택 오브젝트 미리보기' })
+  const properties = el('div')
+  inspector.append(portrait, properties)
+  let projection
+  const lighting = lightingSwitcher({
+    editView: view,
+    editor: () => world,
+    flush,
+    revision: () => saved.id,
+    lock(active) {
+      for (const panel of [top, outline, inspector]) panel.inert = active
+    },
+    fail,
+  })
+  app.replaceChildren(
+    el(
+      'div',
+      { class: 'studio' },
+      top,
+      el('div', { class: 'studio-body' }, outline, lighting.host, inspector),
+    ),
+  )
+
   function renderSave() {
     const s = autosave.state
-    saveChip.className = 'save-chip ' + s
-    saveChip.textContent = {
-      saved: '✓ 저장됨',
-      pending: '저장 대기',
-      saving: '저장 중…',
-      error: '저장 실패 · 다시 시도',
-      conflict: '다른 창에서 변경됨 · 다시 열기',
-    }[s]
-    saveChip.title = autosave.error || '편집하면 초안에 자동으로 저장됩니다.'
-    saveChip.disabled = !['error', 'conflict'].includes(s)
-    saveChip.onclick =
-      s === 'conflict' ? () => location.reload() : () => flush().catch(() => {})
-    if (s === 'error') toast('저장하지 못했습니다 · ' + autosave.error)
+    saveStatus.dataset.saveState = s
+    saveStatus.title = autosave.error || '편집하면 초안에 자동으로 저장됩니다.'
+    if (saveStates[s]) {
+      const [label, tone] = saveStates[s]
+      saveStatus.replaceChildren(
+        StatusText({ label, tone, pulse: s === 'saving' }),
+      )
+    } else
+      saveStatus.replaceChildren(
+        Button({
+          label:
+            s === 'conflict'
+              ? '다른 창에서 변경됨 · 다시 열기'
+              : '저장 실패 · 다시 시도',
+          icon: 'save-error',
+          variant: 'danger',
+          size: 'sm',
+          onClick:
+            s === 'conflict'
+              ? () => location.reload()
+              : () => flush().catch(() => {}),
+        }),
+      )
+    if (s === 'error') fail('저장하지 못했습니다 · ' + autosave.error)
   }
 
   // ---- Edits ----
   function apply() {
     shown = history.value
     world?.update(shown)
+    projection?.invalidate()
     if (selection && !exists(selection)) selection = null
     render()
   }
@@ -310,6 +425,7 @@ export async function studio() {
     shown = history.value
     edit(shown)
     world?.update(shown)
+    projection?.invalidate()
   }
   function undo() {
     history.undo()
@@ -327,6 +443,8 @@ export async function studio() {
     return !!ops.find(shown, listOf[sel.type], sel.id)
   }
   function select(sel, { frame = false } = {}) {
+    if (selection?.id !== sel?.id || selection?.type !== sel?.type)
+      inspector.scrollTop = 0
     selection = sel
     if (sel?.type === 'page') tab = 'pages'
     else if (sel) tab = 'layout'
@@ -351,13 +469,13 @@ export async function studio() {
     const copy = newId()
     change((d) => ops.duplicateItem(d, id, copy))
     select({ type: 'item', id: copy })
-    toast('복제했습니다. 끌어서 원하는 곳에 놓으세요.')
+    notify('복제했습니다. 끌어서 원하는 곳에 놓으세요.')
   }
   function remove() {
     if (selection?.type === 'item') {
       const label = selectedItem().label
       const n = change((d) => ops.deleteItem(d, selection.id))
-      toast(
+      notify(
         label +
           ' 삭제' +
           (n ? ' · 연결된 클릭 영역 ' + n + '개 함께 삭제' : ''),
@@ -365,7 +483,7 @@ export async function studio() {
       )
     } else if (selection?.type === 'spot') {
       change((d) => ops.deleteSpot(d, selection.id))
-      toast('클릭 영역을 삭제했습니다.', true)
+      notify('클릭 영역을 삭제했습니다.', true)
     } else if (selection?.type === 'page') removePage(selection.id)
   }
   function removePage(id) {
@@ -383,7 +501,7 @@ export async function studio() {
     )
       return
     change((d) => ops.deletePage(d, id))
-    toast('페이지를 삭제했습니다.', true)
+    notify('페이지를 삭제했습니다.', true)
   }
   function rotate(deg, id = selectedItem()?.id) {
     if (!id) return
@@ -408,7 +526,7 @@ export async function studio() {
     const def = kinds.find((k) => k.kind === kind)
     change((d) => ops.addItem(d, { id, kind, label: def?.label || kind, room }))
     select({ type: 'item', id }, { frame: true })
-    toast(roomName(room) + '에 ' + (def?.label || kind) + '을(를) 놓았습니다.')
+    notify(roomName(room) + '에 ' + (def?.label || kind) + '을(를) 놓았습니다.')
   }
   function addClickArea(anchor) {
     const id = newId()
@@ -436,236 +554,235 @@ export async function studio() {
     const key = JSON.stringify([tab, query, selection, shown, [...collapsed]])
     if (key === outlineKey) return
     outlineKey = key
-    const tabs = el(
-      'div',
-      { class: 'tabs', role: 'tablist' },
-      ...[
-        ['layout', '배치'],
-        ['pages', '행사 페이지'],
-      ].map(([id, name]) =>
-        el(
-          'button',
-          {
-            type: 'button',
-            role: 'tab',
-            'data-key': 'tab:' + id,
-            'aria-selected': String(tab === id),
-            class: tab === id ? 'on' : null,
-            onclick: () => {
-              tab = id
-              renderOutline()
-            },
+    renderKeepingFocus(outline, () => [
+      el(
+        'div',
+        { class: 'studio-outline__head' },
+        Tabs({
+          label: '목록',
+          value: tab,
+          items: [
+            { id: 'layout', label: '배치' },
+            { id: 'pages', label: '행사 페이지', count: shown.pages.length },
+          ],
+          onChange: (id) => {
+            tab = id
+            renderOutline()
           },
-          name,
-        ),
+        }),
+        ...(tab === 'layout' ? layoutTools() : pageTools()),
       ),
-    )
-    keepFocus(outline, () => [
-      tabs,
-      ...(tab === 'layout' ? layoutTree() : pageList()),
+      el(
+        'div',
+        { class: 'studio-outline__list', role: 'list' },
+        ...(tab === 'layout' ? layoutTree() : pageList()),
+      ),
     ])
   }
-  function treeRow(sel, label, { depth = 0, icon, meta } = {}) {
-    const on = selection?.type === sel.type && selection.id === sel.id
-    return el(
-      'button',
-      {
-        type: 'button',
-        class: 'tree-row' + (on ? ' on' : ''),
-        style: '--depth:' + depth,
-        'data-key': sel.type + ':' + sel.id,
-        'aria-current': on ? 'true' : null,
-        onclick: () => select(sel, { frame: true }),
-      },
-      icon
-        ? el('span', { class: 'icon icon-' + icon, 'aria-hidden': 'true' })
-        : null,
-      el('span', { class: 'name' }, label),
-      meta ? el('span', { class: 'meta' }, meta) : null,
-    )
+  const isSelected = (sel) =>
+    selection?.type === sel.type && selection.id === sel.id
+  function row(sel, label, props = {}) {
+    return TreeItem({
+      label,
+      key: sel.type + ':' + sel.id,
+      selected: isSelected(sel),
+      onSelect: () => select(sel, { frame: true }),
+      ...props,
+    })
+  }
+  function layoutTools() {
+    const addButton = IconButton({
+      icon: 'add',
+      label: '가구 추가',
+      variant: 'secondary',
+      size: 'sm',
+    })
+    const menu = Menu({
+      trigger: addButton,
+      label: '가구 추가',
+      heading: roomName(roomOf(selection) || rooms[0].id) + '에 추가',
+      empty: '추가할 수 있는 가구 종류가 없습니다.',
+      items: kinds.map((k) => ({
+        label: k.label,
+        icon: 'furniture',
+        onSelect: () => addFurniture(k.kind),
+      })),
+    })
+    return [
+      el(
+        'div',
+        { class: 'studio-outline__tools' },
+        TextInput({
+          label: '가구·안내 찾기',
+          placeholder: '가구·안내 찾기',
+          type: 'search',
+          icon: 'search',
+          size: 'sm',
+          key: 'search',
+          value: query,
+          onInput: (v) => {
+            query = v
+            renderOutline()
+          },
+        }),
+        menu.element,
+      ),
+    ]
   }
   function layoutTree() {
-    const search = el('input', {
-      type: 'search',
-      placeholder: '가구·안내 찾기',
-      'aria-label': '가구·안내 찾기',
-      'data-key': 'search',
-    })
-    search.value = query
-    search.oninput = () => {
-      query = search.value
-      renderOutline()
-    }
     const match = (label) =>
       !query || label.toLowerCase().includes(query.toLowerCase())
-    const menu = addMenu()
-    const groups = rooms.map((r) => {
-      const items = shown.items.filter((i) => i.room === r.id)
-      const roomSpots = shown.spots.filter((s) => s.anchor === r.id)
-      const children = []
-      for (const i of items) {
-        const spots = shown.spots.filter((s) => s.anchor === i.id)
-        const shownSpots = spots.filter((s) => match(s.label))
-        if (!match(i.label) && !shownSpots.length) continue
-        children.push(
-          treeRow({ type: 'item', id: i.id }, i.label, {
-            depth: 1,
-            icon: 'item',
-          }),
-        )
-        for (const s of match(i.label) ? spots : shownSpots)
+    return rooms
+      .map((r) => {
+        const items = shown.items.filter((i) => i.room === r.id)
+        const roomSpots = shown.spots.filter((s) => s.anchor === r.id)
+        const children = []
+        for (const i of items) {
+          const spots = shown.spots.filter((s) => s.anchor === i.id)
+          const shownSpots = spots.filter((s) => match(s.label))
+          if (!match(i.label) && !shownSpots.length) continue
           children.push(
-            treeRow({ type: 'spot', id: s.id }, s.label, {
-              depth: 2,
+            row({ type: 'item', id: i.id }, i.label, {
+              depth: 1,
+              icon: 'furniture',
+            }),
+          )
+          for (const s of match(i.label) ? spots : shownSpots)
+            children.push(
+              row({ type: 'spot', id: s.id }, s.label, {
+                depth: 2,
+                icon: 'spot',
+              }),
+            )
+        }
+        for (const s of roomSpots.filter((s) => match(s.label)))
+          children.push(
+            row({ type: 'spot', id: s.id }, s.label, {
+              depth: 1,
               icon: 'spot',
             }),
           )
-      }
-      for (const s of roomSpots.filter((s) => match(s.label)))
-        children.push(
-          treeRow({ type: 'spot', id: s.id }, s.label, {
-            depth: 1,
-            icon: 'spot',
-          }),
-        )
-      if (query && !children.length && !match(r.label)) return null
-      const open = query || !collapsed.has(r.id)
-      return el(
-        'div',
-        { class: 'tree-group' },
-        el(
+        if (query && !children.length && !match(r.label)) return null
+        const open = !!query || !collapsed.has(r.id)
+        return el(
           'div',
-          { class: 'tree-head' },
-          el(
-            'button',
-            {
-              type: 'button',
-              class: 'fold',
-              'aria-label': (open ? '접기 ' : '펼치기 ') + r.label,
-              'aria-expanded': String(!!open),
-              onclick: () => {
-                collapsed.has(r.id)
-                  ? collapsed.delete(r.id)
-                  : collapsed.add(r.id)
-                renderOutline()
-              },
-            },
-            open ? '▾' : '▸',
-          ),
-          treeRow({ type: 'room', id: r.id }, r.label, {
+          { class: 'studio-outline__group', role: 'listitem' },
+          row({ type: 'room', id: r.id }, r.label, {
             icon: 'room',
             meta: String(items.length),
-          }),
-        ),
-        open ? el('div', { class: 'tree-children' }, ...children) : null,
-      )
-    })
-    return [
-      el('div', { class: 'outline-tools' }, search, menu),
-      el('div', { class: 'tree' }, ...groups.filter(Boolean)),
-    ]
-  }
-  function addMenu() {
-    const details = el(
-      'details',
-      { class: 'add-menu' },
-      el('summary', { 'data-key': 'add-menu' }, '＋ 가구'),
-    )
-    const list = el(
-      'div',
-      { class: 'popover menu' },
-      el('small', {}, roomName(roomOf(selection) || rooms[0].id) + '에 추가'),
-      ...kinds.map((k) =>
-        el(
-          'button',
-          {
-            type: 'button',
-            onclick: () => {
-              details.open = false
-              addFurniture(k.kind)
+            expanded: open,
+            onToggle: () => {
+              collapsed.has(r.id) ? collapsed.delete(r.id) : collapsed.add(r.id)
+              renderOutline()
             },
-          },
-          k.label,
-        ),
-      ),
-    )
-    if (!kinds.length)
-      list.append(el('small', {}, '추가할 수 있는 가구 종류가 없습니다.'))
-    details.append(list)
-    return details
+          }),
+          ...(open ? children : []),
+        )
+      })
+      .filter(Boolean)
+      .concat(
+        query &&
+          !shown.items.some((i) => match(i.label)) &&
+          !shown.spots.some((s) => match(s.label))
+          ? [
+              EmptyState({
+                title: '찾는 항목이 없습니다',
+                description: '다른 이름으로 찾아보세요.',
+              }),
+            ]
+          : [],
+      )
+  }
+  function pageTools() {
+    return [
+      Button({
+        label: '새 페이지',
+        icon: 'add',
+        size: 'sm',
+        wide: true,
+        key: 'add-page',
+        onClick: addPage,
+      }),
+    ]
   }
   function pageList() {
-    return [
-      el(
-        'div',
-        { class: 'outline-tools' },
-        action('＋ 새 페이지', addPage, { key: 'add-page', cls: 'wide' }),
-      ),
-      el(
-        'div',
-        { class: 'tree' },
-        ...shown.pages.map((p) => {
-          const n = shown.spots.filter((s) => s.action.page === p.id).length
-          return treeRow({ type: 'page', id: p.id }, p.title, {
-            icon: 'page',
-            meta: n ? '연결 ' + n : '연결 없음',
-          })
+    if (!shown.pages.length)
+      return [
+        EmptyState({
+          icon: 'page',
+          title: '행사 페이지가 없습니다',
+          description: '새 페이지를 만들어 클릭 영역과 연결하세요.',
         }),
-      ),
-    ]
+      ]
+    return shown.pages.map((p) => {
+      const n = shown.spots.filter((s) => s.action.page === p.id).length
+      return row({ type: 'page', id: p.id }, p.title, {
+        icon: 'page',
+        meta: n ? '연결 ' + n : '연결 없음',
+      })
+    })
   }
 
   // ---- Inspector ----
+  // Strategy: one builder per selection type. Add a type by adding a builder.
+  const inspectors = {
+    item: () => itemInspector(ops.find(shown, 'items', selection.id)),
+    spot: () => spotInspector(ops.find(shown, 'spots', selection.id)),
+    page: () => pageInspector(ops.find(shown, 'pages', selection.id)),
+    room: () => roomInspector(rooms.find((r) => r.id === selection.id)),
+  }
   function renderInspector() {
-    const key = JSON.stringify([selection, shown, axesOpen])
+    const key = JSON.stringify([selection, shown, axesOpen, addressing])
     if (key === inspectorKey) return
     inspectorKey = key
-    keepFocus(inspector, () => {
-      if (!selection) return emptyInspector()
-      const t = selection.type
-      if (t === 'item')
-        return itemInspector(ops.find(shown, 'items', selection.id))
-      if (t === 'spot')
-        return spotInspector(ops.find(shown, 'spots', selection.id))
-      if (t === 'page')
-        return pageInspector(ops.find(shown, 'pages', selection.id))
-      return roomInspector(rooms.find((r) => r.id === selection.id))
-    })
-  }
-  function head(kind, title, ...extra) {
-    return el(
-      'div',
-      { class: 'ins-head' },
-      el('span', { class: 'kind' }, kind),
-      title,
-      ...extra,
+    renderKeepingFocus(properties, () =>
+      selection ? inspectors[selection.type]() : emptyInspector(),
     )
   }
   function emptyInspector() {
     return [
-      el(
-        'div',
-        { class: 'empty' },
-        el('strong', {}, '편집할 대상을 선택하세요'),
-        el(
-          'p',
-          {},
-          '장면에서 가구나 초록 안내 표시를 누르거나, 왼쪽 목록에서 고르세요.',
-        ),
-        el(
-          'ul',
-          {},
-          el('li', {}, '가구는 끌어서 옮기고 다른 방에 놓을 수 있습니다.'),
-          el('li', {}, 'Alt를 누른 채 끌면 복제하며 옮깁니다.'),
+      EmptyState({
+        icon: 'pointer',
+        title: '편집할 대상을 선택하세요',
+        description:
+          '장면에서 가구나 안내 표시를 누르거나, 왼쪽 목록에서 고르세요.',
+        children: [
           el(
-            'li',
-            {},
-            '변경은 초안에 자동 저장되고, 발행하기 전까지 방문자에게 보이지 않습니다.',
+            'ul',
+            { class: 'studio-tips' },
+            el(
+              'li',
+              {},
+              Icon('furniture', 'sm'),
+              '가구는 끌어서 옮기고 다른 방에 놓을 수 있습니다.',
+            ),
+            el(
+              'li',
+              {},
+              Icon('copy', 'sm'),
+              'Alt를 누른 채 끌면 복제하며 옮깁니다.',
+            ),
+            el(
+              'li',
+              {},
+              Icon('saved', 'sm'),
+              '변경은 초안에 자동 저장되고, 발행하기 전까지 방문자에게 보이지 않습니다.',
+            ),
           ),
-        ),
-      ),
+        ],
+      }),
     ]
   }
+  const labelInput = (label, value, commit) =>
+    TextInput({
+      appearance: 'title',
+      key: 'label',
+      label,
+      value,
+      validate: ops.labelError,
+      onCommit: commit,
+    })
+
   function itemInspector(i) {
     const allowed = saved.options?.[i.kind] || {
       colors: ['*'],
@@ -675,512 +792,618 @@ export async function studio() {
     const yaw = ops.yawOf(i.rotation)
     const uniform = i.scale.every((v) => Math.abs(v - i.scale[0]) < 1e-6)
     const kindName = kinds.find((k) => k.kind === i.kind)?.label || i.kind
-    const spots = ops.spotsOn(shown, i.id)
-    const colors = allowed.colors.includes('*')
-      ? ['original', ...palette]
-      : allowed.colors
-    const swatches = el(
-      'div',
-      { class: 'swatches', role: 'radiogroup', 'aria-label': '가구 색' },
-      ...colors.map((c) =>
-        el('button', {
-          type: 'button',
-          role: 'radio',
-          'data-key': 'color:' + c,
-          'aria-checked': String(i.color === c),
-          'aria-label': c === 'original' ? '원본 색' : c,
-          title: c === 'original' ? '원본 색' : c,
-          class:
-            'swatch' +
-            (c === 'original' ? ' original' : '') +
-            (i.color === c ? ' on' : ''),
-          style: c === 'original' ? null : 'background:' + c,
-          onclick: () => set({ color: c }),
-        }),
-      ),
-    )
-    if (allowed.colors.includes('*')) {
-      const custom = el('input', {
-        type: 'color',
-        'data-key': 'color:custom',
-        'aria-label': '직접 고른 색',
-        title: '직접 고르기',
-        class:
-          palette.includes(i.color) || i.color === 'original' ? null : 'on',
-      })
-      custom.value = i.color === 'original' ? '#ac7958' : i.color
-      custom.addEventListener('input', () =>
-        preview((d) => (ops.find(d, 'items', i.id).color = custom.value)),
-      )
-      custom.addEventListener('change', () => set({ color: custom.value }))
-      swatches.append(custom)
-    }
+    const anyColor = allowed.colors.includes('*')
     return [
-      head(
-        kindName,
-        text('label', i.label, (label) => set({ label }), {
-          label: '이름',
-          check: ops.labelError,
-        }),
-      ),
-      el(
-        'div',
-        { class: 'button-row' },
-        action('복제', () => duplicate(i.id), { shortcut: cmd + 'D' }),
-        action('삭제', () => remove(), { cls: 'danger', shortcut: 'Del' }),
-      ),
-      section(
-        '배치',
-        row(
-          '방',
-          choice(
-            'room',
-            rooms.map((r) => [r.id, r.label]),
-            i.room,
-            (room) => {
-              change((d) => ops.moveToRoom(d, i.id, room))
-              canvas?.frame({ type: 'item', id: i.id })
-            },
-            '방',
-          ),
-        ),
-        row(
-          '위치',
-          number(
-            'x',
-            i.position[0],
-            (v) =>
-              set({
-                position: [ops.clampPosition(v), i.position[1], i.position[2]],
+      PanelHeader({
+        eyebrow: kindName,
+        icon: 'furniture',
+        title: labelInput('이름', i.label, (label) => set({ label })),
+        actions: [
+          IconButton({
+            icon: 'copy',
+            label: '복제',
+            shortcut: cmd + 'D',
+            key: 'duplicate',
+            onClick: () => duplicate(i.id),
+          }),
+          IconButton({
+            icon: 'delete',
+            label: '삭제',
+            variant: 'danger',
+            shortcut: 'Delete',
+            key: 'delete',
+            onClick: () => remove(),
+          }),
+        ],
+      }),
+      PanelSection({
+        title: '배치',
+        children: [
+          PropertyRow({
+            label: '방',
+            children: [
+              Select({
+                label: '방',
+                key: 'room',
+                size: 'sm',
+                value: i.room,
+                options: rooms.map((r) => ({ value: r.id, label: r.label })),
+                onChange: (room) => {
+                  change((d) => ops.moveToRoom(d, i.id, room))
+                  canvas?.frame({ type: 'item', id: i.id })
+                },
               }),
-            { label: '위치 X', unit: 'X' },
-          ),
-          number(
-            'z',
-            i.position[2],
-            (v) =>
-              set({
-                position: [i.position[0], i.position[1], ops.clampPosition(v)],
+            ],
+          }),
+          PropertyRow({
+            label: '위치',
+            children: [
+              NumberInput({
+                label: '위치 X',
+                prefix: 'X',
+                key: 'x',
+                value: i.position[0],
+                onCommit: (v) =>
+                  set({
+                    position: [
+                      ops.clampPosition(v),
+                      i.position[1],
+                      i.position[2],
+                    ],
+                  }),
               }),
-            { label: '위치 Z', unit: 'Z' },
-          ),
-        ),
-        row(
-          '높이',
-          number(
-            'y',
-            i.position[1],
-            (v) =>
-              set({
-                position: [i.position[0], ops.clampPosition(v), i.position[2]],
+              NumberInput({
+                label: '위치 Z',
+                prefix: 'Z',
+                key: 'z',
+                value: i.position[2],
+                onCommit: (v) =>
+                  set({
+                    position: [
+                      i.position[0],
+                      i.position[1],
+                      ops.clampPosition(v),
+                    ],
+                  }),
               }),
-            { label: '높이', unit: 'm', step: 0.05 },
-          ),
-        ),
-        row(
-          '방향',
-          slider(
-            'yaw',
-            yaw,
-            {
-              min: -180,
-              max: 180,
-              step: 1,
-              label: '방향',
-              format: (v) => Math.round(v) + '°',
-            },
-            (v) =>
-              preview(
-                (d) =>
-                  (ops.find(d, 'items', i.id).rotation = ops.withYaw(
-                    i.rotation,
-                    v,
-                  )),
-              ),
-            (v) => set({ rotation: ops.withYaw(i.rotation, v) }),
-          ),
-        ),
-        row(
-          '',
-          action('↺ 15°', () => rotate(-15, i.id), { key: 'rot-left' }),
-          action('↻ 15°', () => rotate(15, i.id), { key: 'rot-right' }),
-          action('↻ 90°', () => rotate(90, i.id), { key: 'rot-90' }),
-        ),
-        row(
-          '크기',
-          slider(
-            'scale',
-            uniform ? i.scale[0] : 1,
-            {
-              min: 0.25,
-              max: 3,
-              step: 0.05,
-              label: '크기',
-              format: (v) => '×' + v.toFixed(2),
-            },
-            (v) =>
-              preview((d) => (ops.find(d, 'items', i.id).scale = [v, v, v])),
-            (v) => set({ scale: [v, v, v].map(ops.clampScale) }),
-          ),
-        ),
-        el(
-          'details',
-          {
-            class: 'axes',
-            open: axesOpen || !uniform ? '' : null,
-          },
-          el(
-            'summary',
-            {
-              // Record the choice on click: a pending re-render may replace
-              // this element before its toggle event fires.
-              onclick: (e) => (axesOpen = !e.currentTarget.parentElement.open),
-            },
-            uniform
+            ],
+          }),
+          PropertyRow({
+            label: '높이',
+            children: [
+              NumberInput({
+                label: '높이',
+                prefix: 'Y',
+                key: 'y',
+                step: 0.05,
+                value: i.position[1],
+                onCommit: (v) =>
+                  set({
+                    position: [
+                      i.position[0],
+                      ops.clampPosition(v),
+                      i.position[2],
+                    ],
+                  }),
+              }),
+            ],
+          }),
+          PropertyRow({
+            label: '방향',
+            children: [
+              Slider({
+                label: '방향',
+                key: 'yaw',
+                value: yaw,
+                min: -180,
+                max: 180,
+                step: 1,
+                format: (v) => Math.round(v) + '°',
+                onInput: (v) =>
+                  preview(
+                    (d) =>
+                      (ops.find(d, 'items', i.id).rotation = ops.withYaw(
+                        i.rotation,
+                        v,
+                      )),
+                  ),
+                onCommit: (v) => set({ rotation: ops.withYaw(i.rotation, v) }),
+              }),
+            ],
+          }),
+          PropertyRow({
+            children: [
+              ButtonGroup({
+                label: '빠른 회전',
+                attached: true,
+                children: [
+                  IconButton({
+                    icon: 'rotate-left',
+                    label: '왼쪽으로 15° 회전',
+                    size: 'sm',
+                    key: 'rot-left',
+                    onClick: () => rotate(-15, i.id),
+                  }),
+                  IconButton({
+                    icon: 'rotate-right',
+                    label: '오른쪽으로 15° 회전',
+                    size: 'sm',
+                    key: 'rot-right',
+                    onClick: () => rotate(15, i.id),
+                  }),
+                ],
+              }),
+              Button({
+                label: '90° 회전',
+                icon: 'rotate-right',
+                size: 'sm',
+                variant: 'ghost',
+                key: 'rot-90',
+                onClick: () => rotate(90, i.id),
+              }),
+            ],
+          }),
+          PropertyRow({
+            label: '크기',
+            children: [
+              Slider({
+                label: '크기',
+                key: 'scale',
+                value: uniform ? i.scale[0] : 1,
+                min: 0.25,
+                max: 3,
+                step: 0.05,
+                format: (v) => '×' + v.toFixed(2),
+                onInput: (v) =>
+                  preview(
+                    (d) => (ops.find(d, 'items', i.id).scale = [v, v, v]),
+                  ),
+                onCommit: (v) => set({ scale: [v, v, v].map(ops.clampScale) }),
+              }),
+            ],
+          }),
+          Disclosure({
+            summary: uniform
               ? '축별 크기'
               : '축별 크기 · 슬라이더는 세 축을 같게 맞춥니다',
-          ),
-          row(
-            '',
-            ...['X', 'Y', 'Z'].map((a, n) =>
-              number(
-                's' + a,
-                i.scale[n],
-                (v) => {
-                  const next = i.scale.slice()
-                  next[n] = ops.clampScale(v)
-                  set({ scale: next })
-                },
-                {
-                  label: '크기 ' + a,
-                  unit: a,
-                  step: 0.05,
-                  min: 0.01,
-                  max: 100,
-                },
-              ),
-            ),
-          ),
-        ),
-      ),
-      section(
-        '외형',
-        row('색', swatches),
-        row(
-          '표면',
-          segmented(
-            'finish',
-            ['original', 'matte', 'gloss']
-              .filter((f) => allowed.finishes.includes(f))
-              .map((f) => [f, finishNames[f]]),
-            i.finish,
-            (finish) => set({ finish }),
-            '표면',
-          ),
-        ),
-      ),
-      spotSection(i.id, spots),
+            open: axesOpen || !uniform,
+            onToggle: (open) => (axesOpen = open),
+            children: [
+              PropertyRow({
+                children: ['X', 'Y', 'Z'].map((a, n) =>
+                  NumberInput({
+                    label: '크기 ' + a,
+                    prefix: a,
+                    key: 's' + a,
+                    step: 0.05,
+                    min: 0.01,
+                    max: 100,
+                    value: i.scale[n],
+                    onCommit: (v) => {
+                      const next = i.scale.slice()
+                      next[n] = ops.clampScale(v)
+                      set({ scale: next })
+                    },
+                  }),
+                ),
+              }),
+            ],
+          }),
+        ],
+      }),
+      PanelSection({
+        title: '외형',
+        children: [
+          PropertyRow({
+            label: '색',
+            children: [
+              SwatchPicker({
+                label: '가구 색',
+                value: i.color,
+                colors: anyColor ? ['original', ...palette] : allowed.colors,
+                allowCustom: anyColor,
+                onPreview: (c) =>
+                  preview((d) => (ops.find(d, 'items', i.id).color = c)),
+                onChange: (color) => set({ color }),
+              }),
+            ],
+          }),
+          PropertyRow({
+            label: '표면',
+            children: [
+              Segmented({
+                label: '표면',
+                key: 'finish',
+                value: i.finish,
+                options: ['original', 'matte', 'gloss']
+                  .filter((f) => allowed.finishes.includes(f))
+                  .map((f) => ({ value: f, label: finishNames[f] })),
+                onChange: (finish) => set({ finish }),
+              }),
+            ],
+          }),
+        ],
+      }),
+      spotSection(i.id),
     ]
   }
-  function spotSection(anchor, spots) {
-    return section(
-      '클릭 영역 ' + spots.length,
-      el(
-        'div',
-        { class: 'chips' },
-        ...spots.map((s) =>
-          action(
-            s.label,
-            () => select({ type: 'spot', id: s.id }, { frame: true }),
-            {
-              cls: 'chip-button',
-              key: 'spot:' + s.id,
-            },
-          ),
-        ),
-      ),
-      action('＋ 클릭 영역 추가', () => addClickArea(anchor), {
-        key: 'add-spot',
-        cls: 'wide',
-      }),
-    )
+  function spotSection(anchor) {
+    const spots = ops.spotsOn(shown, anchor)
+    return PanelSection({
+      title: '클릭 영역',
+      meta: spots.length + '개',
+      children: [
+        spots.length
+          ? ChipList(
+              spots.map((s) =>
+                Chip({
+                  label: s.label,
+                  icon: 'spot',
+                  key: 'spot:' + s.id,
+                  onClick: () =>
+                    select({ type: 'spot', id: s.id }, { frame: true }),
+                }),
+              ),
+            )
+          : null,
+        Button({
+          label: '클릭 영역 추가',
+          icon: 'add',
+          size: 'sm',
+          wide: true,
+          key: 'add-spot',
+          onClick: () => addClickArea(anchor),
+        }),
+      ].filter(Boolean),
+    })
   }
   function roomInspector(r) {
     const items = shown.items.filter((i) => i.room === r.id)
     return [
-      head('방', el('h2', {}, r.label)),
-      el(
-        'p',
-        { class: 'muted' },
-        '가구 ' +
+      PanelHeader({
+        eyebrow: '방',
+        icon: 'room',
+        title: r.label,
+        description:
+          '가구 ' +
           items.length +
           '개 · 방 기준 클릭 영역 ' +
           ops.spotsOn(shown, r.id).length +
           '개',
-      ),
-      el(
-        'div',
-        { class: 'button-row' },
-        action('이 방 확대', () => world.selectRoom(r.id), {
-          key: 'zoom-room',
-        }),
-      ),
-      section(
-        '가구 추가',
-        el(
-          'div',
-          { class: 'chips' },
-          ...kinds.map((k) =>
-            action('＋ ' + k.label, () => addFurniture(k.kind, r.id), {
-              cls: 'chip-button',
-              key: 'add:' + k.kind,
-            }),
-          ),
-        ),
-      ),
-      section(
-        '가구',
-        el(
-          'div',
-          { class: 'chips' },
-          ...items.map((i) =>
-            action(
-              i.label,
-              () => select({ type: 'item', id: i.id }, { frame: true }),
-              {
-                cls: 'chip-button',
-                key: 'item:' + i.id,
-              },
-            ),
-          ),
-        ),
-      ),
-      spotSection(r.id, ops.spotsOn(shown, r.id)),
+        actions: [
+          IconButton({
+            icon: 'fit',
+            label: '이 방 확대',
+            key: 'zoom-room',
+            onClick: () => world.selectRoom(r.id),
+          }),
+        ],
+      }),
+      PanelSection({
+        title: '가구 추가',
+        children: [
+          kinds.length
+            ? ChipList(
+                kinds.map((k) =>
+                  Chip({
+                    label: k.label,
+                    icon: 'add',
+                    key: 'add:' + k.kind,
+                    onClick: () => addFurniture(k.kind, r.id),
+                  }),
+                ),
+              )
+            : el(
+                'p',
+                { class: 'studio-muted' },
+                '추가할 수 있는 가구 종류가 없습니다.',
+              ),
+        ],
+      }),
+      PanelSection({
+        title: '가구',
+        meta: items.length + '개',
+        children: [
+          items.length
+            ? ChipList(
+                items.map((i) =>
+                  Chip({
+                    label: i.label,
+                    icon: 'furniture',
+                    key: 'item:' + i.id,
+                    onClick: () =>
+                      select({ type: 'item', id: i.id }, { frame: true }),
+                  }),
+                ),
+              )
+            : el(
+                'p',
+                { class: 'studio-muted' },
+                '이 방에는 아직 가구가 없습니다.',
+              ),
+        ],
+      }),
+      spotSection(r.id),
     ]
   }
   function spotInspector(s) {
     const set = (values) => patch('spots', s.id, values)
     const external = s.action.type === 'url'
-    const url = text(
-      'url',
-      external ? s.action.url : '',
-      (u) => set({ action: { type: 'url', url: u } }),
-      {
-        label: '외부 주소',
-        type: 'url',
-        check: (v) => ops.urlError(v),
-      },
-    )
-    const urlRow = row('주소', url)
-    urlRow.hidden = !external
-    const editRow = external
-      ? null
-      : row(
-          '',
-          action(
-            '페이지 편집',
-            () => select({ type: 'page', id: s.action.page }),
-            { key: 'edit-page', cls: 'link' },
-          ),
-        )
-    const anchors = [
-      ...rooms.map((r) => [r.id, '방 · ' + r.label]),
-      ...shown.items.map((i) => [i.id, '가구 · ' + i.label]),
-    ]
-    return [
-      head(
-        '클릭 영역',
-        text('label', s.label, (label) => set({ label }), {
-          label: '표시 이름',
-          check: ops.labelError,
+    const linking = external || addressing === s.id
+    const urlRow = PropertyRow({
+      label: '주소',
+      children: [
+        TextInput({
+          label: '외부 주소',
+          key: 'url',
+          type: 'url',
+          size: 'sm',
+          placeholder: 'https://',
+          value: external ? s.action.url : '',
+          validate: (v) => ops.urlError(v),
+          onCommit: (u) => set({ action: { type: 'url', url: u } }),
         }),
-      ),
-      el(
-        'div',
-        { class: 'button-row' },
-        action(
-          '기준 대상 선택',
-          () =>
-            select(
-              rooms.some((r) => r.id === s.anchor)
-                ? { type: 'room', id: s.anchor }
-                : { type: 'item', id: s.anchor },
-              { frame: true },
-            ),
-          { key: 'anchor' },
-        ),
-        action('삭제', () => remove(), { cls: 'danger', shortcut: 'Del' }),
-      ),
-      section(
-        '연결',
-        row(
-          '누르면',
-          choice(
-            'dest',
-            [
-              ...shown.pages.map((p) => [p.id, '페이지 · ' + p.title]),
-              ['__url', '외부 링크 열기'],
-              ['__new', '＋ 새 페이지 만들어 연결'],
-            ],
-            external ? '__url' : s.action.page,
-            (v) => {
-              if (v === '__url') {
-                // Keep the current link until a valid address is entered.
-                urlRow.hidden = false
-                if (editRow) editRow.hidden = true
-                urlRow.querySelector('input').focus()
-              } else if (v === '__new') {
-                const id = newId()
-                change((d) => {
-                  const page = ops.addPage(d, { id, title: s.label })
-                  ops.find(d, 'spots', s.id).action = {
-                    type: 'page',
-                    page: page.id,
+      ],
+    })
+    urlRow.hidden = !linking
+    const editRow = linking
+      ? null
+      : PropertyRow({
+          children: [
+            Button({
+              label: '연결된 페이지 편집',
+              icon: 'page',
+              variant: 'ghost',
+              size: 'sm',
+              key: 'edit-page',
+              onClick: () => select({ type: 'page', id: s.action.page }),
+            }),
+          ],
+        })
+    const anchorIsRoom = rooms.some((r) => r.id === s.anchor)
+    return [
+      PanelHeader({
+        eyebrow: '클릭 영역',
+        icon: 'spot',
+        title: labelInput('표시 이름', s.label, (label) => set({ label })),
+        actions: [
+          IconButton({
+            icon: anchorIsRoom ? 'room' : 'furniture',
+            label: '기준 대상 선택',
+            key: 'anchor',
+            onClick: () =>
+              select(
+                anchorIsRoom
+                  ? { type: 'room', id: s.anchor }
+                  : { type: 'item', id: s.anchor },
+                { frame: true },
+              ),
+          }),
+          IconButton({
+            icon: 'delete',
+            label: '삭제',
+            variant: 'danger',
+            shortcut: 'Delete',
+            key: 'delete',
+            onClick: () => remove(),
+          }),
+        ],
+      }),
+      PanelSection({
+        title: '연결',
+        children: [
+          PropertyRow({
+            label: '누르면',
+            children: [
+              Select({
+                label: '연결 대상',
+                key: 'dest',
+                size: 'sm',
+                value: linking ? '__url' : s.action.page,
+                options: [
+                  ...shown.pages.map((p) => ({
+                    value: p.id,
+                    label: '페이지 · ' + p.title,
+                  })),
+                  { value: '__url', label: '외부 링크 열기' },
+                  { value: '__new', label: '＋ 새 페이지 만들어 연결' },
+                ],
+                onChange: (v) => {
+                  if (v === '__url') {
+                    // Keep the current link until a valid address is entered.
+                    addressing = s.id
+                    urlRow.hidden = false
+                    if (editRow) editRow.hidden = true
+                    urlRow.querySelector('input').focus()
+                    return
                   }
-                })
-                toast(
-                  '새 페이지를 만들어 연결했습니다. 행사 페이지 탭에서 내용을 채우세요.',
-                )
-              } else set({ action: { type: 'page', page: v } })
-            },
-            '연결 대상',
-          ),
-        ),
-        urlRow,
-        editRow,
-      ),
-      section(
-        '위치와 범위',
-        row(
-          '기준',
-          choice(
-            'anchor-select',
-            anchors,
-            s.anchor,
-            (anchor) => set({ anchor }),
-            '기준 방 또는 가구',
-          ),
-        ),
-        row(
-          '위치',
-          ...['X', '높이', 'Z'].map((a, n) =>
-            number(
-              'p' + n,
-              s.position[n],
-              (v) => {
-                const next = s.position.slice()
-                next[n] = ops.clampPosition(v)
-                set({ position: next })
-              },
-              { label: '상대 위치 ' + a, unit: a === '높이' ? 'Y' : a },
+                  addressing = null
+                  if (v === '__new') {
+                    const id = newId()
+                    change((d) => {
+                      const page = ops.addPage(d, { id, title: s.label })
+                      ops.find(d, 'spots', s.id).action = {
+                        type: 'page',
+                        page: page.id,
+                      }
+                    })
+                    notify(
+                      '새 페이지를 만들어 연결했습니다. 행사 페이지 탭에서 내용을 채우세요.',
+                    )
+                  } else set({ action: { type: 'page', page: v } })
+                },
+              }),
+            ],
+          }),
+          urlRow,
+          editRow,
+        ].filter(Boolean),
+      }),
+      PanelSection({
+        title: '위치와 범위',
+        children: [
+          PropertyRow({
+            label: '기준',
+            children: [
+              Select({
+                label: '기준 방 또는 가구',
+                key: 'anchor-select',
+                size: 'sm',
+                value: s.anchor,
+                options: [
+                  ...rooms.map((r) => ({
+                    value: r.id,
+                    label: '방 · ' + r.label,
+                  })),
+                  ...shown.items.map((i) => ({
+                    value: i.id,
+                    label: '가구 · ' + i.label,
+                  })),
+                ],
+                onChange: (anchor) => set({ anchor }),
+              }),
+            ],
+          }),
+          PropertyRow({
+            label: '위치',
+            children: ['X', '높이', 'Z'].map((a, n) =>
+              NumberInput({
+                label: '상대 위치 ' + a,
+                prefix: a === '높이' ? 'Y' : a,
+                key: 'p' + n,
+                value: s.position[n],
+                onCommit: (v) => {
+                  const next = s.position.slice()
+                  next[n] = ops.clampPosition(v)
+                  set({ position: next })
+                },
+              }),
             ),
-          ),
-        ),
-        row(
-          '범위',
-          ...['W', 'H', 'D'].map((a, n) =>
-            number(
-              'z' + n,
-              s.size[n],
-              (v) => {
-                const next = s.size.slice()
-                next[n] = ops.clampScale(v)
-                set({ size: next })
-              },
-              { label: '클릭 범위 ' + a, unit: a, min: 0.01, max: 100 },
+          }),
+          PropertyRow({
+            label: '범위',
+            children: ['W', 'H', 'D'].map((a, n) =>
+              NumberInput({
+                label: '클릭 범위 ' + a,
+                prefix: a,
+                key: 'z' + n,
+                min: 0.01,
+                max: 100,
+                value: s.size[n],
+                onCommit: (v) => {
+                  const next = s.size.slice()
+                  next[n] = ops.clampScale(v)
+                  set({ size: next })
+                },
+              }),
             ),
-          ),
-        ),
-        el(
-          'p',
-          { class: 'muted' },
-          '장면의 초록 표시를 끌어 위치를 옮길 수 있습니다. 상자가 방문자가 누를 수 있는 범위입니다.',
-        ),
-      ),
+          }),
+          Callout({
+            message:
+              '장면의 안내 표시를 끌어 위치를 옮길 수 있습니다. 상자가 방문자가 누를 수 있는 범위입니다.',
+          }),
+        ],
+      }),
     ]
   }
   function pageInspector(p) {
     const set = (values) => patch('pages', p.id, values)
     const linked = shown.spots.filter((s) => s.action.page === p.id)
     return [
-      head(
-        '행사 페이지',
-        text('title', p.title, (title) => set({ title }), {
-          label: '제목',
-          check: ops.labelError,
-        }),
-      ),
-      section(
-        '내용',
-        el(
-          'label',
-          { class: 'stack' },
-          '개요',
-          text('summary', p.summary, (summary) => set({ summary }), {
+      PanelHeader({
+        eyebrow: '행사 페이지',
+        icon: 'page',
+        title: labelInput('제목', p.title, (title) => set({ title })),
+        actions: [
+          IconButton({
+            icon: 'external',
+            label: '/events/' + p.id + ' 새 창에서 열기',
+            key: 'open-page',
+            onClick: () => window.open('/events/' + p.id, '_blank', 'noopener'),
+          }),
+          IconButton({
+            icon: 'delete',
+            label: '페이지 삭제',
+            variant: 'danger',
+            key: 'delete-page',
+            onClick: () => removePage(p.id),
+          }),
+        ],
+      }),
+      PanelSection({
+        title: '내용',
+        children: [
+          PropertyRow({
             label: '개요',
-            multiline: true,
-            check: (v) => (v.length > 500 ? '500자 이내로 입력하세요.' : null),
+            stack: true,
+            children: [
+              TextArea({
+                label: '개요',
+                key: 'summary',
+                rows: 3,
+                value: p.summary,
+                validate: (v) =>
+                  v.length > 500 ? '500자 이내로 입력하세요.' : null,
+                onCommit: (summary) => set({ summary }),
+              }),
+            ],
           }),
-        ),
-        el(
-          'label',
-          { class: 'stack' },
-          '본문',
-          text('body', p.body, (body) => set({ body }), {
+          PropertyRow({
             label: '본문',
-            multiline: true,
-            check: (v) =>
-              v.length > 16000 ? '16000자 이내로 입력하세요.' : null,
+            stack: true,
+            children: [
+              TextArea({
+                label: '본문',
+                key: 'body',
+                rows: 8,
+                value: p.body,
+                validate: (v) =>
+                  v.length > 16000 ? '16000자 이내로 입력하세요.' : null,
+                onCommit: (body) => set({ body }),
+              }),
+            ],
           }),
-        ),
-        el(
-          'label',
-          { class: 'stack' },
-          '원문 주소',
-          text('page-url', p.url, (url) => set({ url }), {
+          PropertyRow({
             label: '원문 주소',
-            type: 'url',
-            check: (v) => ops.urlError(v, { optional: true }),
+            stack: true,
+            children: [
+              TextInput({
+                label: '원문 주소',
+                key: 'page-url',
+                type: 'url',
+                size: 'sm',
+                placeholder: 'https://',
+                value: p.url,
+                validate: (v) => ops.urlError(v, { optional: true }),
+                onCommit: (url) => set({ url }),
+              }),
+            ],
           }),
-        ),
-      ),
-      section(
-        '연결된 클릭 영역 ' + linked.length,
-        el(
-          'div',
-          { class: 'chips' },
-          ...linked.map((s) =>
-            action(
-              s.label,
-              () => select({ type: 'spot', id: s.id }, { frame: true }),
-              {
-                cls: 'chip-button',
-                key: 'spot:' + s.id,
-              },
-            ),
-          ),
-        ),
-        linked.length
-          ? null
-          : el(
-              'p',
-              { class: 'muted' },
-              '방이나 가구를 선택해 클릭 영역을 추가하고 이 페이지를 연결하세요.',
-            ),
-      ),
-      el(
-        'div',
-        { class: 'button-row' },
-        action(
-          '/events/' + p.id + ' 열기 ↗',
-          () => window.open('/events/' + p.id, '_blank', 'noopener'),
-          { key: 'open-page', cls: 'link' },
-        ),
-        action('페이지 삭제', () => removePage(p.id), {
-          cls: 'danger',
-          key: 'delete-page',
-        }),
-      ),
+        ],
+      }),
+      PanelSection({
+        title: '연결된 클릭 영역',
+        meta: linked.length + '개',
+        children: [
+          linked.length
+            ? ChipList(
+                linked.map((s) =>
+                  Chip({
+                    label: s.label,
+                    icon: 'spot',
+                    key: 'spot:' + s.id,
+                    onClick: () =>
+                      select({ type: 'spot', id: s.id }, { frame: true }),
+                  }),
+                ),
+              )
+            : el(
+                'p',
+                { class: 'studio-muted' },
+                '방이나 가구를 선택해 클릭 영역을 추가하고 이 페이지를 연결하세요.',
+              ),
+        ],
+      }),
     ]
   }
 
@@ -1191,6 +1414,7 @@ export async function studio() {
     // Wait a frame so a Tab keypress finishes moving focus before rebuilding.
     frame = requestAnimationFrame(() => {
       renderOutline()
+      projection?.select(selection)
       renderInspector()
       undoButton.disabled = !history.canUndo
       redoButton.disabled = !history.canRedo
@@ -1207,15 +1431,17 @@ export async function studio() {
   render()
 
   // ---- Keyboard ----
+  // Escape first closes an open popover (handled by the overlay mediator).
   document.addEventListener('keydown', (e) => {
-    if (document.querySelector('dialog[open]')) return
+    if (lighting.viewing || document.querySelector('dialog[open]')) return
     const mod = e.metaKey || e.ctrlKey
     const key = e.key.toLowerCase()
+    const typing =
+      /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||
+      e.target.isContentEditable
     if (e.key === 'Escape') {
       if (canvas?.cancel()) return
-      if (!help.hidden) return (help.hidden = true)
-      publish.close()
-      if (!/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) select(null)
+      if (!typing) select(null)
       return
     }
     if (mod && key === 's') {
@@ -1223,11 +1449,7 @@ export async function studio() {
       flush().catch(() => {})
       return
     }
-    if (
-      /INPUT|TEXTAREA|SELECT/.test(e.target.tagName) ||
-      e.target.isContentEditable
-    )
-      return
+    if (typing) return
     if (mod && key === 'z') {
       e.preventDefault()
       e.shiftKey ? redo() : undo()
@@ -1248,7 +1470,7 @@ export async function studio() {
     } else if (key === 'f') {
       if (selection) canvas?.frame(selection)
     } else if (e.key === '?') {
-      help.hidden = !help.hidden
+      help.toggle()
     } else if (e.key.startsWith('Arrow') && selectedItem()) {
       e.preventDefault()
       nudge(e.key, e.shiftKey ? 1 : ops.GRID)
@@ -1263,7 +1485,7 @@ export async function studio() {
   })
 
   // ---- Status polling ----
-  await publish.refresh().catch((e) => toast(e.message))
+  await publish.refresh().catch((e) => fail(e.message))
   const timer = setInterval(() => {
     if (!document.hidden) publish.refresh().catch(() => {})
   }, 3000)
@@ -1275,7 +1497,7 @@ export async function studio() {
     snapping: () => snapping,
     select: (sel) => select(sel),
     toolbar: floating,
-    dragging: (on) => view.host.classList.toggle('dragging', on),
+    dragging: (on) => view.host.classList.toggle('is-dragging', on),
     revert: () => apply(),
     commitItem(id, values, { copy }) {
       const item = ops.find(shown, 'items', id)
@@ -1286,9 +1508,9 @@ export async function studio() {
           Object.assign(ops.duplicateItem(d, id, next, [0, 0, 0]), values),
         )
         select({ type: 'item', id: next })
-        toast('복제해서 놓았습니다.')
+        notify('복제해서 놓았습니다.')
       } else patch('items', id, values)
-      if (moved) toast(roomName(values.room) + '(으)로 옮겼습니다.', true)
+      if (moved) notify(roomName(values.room) + '(으)로 옮겼습니다.', true)
     },
     commitSpot(id, position) {
       patch('spots', id, { position })
@@ -1300,11 +1522,15 @@ export async function studio() {
       onSpotDown: (s, e) => hooks.spotDown?.(s, e),
     })
   } catch (e) {
-    view.loading.textContent = '3D 장면을 열 수 없습니다 · ' + e.message
+    view.loading.replaceChildren(
+      Icon('alert', 'sm'),
+      '3D 장면을 열 수 없습니다 · ' + e.message,
+    )
     view.loading.hidden = false
     throw e
   }
   world.update(shown)
+  projection = selectionPreview(world, portrait)
   canvas = attachCanvas(world, view, hooks)
   render()
 }
