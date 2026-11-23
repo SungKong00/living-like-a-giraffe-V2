@@ -6,7 +6,8 @@ import { Scene } from '@babylonjs/core/scene'
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import { Camera } from '@babylonjs/core/Cameras/camera'
 import { Vector3, Quaternion, Matrix } from '@babylonjs/core/Maths/math.vector'
-import { Color3, Color4 } from '@babylonjs/core/Maths/math.color'
+import { addStudioFloor, floorBackground } from './studio-floor.js'
+import { Color3 } from '@babylonjs/core/Maths/math.color'
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight'
 import { PointLight } from '@babylonjs/core/Lights/pointLight'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder'
@@ -46,7 +47,7 @@ async function openScene(
   )
   const scene = new Scene(engine)
   scene.useRightHandedSystem = true
-  scene.clearColor = new Color4(0.012, 0.014, 0.018, 1)
+  scene.clearColor = floorBackground
   const center = new Vector3(34, 1, -24)
   const alpha = Math.PI / 4
   const camera = new ArcRotateCamera(
@@ -98,6 +99,13 @@ async function openScene(
   const rooms = new Map(
     nodes.filter((n) => extras(n).roomId).map((n) => [extras(n).roomId, n]),
   )
+  try {
+    await addStudioFloor(scene, rooms)
+  } catch (error) {
+    scene.dispose()
+    engine.dispose()
+    throw error
+  }
   const originals = new Map(
     nodes.filter((n) => extras(n).itemId).map((n) => [extras(n).itemId, n]),
   )

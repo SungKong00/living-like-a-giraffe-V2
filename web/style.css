@@ -98,7 +98,7 @@ nav a.active {
 }
 .stage {
   position: relative;
-  background: #030405;
+  background: #eeeae3;
   overflow: hidden;
   isolation: isolate;
   height: calc(100svh - 74px);
@@ -562,8 +562,8 @@ textarea {
 
 .map-heading,
 .map-events h2 {
-  color: #faf9f3;
+  color: var(--ink);
 }
 .map-heading p {
-  color: #d5d9d1;
+  color: #445347;
 }

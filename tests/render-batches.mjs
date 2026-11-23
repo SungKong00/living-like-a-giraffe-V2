@@ -136,7 +136,8 @@ try {
     counts.push(await p.evaluate(() => window.drawSamples.at(-1)))
     await p.close()
   }
-  assert.deepEqual(counts, [3, 2])
+  // Each frame also draws the shared studio floor.
+  assert.deepEqual(counts, [4, 3])
   console.log(
     '같은 베이크 2개와 다른 베이크 1개 · 프레임당 WebGL 그리기',
     counts.join(' → '),
