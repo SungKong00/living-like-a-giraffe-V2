@@ -28,10 +28,6 @@ export async function api(path, method = 'GET', data, signal) {
 }
 
 export const app = document.querySelector('#app')
-export const small = () =>
-  matchMedia(
-    '(max-width: 760px), (pointer: coarse) and (max-device-width: 960px)',
-  ).matches
 
 // The 3D viewport: a canvas, an overlay for scene pins, and a loading state.
 // scene.js fills `overlay` and hides `loading`; views add their own controls

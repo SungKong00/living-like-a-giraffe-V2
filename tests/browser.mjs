@@ -27,9 +27,10 @@ try {
     args: ['--enable-unsafe-swiftshader'],
   })
   const errors = []
-  const page = await browser.newPage({
+  const desktop = await browser.newContext({
     viewport: { width: 1280, height: 850 },
   })
+  const page = await desktop.newPage()
   page.on('pageerror', (e) => errors.push(e.message))
   for (const [method, route] of [
     ['PUT', 'draft'],
@@ -177,6 +178,15 @@ try {
   await inspecting('파란 벤치')
   const resume = page.getByRole('button', { name: '다시 로그인하고 저장' })
   await resume.waitFor()
+  const unload = await page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return [
+      event.defaultPrevented,
+      document.querySelector('[data-save-state]').dataset.saveState,
+    ]
+  })
+  assert.deepEqual(unload, [true, 'unauthorized'])
   await page.getByLabel('직접 고른 색').fill('#113355')
   await page.waitForFunction(
     (before) =>
@@ -232,8 +242,22 @@ try {
       .items.length,
     2,
   )
+  // The same authenticated draft opens in a narrow desktop pane and a new tab.
+  await page.setViewportSize({ width: 579, height: 850 })
+  const reloadDraft = page.waitForResponse(origin + '/api/admin/draft')
   await page.reload()
+  const stored = await (await reloadDraft).json()
   await tree('파란 벤치').click()
+  const canvasBounds = await viewport.boundingBox()
+  const outlineBounds = await page.getByLabel('장면 목록').boundingBox()
+  assert.ok(canvasBounds.width > 500 && canvasBounds.height > 100)
+  assert.ok(outlineBounds.y >= canvasBounds.y + canvasBounds.height - 1)
+  const sibling = await desktop.newPage()
+  const newTabDraft = sibling.waitForResponse(origin + '/api/admin/draft')
+  await sibling.goto(origin + '/studio')
+  assert.equal((await (await newTabDraft).json()).id, stored.id)
+  await sibling.close()
+  await page.setViewportSize({ width: 1280, height: 850 })
   await inspecting('파란 벤치')
   assert.equal(await page.getByLabel('직접 고른 색').inputValue(), '#113355')
   assert.equal(

@@ -350,4 +350,29 @@
       display: none;
     }
   }
+  @media (max-width: 760px) {
+    .studio {
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+    .studio-bar {
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      padding: var(--space-2) var(--space-3);
+    }
+    .studio-bar__start,
+    .studio-bar__end {
+      flex-wrap: wrap;
+    }
+    .studio-body {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+      grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .studio-viewport {
+      grid-area: 1 / 1 / 2 / -1;
+    }
+    .studio-outline,
+    .studio-inspector {
+      grid-row: 2;
+    }
+  }
 }

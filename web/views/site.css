@@ -369,13 +369,14 @@
       --header-height: 56px;
     }
     .site-header {
-      grid-template-columns: auto 1fr;
+      display: flex;
+      flex-wrap: wrap;
+      height: auto;
+      min-height: var(--header-height);
+      gap: var(--space-2);
     }
     .site-header .ui-nav {
-      justify-self: end;
-    }
-    .site-header__end {
-      display: none;
+      margin-inline-start: auto;
     }
     .world-intro {
       max-width: calc(100% - 2 * var(--gutter));
@@ -453,11 +454,6 @@
     }
     .world-events:not([hidden]) ~ .world-zoom {
       bottom: 120px;
-    }
-  }
-  @media (pointer: coarse) and (max-device-width: 960px) {
-    .site-header__end {
-      display: none;
     }
   }
 }

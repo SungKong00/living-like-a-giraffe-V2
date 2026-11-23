@@ -1574,7 +1574,7 @@ export async function studio() {
     if (autosave.busy || ['error', 'unauthorized'].includes(autosave.state)) {
       e.preventDefault()
       e.returnValue = ''
-      flush().catch(() => {})
+      if (autosave.state === 'pending') flush().catch(() => {})
     }
   })
 

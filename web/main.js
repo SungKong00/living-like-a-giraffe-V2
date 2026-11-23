@@ -1,5 +1,5 @@
 import { GlassHeading } from './ds/index.js'
-import { api, app, stage, small, zoomControls } from './ui.js'
+import { api, app, stage, zoomControls } from './ui.js'
 import {
   el,
   Brand,
@@ -11,6 +11,9 @@ import {
 } from './ds/index.js'
 
 const route = location.pathname
+const studioAvailable = !matchMedia(
+  '(pointer: coarse) and (max-device-width: 960px)',
+).matches
 const photo = (id) =>
   id === 'mental-sauna' ? 'sauna' : id === 'sports-day' ? 'sports' : 'world'
 const coverSrc = (id) => '/images/' + photo(id) + '.jpg'
@@ -33,7 +36,7 @@ function header() {
     }),
     el(
       'div',
-      { class: 'site-header__end' },
+      { class: 'site-header__end', hidden: !studioAvailable },
       Button({
         label: '스튜디오',
         href: '/studio',
@@ -323,7 +326,7 @@ async function visit(data) {
 // ---- Boot ----
 header()
 try {
-  if (route === '/studio' && !small())
+  if (route === '/studio' && studioAvailable)
     await (await import('./studio.js')).studio()
   else {
     const state = await api('world')
