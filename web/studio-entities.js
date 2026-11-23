@@ -37,6 +37,14 @@ export const entityTypes = Object.freeze({
     parent: (i) => ({ type: 'room', id: i.room }),
     removable: true,
   },
+  giraffe: {
+    noun: '기린',
+    icon: () => 'giraffe',
+    find: (s, id) => (s.layout.giraffes ?? []).find((g) => g.id === id),
+    name: (g) => g.label,
+    parent: (g) => ({ type: 'room', id: g.room }),
+    removable: true,
+  },
   light: {
     noun: '조명',
     icon: lightIcon,

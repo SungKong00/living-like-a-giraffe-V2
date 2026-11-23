@@ -805,6 +805,10 @@
     box-shadow: var(--ring-focus);
   }
 
+  .ui-file-button {
+    display: inline-flex;
+  }
+
   /* ---------- Swatches ---------- */
   .ui-swatches {
     display: flex;

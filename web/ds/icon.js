@@ -42,6 +42,10 @@ import {
   LampCeiling,
   RectangleHorizontal,
   Undo,
+  Clapperboard,
+  Hand,
+  PawPrint,
+  Play,
 } from 'lucide'
 import { DesignSystemError } from './contract.js'
 
@@ -54,6 +58,7 @@ const glyphs = Object.freeze({
   'arrow-left': ArrowLeft,
   'arrow-right': ArrowRight,
   check: Check,
+  clay: Hand,
   'check-circle': CircleCheck,
   'chevron-down': ChevronDown,
   'chevron-right': ChevronRight,
@@ -64,6 +69,7 @@ const glyphs = Object.freeze({
   external: ArrowUpRight,
   fit: Scan,
   furniture: Armchair,
+  giraffe: PawPrint,
   handoff: ArrowLeftRight,
   info: Info,
   key: KeyRound,
@@ -74,7 +80,9 @@ const glyphs = Object.freeze({
   'light-spot': LampCeiling,
   map: MapGlyph,
   minus: Minus,
+  motion: Clapperboard,
   page: FileText,
+  play: Play,
   pointer: MousePointerClick,
   preview: Eye,
   publish: Send,

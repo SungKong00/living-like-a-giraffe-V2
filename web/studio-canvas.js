@@ -269,7 +269,9 @@ export function attachCanvas(world, view, hooks) {
     else if (g.kind === 'spot' && g.moved)
       hooks.commitSpot(g.id, g.spot.position)
     else if (g.kind === 'pan' && !g.moved)
-      hooks.select(g.hit?.type === 'room' ? g.hit : null)
+      hooks.select(
+        g.hit?.type === 'room' || g.hit?.type === 'giraffe' ? g.hit : null,
+      )
   }
   // Escape or a lost pointer puts the dragged object back without an edit.
   function cancel() {

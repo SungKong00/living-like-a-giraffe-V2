@@ -54,6 +54,8 @@ export function duplicateItem(layout, id, newId, offset = [1, 0, 1]) {
     position: source.position.map((v, i) => round(v + offset[i])),
   }
   layout.items.splice(layout.items.indexOf(source) + 1, 0, copy)
+  const clay = layout.overrides?.clay?.[id]
+  if (clay) layout.overrides.clay[newId] = { ...clay }
   return copy
 }
 function copyLabel(layout, label) {
@@ -90,7 +92,61 @@ export function deleteItem(layout, id) {
   const removed = spotsOn(layout, id).length
   layout.items = layout.items.filter((i) => i.id !== id)
   layout.spots = layout.spots.filter((s) => s.anchor !== id)
+  setClay(layout, id, null)
   return removed
+}
+
+// ---- Overrides ----
+/** Sets an object's clay override, or removes it with `null`. */
+export function setClay(layout, id, settings) {
+  if (settings) {
+    layout.overrides ??= {}
+    layout.overrides.clay ??= {}
+    layout.overrides.clay[id] = { ...settings }
+    return
+  }
+  if (!layout.overrides?.clay) return
+  delete layout.overrides.clay[id]
+  if (!Object.keys(layout.overrides.clay).length) delete layout.overrides.clay
+  if (!Object.keys(layout.overrides).length) delete layout.overrides
+}
+/** Sets a world default, or removes it with `undefined`. */
+export function setDefault(layout, scope, key, value) {
+  layout.defaults ??= {}
+  layout.defaults[scope] ??= {}
+  if (key === null) layout.defaults[scope] = value
+  else if (value === undefined) delete layout.defaults[scope][key]
+  else layout.defaults[scope][key] = value
+  if (!layout.defaults[scope] || !Object.keys(layout.defaults[scope]).length)
+    delete layout.defaults[scope]
+  if (!Object.keys(layout.defaults).length) delete layout.defaults
+}
+
+// ---- Giraffes ----
+export function addGiraffe(layout, { id, room, position = [0, 0, 0] }) {
+  const taken = new Set((layout.giraffes ?? []).map((g) => g.label))
+  let n = 1
+  while (taken.has('기린 ' + n)) n++
+  const giraffe = {
+    id,
+    room,
+    label: '기린 ' + n,
+    position,
+    yaw: 0,
+    scale: 1,
+  }
+  ;(layout.giraffes ??= []).push(giraffe)
+  return giraffe
+}
+export function deleteGiraffe(layout, id) {
+  layout.giraffes = (layout.giraffes ?? []).filter((g) => g.id !== id)
+  if (!layout.giraffes.length) delete layout.giraffes
+  setClay(layout, id, null)
+}
+/** Clears a giraffe's own value so it follows the world default again. */
+export function inheritGiraffe(layout, id, key) {
+  const g = find(layout, 'giraffes', id)
+  if (g) delete g[key]
 }
 
 export function deleteSpot(layout, id) {

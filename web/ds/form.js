@@ -1,4 +1,5 @@
 import { el, cx } from './dom.js'
+import { Button } from './button.js'
 import { Icon } from './icon.js'
 import { options, is, invariant, viewClass } from './contract.js'
 
@@ -444,4 +445,46 @@ export function RadioCards(props) {
       }),
     ),
   )
+}
+
+/**
+ * Opens the file picker and hands one chosen file to `onFile`. Looks like a
+ * Button; the native file input stays hidden and is reset after each pick, so
+ * choosing the same file again uploads it again.
+ */
+export function FileButton(props) {
+  const o = options('FileButton', props, {
+    label: is.string().required,
+    accept: is.string().required,
+    onFile: is.func().required,
+    icon: is.string('upload'),
+    variant: is.oneOf(['primary', 'secondary', 'ghost'], 'secondary'),
+    size: is.oneOf(['sm', 'md'], 'sm'),
+    wide: is.boolean(),
+    disabled: is.boolean(),
+    key: is.string(),
+  })
+  const input = el('input', {
+    type: 'file',
+    accept: o.accept,
+    class: 'sr-only',
+    tabindex: '-1',
+    'aria-hidden': 'true',
+  })
+  input.addEventListener('change', () => {
+    const [file] = input.files
+    input.value = ''
+    if (file) o.onFile(file)
+  })
+  const button = Button({
+    label: o.label,
+    icon: o.icon,
+    variant: o.variant,
+    size: o.size,
+    wide: o.wide,
+    disabled: o.disabled,
+    key: o.key,
+    onClick: () => input.click(),
+  })
+  return el('span', { class: 'ui-file-button' }, button, input)
 }

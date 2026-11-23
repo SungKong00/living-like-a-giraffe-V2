@@ -81,7 +81,47 @@ const sourceEdit = z.strictObject({
     .regex(/^#[0-9a-f]{6}$/)
     .optional(),
 })
+// Clay look shared by the world default and per-object overrides.
+const percent = z.number().min(0).max(100)
+const clay = z.strictObject({
+  strength: percent,
+  depth: percent,
+  width: percent,
+})
+// `동작파일ID/클립이름`; null means "standing still" when it overrides.
+const motion = z
+  .string()
+  .min(3)
+  .max(200)
+  .regex(/^[a-f0-9]{16}\/.+$/s)
+  .nullable()
+const speed = z.number().min(0.1).max(3)
+// Giraffes never round-trip through Blender, so their own motion and speed
+// overrides live on the giraffe. A missing field follows defaults.giraffe.
+const giraffe = z.strictObject({
+  id,
+  room: id,
+  label: title,
+  position: vector,
+  yaw: z.number().min(-360).max(360),
+  scale: z.number().min(0.1).max(5),
+  motion: motion.optional(),
+  speed: speed.optional(),
+})
 const layout = z.strictObject({
+  // World-wide values every object follows unless it overrides them.
+  defaults: z
+    .strictObject({
+      clay: clay.optional(),
+      giraffe: z
+        .strictObject({ motion: motion.optional(), speed: speed.optional() })
+        .optional(),
+    })
+    .optional(),
+  // Per-object overrides kept apart from items: furniture fields are merged
+  // key by key with Blender, and a separate map survives that untouched.
+  overrides: z.strictObject({ clay: z.record(id, clay).optional() }).optional(),
+  giraffes: z.array(giraffe).max(50).optional(),
   sourceLights: z.array(sourceEdit).optional(),
   lights: studioLights.optional(),
   items: z.array(item).max(500),
@@ -109,9 +149,10 @@ export function validate(input, catalog) {
   const rooms = catalog.rooms.map((r) => r.id)
   const kinds = new Set(catalog.items.map((i) => i.kind))
   const ids = [...rooms, ...data.items.map((i) => i.id)]
+  const giraffeIds = (data.giraffes ?? []).map((g) => g.id)
   const pages = data.pages.map((p) => p.id)
   for (const keys of [
-    ids,
+    [...ids, ...giraffeIds],
     pages,
     (data.lights ?? []).map((l) => l.id),
     data.spots.map((s) => s.id),
@@ -139,6 +180,18 @@ export function validate(input, catalog) {
     if (original && original.kind !== i.kind)
       throw Error(i.label + '의 모델 종류를 변경할 수 없습니다.')
   }
+  for (const g of data.giraffes ?? [])
+    if (!rooms.includes(g.room)) throw Error(g.label + '의 방을 확인하세요.')
+  // An object removed here or by a Blender handoff takes its overrides along.
+  if (data.overrides?.clay) {
+    const owners = new Set([...data.items.map((i) => i.id), ...giraffeIds])
+    for (const key of Object.keys(data.overrides.clay))
+      if (!owners.has(key)) delete data.overrides.clay[key]
+    if (!Object.keys(data.overrides.clay).length) delete data.overrides.clay
+  }
+  if (data.overrides && !Object.keys(data.overrides).length)
+    delete data.overrides
+  if (data.giraffes && !data.giraffes.length) delete data.giraffes
   for (const s of data.spots)
     if (
       !ids.includes(s.anchor) ||

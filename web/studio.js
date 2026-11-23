@@ -40,6 +40,8 @@ import { attachCanvas } from './studio-canvas.js'
 import { publishControl } from './studio-publish.js'
 import { openHandoff } from './studio-handoff.js'
 import * as ops from './edit-ops.js'
+import { giraffeLayer, giraffeMotion } from './studio-giraffes.js'
+import { clayLayer } from './studio-clay-layer.js'
 
 const newId = () => crypto.randomUUID()
 const mac = /Mac|iPhone|iPad/.test(navigator.platform)
@@ -146,6 +148,8 @@ export async function studio() {
     throw e
   }
   document.body.dataset.surface = 'studio'
+  if (new URLSearchParams(location.search).get('tool') === 'clay')
+    return (await import('./studio-clay.js')).studioClay()
   const history = new EditHistory(saved.layout)
   const sourceCatalog = saved.sourceLights ?? []
   const sourceMap = new Map(sourceCatalog.map((l) => [l.id, l]))
@@ -190,6 +194,20 @@ export async function studio() {
     addressing: null,
     lightPick: null,
     lightTool: 'move',
+    // Giraffe waiting for a floor click to set its position.
+    giraffePick: null,
+  }
+  // Rigged model and motion files shared by every giraffe.
+  let giraffeLibrary = saved.giraffes ?? { model: null, motions: [] }
+  let herd = null
+  const clay = clayLayer()
+  // Scene parts drawn by the studio itself rather than by scene.js.
+  function refreshScene() {
+    if (!world) return
+    herd?.update(shown)
+    const objects = new Map(world.instances)
+    for (const g of shown.giraffes ?? []) objects.set(g.id, herd?.root(g.id))
+    clay.update(shown, objects)
   }
   const entities = entityQueries({
     get layout() {
@@ -261,6 +279,12 @@ export async function studio() {
     el(
       'div',
       { class: 'studio-bar__end' },
+      Button({
+        label: '점토 시안',
+        href: '/studio?tool=clay',
+        external: true,
+        variant: 'ghost',
+      }),
       Button({
         label: '미리보기',
         icon: 'preview',
@@ -468,10 +492,12 @@ export async function studio() {
     transient = false
     shown = history.value
     world?.update(shown)
+    refreshScene()
     projection?.invalidate()
     if (selection && !entities.exists(selection)) {
       selection = null
       setLightPick(null)
+      ui.giraffePick = null
     }
     render()
   }
@@ -488,6 +514,7 @@ export async function studio() {
     shown = history.value
     edit(shown)
     world?.update(shown)
+    refreshScene()
     projection?.invalidate()
   }
   function undo() {
@@ -504,6 +531,7 @@ export async function studio() {
   }
   function select(sel, { frame = false } = {}) {
     setLightPick(null)
+    setGiraffePick(null)
     if (selection?.id !== sel?.id || selection?.type !== sel?.type) {
       canvas?.cancel()
       ui.lightTool = 'move'
@@ -513,7 +541,10 @@ export async function studio() {
     if (sel?.type === 'page') ui.tab = 'pages'
     else if (sel) ui.tab = 'scene'
     if (frame && sel?.type === 'world') world?.selectRoom(null)
-    else if (frame && sel) canvas?.frame(sel)
+    else if (frame && sel?.type === 'giraffe') {
+      const at = herd?.root(sel.id)?.getAbsolutePosition()
+      if (at) world.look(at, Math.max(world.zoomLevel, 3))
+    } else if (frame && sel) canvas?.frame(sel)
     render()
   }
   const selectedItem = () =>
@@ -548,7 +579,89 @@ export async function studio() {
     } else if (selection?.type === 'spot') {
       change((d) => ops.deleteSpot(d, selection.id))
       notify('클릭 영역을 삭제했습니다.', true)
+    } else if (selection?.type === 'giraffe') {
+      change((d) => ops.deleteGiraffe(d, selection.id))
+      notify('기린을 삭제했습니다.', true)
     } else if (selection?.type === 'page') removePage(selection.id)
+  }
+
+  // ---- Clay and giraffes ----
+  function setWorldClay(settings, temporary = false) {
+    const edit = (d) => ops.setDefault(d, 'clay', null, { ...settings })
+    temporary ? preview(edit) : change(edit)
+  }
+  function setClay(id, settings, temporary = false) {
+    const edit = (d) => ops.setClay(d, id, settings)
+    temporary ? preview(edit) : change(edit)
+  }
+  function setGiraffeDefault(key, value, temporary = false) {
+    const edit = (d) => ops.setDefault(d, 'giraffe', key, value)
+    temporary ? preview(edit) : change(edit)
+  }
+  function inheritGiraffe(id, key) {
+    change((d) => ops.inheritGiraffe(d, id, key))
+  }
+  function addGiraffe(room = targetRoom()) {
+    const id = newId()
+    ui.collapsed.delete('room:' + room)
+    change((d) => ops.addGiraffe(d, { id, room }))
+    select({ type: 'giraffe', id }, { frame: true })
+    if (!giraffeLibrary.model)
+      notify(
+        '자리 표시로 놓았습니다. 월드의 기린 구역에서 리깅 모델을 올리세요.',
+      )
+  }
+  function setGiraffePick(id) {
+    if (ui.giraffePick === id) return
+    ui.giraffePick = id
+    view.host.classList.toggle('is-placing-light', !!id)
+    render()
+  }
+  async function useLibrary(next) {
+    giraffeLibrary = next
+    outlineKey = inspectorKey = ''
+    render()
+    await herd?.useModel(next.model?.id ?? null)
+    refreshScene()
+  }
+  async function upload(path, method, file, done) {
+    try {
+      const next = await api(
+        path + '?name=' + encodeURIComponent(file.name),
+        method,
+        file,
+      )
+      await useLibrary(next)
+      notify(done)
+    } catch (e) {
+      fail(e.message)
+    }
+  }
+  const uploadGiraffeModel = (file) =>
+    upload('admin/giraffes/model', 'PUT', file, '기린 모델을 올렸습니다.')
+  const uploadMotion = (file) =>
+    upload(
+      'admin/giraffes/motions',
+      'POST',
+      file,
+      file.name + ' 동작을 올렸습니다.',
+    )
+  async function removeMotion(id) {
+    const used = [shown.defaults?.giraffe, ...(shown.giraffes ?? [])].some(
+      (g) => g?.motion?.startsWith(id + '/'),
+    )
+    if (
+      used &&
+      !confirm(
+        '이 동작 파일을 쓰는 기린이 있습니다. 삭제하면 그 기린은 멈춥니다. 계속할까요?',
+      )
+    )
+      return
+    try {
+      await useLibrary(await api('admin/giraffes/motions/' + id, 'DELETE'))
+    } catch (e) {
+      fail(e.message)
+    }
   }
   function removePage(id) {
     const page = ops.find(shown, 'pages', id)
@@ -732,6 +845,19 @@ export async function studio() {
     setLightPick,
     setLightTool,
     zoomRoom: (id) => world?.selectRoom(id),
+    get giraffeLibrary() {
+      return giraffeLibrary
+    },
+    giraffeMotion: (g) => giraffeMotion(shown, g),
+    setWorldClay,
+    setClay,
+    setGiraffeDefault,
+    inheritGiraffe,
+    addGiraffe,
+    setGiraffePick,
+    uploadGiraffeModel,
+    uploadMotion,
+    removeMotion,
     renderOutline,
     renderInspector,
   })
@@ -761,6 +887,7 @@ export async function studio() {
       ui.roomAddOpen,
       ui.addressing,
       ui.lightPick,
+      ui.giraffePick,
       ui.lightTool,
     ])
     if (key === inspectorKey) return
@@ -808,6 +935,7 @@ export async function studio() {
       e.target.isContentEditable
     if (e.key === 'Escape') {
       if (ui.lightPick) return setLightPick(null)
+      if (ui.giraffePick) return setGiraffePick(null)
       if (canvas?.cancel()) return
       if (!typing) select(null)
       return
@@ -874,6 +1002,19 @@ export async function studio() {
     select: (sel) => select(sel),
     toolbar: floating,
     pickLightPoint(at) {
+      if (ui.giraffePick) {
+        const g = ops.find(shown, 'giraffes', ui.giraffePick)
+        const point = g && world.roomPoint(at.x, at.y, g.room)
+        if (!point) {
+          notify(roomName(g?.room) + '의 바닥을 클릭하세요.')
+          return true
+        }
+        setGiraffePick(null)
+        patch('giraffes', g.id, {
+          position: [ops.round(point[0]), g.position[1], ops.round(point[2])],
+        })
+        return true
+      }
       if (!ui.lightPick) return false
       const light = selection?.type === 'light' && lightById(selection.id)
       if (!light) {
@@ -953,6 +1094,15 @@ export async function studio() {
     throw e
   }
   world.update(shown)
+  herd = giraffeLayer(world)
+  // Load the library before the first frame so giraffes appear as models.
+  try {
+    giraffeLibrary = await api('admin/giraffes')
+    await herd.useModel(giraffeLibrary.model?.id ?? null)
+  } catch (e) {
+    fail('기린 자료를 읽지 못했습니다 · ' + e.message)
+  }
+  refreshScene()
   projection = selectionPreview(world, portrait)
   canvas = attachCanvas(world, view, hooks)
   render()

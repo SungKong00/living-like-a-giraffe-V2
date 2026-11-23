@@ -8,6 +8,7 @@ import { buildDir, root, modelDir, catalog } from './world-files.mjs'
 import { cachedLighting } from './baked-lighting.mjs'
 import { Jobs } from './jobs.mjs'
 import { StudioSessions, sessionLifetime } from './studio-sessions.mjs'
+import { giraffeLibrary } from './giraffes.mjs'
 // A second server must never race the first writer's atomic state-file swaps.
 if (!fs.existsSync(modelDir('initial')))
   throw Error('npm run prepare:world를 먼저 실행하세요.')
@@ -116,6 +117,17 @@ app.get('/api/world/:id', (req, res) => {
 app.get('/api/admin/draft', (req, res) =>
   res.json(editorView(store.state.draft)),
 )
+app.get('/api/admin/clay-giraffe', (_req, res) =>
+  res
+    .type('model/gltf-binary')
+    .sendFile(
+      path.resolve('assets-source/characters/riragi-clay/riragi-giraffe.glb'),
+    ),
+)
+app.get('/api/admin/clay-samples', async (_req, res) => {
+  const { claySamples } = await import('./clay-samples.mjs')
+  res.type('model/gltf-binary').send(await claySamples())
+})
 app.get('/api/admin/model/:id', async (req, res) => {
   if (!/^(initial|[a-f0-9-]{36})$/.test(req.params.id))
     return res.sendStatus(404)
@@ -124,6 +136,28 @@ app.get('/api/admin/model/:id', async (req, res) => {
   res.sendFile(await jobs.studioAsset(req.params.id), {
     dotfiles: 'allow',
   })
+})
+// ---- Giraffe library: one rigged model and motion files for its skeleton.
+const giraffes = giraffeLibrary()
+const glb = express.raw({ type: 'application/octet-stream', limit: '120mb' })
+const fileName = (req, fallback) =>
+  String(req.query.name || fallback).replace(/\.glb$/i, '')
+app.get('/api/admin/giraffes', (req, res) => res.json(giraffes.list()))
+app.put('/api/admin/giraffes/model', glb, async (req, res) => {
+  if (!Buffer.isBuffer(req.body)) return res.sendStatus(415)
+  res.json(await giraffes.setModel(req.body, fileName(req, '기린 모델')))
+})
+app.post('/api/admin/giraffes/motions', glb, async (req, res) => {
+  if (!Buffer.isBuffer(req.body)) return res.sendStatus(415)
+  res.json(await giraffes.addMotion(req.body, fileName(req, '동작')))
+})
+app.delete('/api/admin/giraffes/motions/:id', (req, res) =>
+  res.json(giraffes.removeMotion(req.params.id)),
+)
+app.get('/api/admin/giraffes/files/:file', (req, res) => {
+  const file = giraffes.file(req.params.file.replace(/\.glb$/, ''))
+  if (!file) return res.sendStatus(404)
+  res.type('model/gltf-binary').sendFile(file, { dotfiles: 'allow' })
 })
 app.put('/api/admin/draft', (req, res) =>
   res.json(

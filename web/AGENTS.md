@@ -9,5 +9,6 @@
 ## 스튜디오
 
 - 편집할 새 종류(예: 기린)는 `studio-entities.js`의 `entityTypes`에 찾기·이름·아이콘·상위 범위를 선언하고, `studio-inspectors.js`의 `inspectors`에 속성 패널 함수를 더한다. 목록 배치는 `studio-outline.js`, 추가 동작은 같은 파일의 `addMenu` 구역에 더한다. 상단 막대나 목록에 종류별 버튼을 따로 만들지 않는다.
-- 모든 개체에 적용되는 기본값(오브젝트 재질, 배경, 기린)은 월드 패널의 `worldSections`에 구역으로 더한다. 개체 편집기는 그 값을 덮어쓸 때 `PropertyRow`의 `override`로 표시하고 되돌리기를 제공한다.
+- 모든 개체에 적용되는 기본값(점토, 기린 동작, 이후 배경)은 초안의 `defaults`에 두고 월드 패널의 `worldSections`에 구역으로 더한다. Blender와 왕복하는 가구의 덮어쓰기는 가구 객체가 아니라 `overrides.<종류>[개체 ID]`에 둔다. 개체 편집기는 덮어쓸 때 `PropertyRow`의 `override`로 표시하고 되돌리기를 제공한다.
+- 편집 장면에 그리는 스튜디오 전용 요소(점토 변형, 기린)는 `studio.js`의 `refreshScene()`에서 갱신한다. 계속 움직이는 요소는 `world.keepDrawing()`으로 그리기를 유지한다.
 - 패널 모듈은 `editor`의 읽기 값과 명령만 쓴다. 초안을 직접 고치거나 `studio.js`의 내부 상태를 가져오지 않는다.

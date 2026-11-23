@@ -9,6 +9,7 @@ import {
   ChipList,
   Disclosure,
   EmptyState,
+  FileButton,
   Icon,
   IconButton,
   NumberInput,
@@ -24,6 +25,7 @@ import {
 } from './ds/index.js'
 import { lightInspector } from './light-inspector.js'
 import * as ops from './edit-ops.js'
+import { clayFor, clayPresetOf, clayPresets } from './clay-field.js'
 
 // The right panel. Strategy: one builder per entity type, looked up by the
 // selection's type. Each builder reads top to bottom as
@@ -52,6 +54,7 @@ export const inspectors = Object.freeze({
   world: worldInspector,
   room: roomInspector,
   item: itemInspector,
+  giraffe: giraffeInspector,
   light: lightEditor,
   spot: spotInspector,
   page: pageInspector,
@@ -154,7 +157,7 @@ const chips = (editor, sels, empty) =>
 // world-wide settings; defaults for objects, the background and giraffes join
 // this list as they are built, and the objects' own editors mark overrides
 // with PropertyRow's `override`.
-const worldSections = [composition, worldLighting]
+const worldSections = [composition, worldClay, worldGiraffes, worldLighting]
 
 function worldInspector(_world, editor) {
   return [
@@ -574,6 +577,7 @@ function itemInspector(i, editor) {
         }),
       ],
     }),
+    claySection(i.id, editor),
     spotSection(i.id, editor),
   ]
 }
@@ -838,4 +842,398 @@ function pageInspector(p, editor) {
       ],
     }),
   ]
+}
+
+// ---- 점토 ----
+const WORLD_SCOPE = '월드'
+const presetNames = {
+  original: '원본',
+  light: '약하게',
+  medium: '보통',
+  strong: '강하게',
+}
+const notPublished =
+  '편집 화면에서만 보이며 관람 화면에는 아직 반영되지 않습니다.'
+
+// Preset buttons and the three values behind them. `onPreview` follows a
+// slider while it moves; `onCommit` records one edit.
+function clayRows({ key, value, onPreview, onCommit, override }) {
+  const slider = (label, prop) =>
+    Slider({
+      label: '점토 ' + label,
+      key: key + '-' + prop,
+      min: 0,
+      max: 100,
+      step: 1,
+      value: value[prop],
+      format: (v) => String(Math.round(v)),
+      onInput: (v) => onPreview({ ...value, [prop]: v }),
+      onCommit: (v) => onCommit({ ...value, [prop]: v }),
+    })
+  return [
+    PropertyRow({
+      label: '단계',
+      override,
+      children: [
+        Segmented({
+          label: '점토 단계',
+          key: key + '-preset',
+          size: 'sm',
+          value: clayPresetOf(value),
+          options: Object.entries(presetNames).map(([v, label]) => ({
+            value: v,
+            label,
+          })),
+          onChange: (preset) => onCommit({ ...clayPresets[preset] }),
+        }),
+      ],
+    }),
+    PropertyRow({ label: '굴곡', children: [slider('굴곡', 'strength')] }),
+    PropertyRow({ label: '눌림', children: [slider('눌림 깊이', 'depth')] }),
+    PropertyRow({ label: '자국', children: [slider('자국 크기', 'width')] }),
+  ]
+}
+
+function worldClay(editor) {
+  const value = clayFor(editor.layout, null)
+  const preset = clayPresetOf(value)
+  return PanelSection({
+    title: '점토',
+    meta: preset === 'custom' ? '직접 조절' : presetNames[preset],
+    children: [
+      ...clayRows({
+        key: 'world-clay',
+        value,
+        onPreview: (v) => editor.setWorldClay(v, true),
+        onCommit: (v) => editor.setWorldClay(v),
+      }),
+      muted(
+        '덮어쓰지 않은 모든 가구와 기린에 적용됩니다. 개체 편집기에서 따로 정할 수 있습니다. ' +
+          notPublished,
+      ),
+    ],
+  })
+}
+
+function claySection(id, editor) {
+  const own = editor.layout.overrides?.clay?.[id]
+  return PanelSection({
+    title: '점토',
+    meta: own ? '이 개체만 따로' : '월드 따름',
+    children: clayRows({
+      key: 'clay',
+      value: clayFor(editor.layout, id),
+      override: own && {
+        from: WORLD_SCOPE,
+        subject: '점토',
+        onReset: () => editor.setClay(id, null),
+      },
+      onPreview: (v) => editor.setClay(id, v, true),
+      onCommit: (v) => editor.setClay(id, v),
+    }),
+  })
+}
+
+// ---- 기린 ----
+const STILL = '__still'
+function motionOptions(editor, current) {
+  const options = [{ value: STILL, label: '정지' }]
+  for (const m of editor.giraffeLibrary.motions)
+    for (const clip of m.clips)
+      options.push({
+        value: m.id + '/' + clip.name,
+        label: m.name + ' · ' + clip.name,
+      })
+  if (current && !options.some((o) => o.value === current))
+    options.push({
+      value: current,
+      label: '없는 동작 · ' + current.split('/').slice(1).join('/'),
+    })
+  return options
+}
+const motionValue = (v) => (v === STILL ? null : v)
+
+function worldGiraffes(editor) {
+  const library = editor.giraffeLibrary
+  const world = editor.layout.defaults?.giraffe ?? {}
+  const count = editor.layout.giraffes?.length ?? 0
+  return PanelSection({
+    title: '기린',
+    meta: count + '마리',
+    children: [
+      PropertyRow({
+        label: '모델',
+        stack: true,
+        children: [
+          muted(
+            library.model
+              ? library.model.name + ' · 관절 ' + library.model.joints + '개'
+              : '리깅된 기린 모델(GLB)을 올리면 자리 표시 대신 모델이 보입니다.',
+          ),
+          FileButton({
+            label: library.model ? '모델 바꾸기' : '리깅 모델 올리기',
+            accept: '.glb,model/gltf-binary',
+            key: 'giraffe-model',
+            onFile: (file) => editor.uploadGiraffeModel(file),
+          }),
+        ],
+      }),
+      PropertyRow({
+        label: '동작 파일',
+        stack: true,
+        children: [
+          library.motions.length
+            ? el(
+                'ul',
+                { class: 'studio-files' },
+                ...library.motions.map((m) =>
+                  el(
+                    'li',
+                    { class: 'studio-files__item' },
+                    Icon('motion', 'sm'),
+                    el(
+                      'span',
+                      { class: 'studio-files__name' },
+                      m.name,
+                      el(
+                        'small',
+                        {},
+                        m.clips.map((c) => c.name).join(', ') +
+                          (library.model && m.matched < m.targets
+                            ? ' · 관절 ' + m.matched + '/' + m.targets + ' 일치'
+                            : ''),
+                      ),
+                    ),
+                    IconButton({
+                      icon: 'delete',
+                      label: m.name + ' 동작 파일 삭제',
+                      size: 'sm',
+                      onClick: () => editor.removeMotion(m.id),
+                    }),
+                  ),
+                ),
+              )
+            : muted('아직 동작 파일이 없습니다.'),
+          FileButton({
+            label: '동작 파일 올리기',
+            accept: '.glb,model/gltf-binary',
+            key: 'giraffe-motion',
+            onFile: (file) => editor.uploadMotion(file),
+          }),
+        ],
+      }),
+      PropertyRow({
+        label: '기본 동작',
+        children: [
+          Select({
+            label: '기본 동작',
+            key: 'giraffe-default-motion',
+            size: 'sm',
+            value: world.motion ?? STILL,
+            options: motionOptions(editor, world.motion),
+            onChange: (v) => editor.setGiraffeDefault('motion', motionValue(v)),
+          }),
+        ],
+      }),
+      PropertyRow({
+        label: '기본 속도',
+        children: [
+          Slider({
+            label: '기본 동작 속도',
+            key: 'giraffe-default-speed',
+            min: 0.1,
+            max: 3,
+            step: 0.05,
+            value: world.speed ?? 1,
+            format: (v) => '×' + v.toFixed(2),
+            onInput: (v) => editor.setGiraffeDefault('speed', v, true),
+            onCommit: (v) => editor.setGiraffeDefault('speed', v),
+          }),
+        ],
+      }),
+      muted(
+        'Blender에서 기린 아마추어의 동작(액션)을 GLB로 내보내 올립니다. 같은 뼈 이름을 쓰는 동작만 받습니다. ' +
+          notPublished,
+      ),
+    ],
+  })
+}
+
+function giraffeInspector(g, editor) {
+  const set = (values) => editor.patch('giraffes', g.id, values)
+  const preview = (values) =>
+    editor.preview((d) => Object.assign(ops.find(d, 'giraffes', g.id), values))
+  const at = (n, v) =>
+    g.position.map((p, k) => (k === n ? ops.clampPosition(v) : p))
+  const effective = editor.giraffeMotion(g)
+  const inherit = (key, subject) =>
+    g[key] !== undefined && {
+      from: WORLD_SCOPE,
+      subject,
+      onReset: () => editor.inheritGiraffe(g.id, key),
+    }
+  const picking = editor.view.giraffePick === g.id
+  return [
+    PanelHeader({
+      eyebrow: '기린',
+      icon: 'giraffe',
+      title: labelInput('기린 이름', g.label, (label) => set({ label })),
+      actions: [
+        IconButton({
+          icon: 'delete',
+          label: '기린 삭제',
+          variant: 'danger',
+          shortcut: 'Delete',
+          key: 'delete',
+          onClick: () => editor.remove(),
+        }),
+      ],
+    }),
+    editor.giraffeLibrary.model
+      ? null
+      : Callout({
+          message:
+            '리깅된 기린 모델을 올리기 전까지 자리 표시로 보입니다. 월드 패널의 기린 구역에서 올립니다.',
+        }),
+    PanelSection({
+      title: '배치',
+      children: [
+        PropertyRow({
+          label: '방',
+          children: [
+            Select({
+              label: '기린이 있는 방',
+              key: 'giraffe-room',
+              size: 'sm',
+              value: g.room,
+              options: editor.rooms.map((r) => ({
+                value: r.id,
+                label: r.label,
+              })),
+              onChange: (room) => set({ room }),
+            }),
+          ],
+        }),
+        PropertyRow({
+          label: '위치',
+          children: [
+            NumberInput({
+              label: '기린 위치 X',
+              prefix: 'X',
+              key: 'gx',
+              value: g.position[0],
+              onCommit: (v) => set({ position: at(0, v) }),
+            }),
+            NumberInput({
+              label: '기린 위치 Z',
+              prefix: 'Z',
+              key: 'gz',
+              value: g.position[2],
+              onCommit: (v) => set({ position: at(2, v) }),
+            }),
+          ],
+        }),
+        PropertyRow({
+          label: '높이',
+          children: [
+            NumberInput({
+              label: '기린 높이',
+              prefix: 'Y',
+              key: 'gy',
+              step: 0.05,
+              value: g.position[1],
+              onCommit: (v) => set({ position: at(1, v) }),
+            }),
+          ],
+        }),
+        PropertyRow({
+          label: '방향',
+          children: [
+            Slider({
+              label: '기린 방향',
+              key: 'gyaw',
+              min: -180,
+              max: 180,
+              step: 1,
+              value: ((((g.yaw + 180) % 360) + 360) % 360) - 180,
+              format: (v) => Math.round(v) + '°',
+              onInput: (yaw) => preview({ yaw }),
+              onCommit: (yaw) => set({ yaw }),
+            }),
+          ],
+        }),
+        PropertyRow({
+          label: '크기',
+          children: [
+            Slider({
+              label: '기린 크기',
+              key: 'gscale',
+              min: 0.25,
+              max: 3,
+              step: 0.05,
+              value: g.scale,
+              format: (v) => '×' + v.toFixed(2),
+              onInput: (scale) => preview({ scale }),
+              onCommit: (scale) => set({ scale }),
+            }),
+          ],
+        }),
+        PropertyRow({
+          label: picking ? '방 바닥을 클릭 · Esc 취소' : '장면에서 지정',
+          stack: true,
+          children: [
+            Button({
+              label: picking ? '지정 취소' : '위치 지정',
+              icon: 'spot',
+              size: 'sm',
+              variant: picking ? 'primary' : 'secondary',
+              key: 'giraffe-pick',
+              onClick: () => editor.setGiraffePick(picking ? null : g.id),
+            }),
+          ],
+        }),
+      ],
+    }),
+    PanelSection({
+      title: '동작',
+      meta:
+        g.motion === undefined && g.speed === undefined
+          ? '월드 따름'
+          : '이 기린만 따로',
+      children: [
+        PropertyRow({
+          label: '동작',
+          override: inherit('motion', '동작'),
+          children: [
+            Select({
+              label: '기린 동작',
+              key: 'giraffe-motion',
+              size: 'sm',
+              value: effective.motion ?? STILL,
+              options: motionOptions(editor, effective.motion),
+              onChange: (v) => set({ motion: motionValue(v) }),
+            }),
+          ],
+        }),
+        PropertyRow({
+          label: '속도',
+          override: inherit('speed', '속도'),
+          children: [
+            Slider({
+              label: '기린 동작 속도',
+              key: 'giraffe-speed',
+              min: 0.1,
+              max: 3,
+              step: 0.05,
+              value: effective.speed,
+              format: (v) => '×' + v.toFixed(2),
+              onInput: (speed) => preview({ speed }),
+              onCommit: (speed) => set({ speed }),
+            }),
+          ],
+        }),
+      ],
+    }),
+    claySection(g.id, editor),
+  ].filter(Boolean)
 }

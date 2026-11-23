@@ -173,6 +173,8 @@ async function openScene(
     (layout.lights ?? []).find((l) => l.id === selectedLight) ||
     sourceRows.find((l) => l.id === selectedLight)
   let selectedLight
+  const pickOwners = new Map()
+  const styledExtra = new WeakSet()
   let box,
     chosenSpot = null
   const styled = new Map(),
@@ -494,10 +496,14 @@ async function openScene(
     scene.onAfterRenderObservable.addOnce(() => onReady?.())
     performance.mark('riragi-world-ready')
   })
+  // Something playing an animation (a giraffe's motion) keeps the scene
+  // drawing; otherwise it sleeps until the next interaction.
+  let animating = () => false
   engine.runRenderLoop(() => {
     if (view.host.inert) return
     if (
       ready &&
+      !animating() &&
       performance.now() > drawUntil &&
       !camera.inertialAlphaOffset &&
       !camera.inertialBetaOffset
@@ -616,6 +622,22 @@ async function openScene(
     roomBounds,
     overview: () => look(center, 1),
     instances,
+    // Other editable things in the scene (giraffes) register their nodes here
+    // as node → selection so a click on them selects them.
+    owners: pickOwners,
+    /** Lights a material added by the studio like the room's furniture. */
+    // Each material is styled once; meshes of a model often share one.
+    styleMaterial(material) {
+      if (!material?.albedoColor || material.unlit || styledExtra.has(material))
+        return
+      styledExtra.add(material)
+      illumination?.style(material)
+    },
+    /** `fn()` returns true while something animates and needs frames. */
+    keepDrawing(fn) {
+      animating = fn
+      wake()
+    },
     look,
     get zoomLevel() {
       return zoom
@@ -629,6 +651,7 @@ async function openScene(
       )?.pickedMesh
       const owners = new Map([...instances].map(([id, n]) => [n, id]))
       for (let n = mesh; n; n = n.parent) {
+        if (pickOwners.has(n)) return pickOwners.get(n)
         if (owners.has(n)) return { type: 'item', id: owners.get(n) }
         if (extras(n).roomId) return { type: 'room', id: extras(n).roomId }
       }

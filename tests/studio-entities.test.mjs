@@ -47,7 +47,7 @@ test('새 개체는 선택을 담은 방에 놓인다', () => {
 test('없는 개체와 등록되지 않은 종류를 구분한다', () => {
   assert.equal(scene.exists({ type: 'item', id: 'gone' }), false)
   assert.equal(scene.exists(WORLD), true)
-  assert.throws(() => scene.exists({ type: 'giraffe', id: 'g' }), /giraffe/)
+  assert.throws(() => scene.exists({ type: 'dragon', id: 'd' }), /dragon/)
   assert.equal(scene.removable(WORLD), false)
   assert.equal(scene.removable({ type: 'room', id: 'sauna' }), false)
   assert.ok(Object.isFrozen(entityTypes))

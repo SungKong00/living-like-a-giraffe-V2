@@ -23,6 +23,7 @@ const filters = [
   { value: 'item', label: '가구' },
   { value: 'light', label: '조명' },
   { value: 'spot', label: '클릭 영역' },
+  { value: 'giraffe', label: '기린' },
 ]
 
 export function outline(editor) {
@@ -124,6 +125,17 @@ export function addMenu(editor) {
             icon: 'furniture',
             onSelect: () => editor.addFurniture(k.kind, room),
           })),
+        },
+        {
+          heading: '기린 · ' + roomName + '에 놓기',
+          items: [
+            {
+              label: '기린',
+              hint: editor.giraffeLibrary.model ? '리깅 모델' : '자리 표시',
+              icon: 'giraffe',
+              onSelect: () => editor.addGiraffe(room),
+            },
+          ],
         },
         {
           heading: full
@@ -254,13 +266,23 @@ function sceneTree(editor) {
         (s) => s.anchor === r.id && match(s.label),
       ))
         children.push(row({ type: 'spot', id: s.id }, s.label, { depth: 1 }))
+    if (show('giraffe'))
+      for (const g of (layout.giraffes ?? []).filter(
+        (g) => g.room === r.id && match(g.label),
+      ))
+        children.push(
+          row({ type: 'giraffe', id: g.id }, g.label, {
+            depth: 1,
+            meta: giraffeMeta(editor, g),
+          }),
+        )
     children.push(...lightRows(r.id, 1))
     if (narrowed && !children.length && !(query && match(r.label))) continue
     groups.push(
       group(
         { type: 'room', id: r.id },
         r.label,
-        { meta: String(items.length) },
+        { meta: String(items.length + giraffesIn(layout, r.id)) },
         children,
       ),
     )
@@ -310,4 +332,13 @@ function pageList(editor) {
       onSelect: () => editor.select(sel),
     })
   })
+}
+
+const giraffesIn = (layout, room) =>
+  (layout.giraffes ?? []).filter((g) => g.room === room).length
+
+// The clip a giraffe plays, or 정지.
+function giraffeMeta(editor, g) {
+  const { motion } = editor.giraffeMotion(g)
+  return motion ? motion.split('/').slice(1).join('/') : '정지'
 }
