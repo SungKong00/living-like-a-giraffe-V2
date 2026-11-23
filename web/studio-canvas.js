@@ -20,9 +20,11 @@ const hoverColor = Color3.FromHexString('#fff6c8')
 
 // Direct manipulation for the studio scene. The left button selects, drags
 // furniture or click-area pins along their floor plane, and pans empty space.
-// The right button orbits inside the camera limits; the wheel zooms.
+// The right button orbits freely; the wheel zooms.
 export function attachCanvas(world, view, hooks) {
   const { scene, camera, rooms, instances } = world
+  // Framing a selection translates the orbit without changing its orientation.
+  camera.overrideCloneAlphaBetaRadius = true
   const canvas = view.canvas
   const glow = new HighlightLayer('선택 강조', scene, {
     blurHorizontalSize: 0.6,
@@ -37,12 +39,32 @@ export function attachCanvas(world, view, hooks) {
     const r = canvas.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
-  // Where the pointer ray crosses the horizontal plane at `height`.
-  function onPlane({ x, y }, height) {
-    const ray = scene.createPickingRay(x, y, Matrix.Identity(), camera)
-    if (Math.abs(ray.direction.y) < 1e-6) return null
-    const t = (height - ray.origin.y) / ray.direction.y
-    return ray.origin.add(ray.direction.scale(t))
+  // Orthographic rays are parallel. Capture the screen basis at pointer-down
+  // so panning does not feed the moving camera back into the next delta.
+  function screenDrag(from) {
+    const basis = camera.getViewMatrix().clone().invert()
+    const xScale = (camera.orthoRight - camera.orthoLeft) / canvas.clientWidth
+    const yScale = (camera.orthoTop - camera.orthoBottom) / canvas.clientHeight
+    return (at) =>
+      Vector3.TransformNormal(
+        new Vector3((at.x - from.x) * xScale, (from.y - at.y) * yScale, 0),
+        basis,
+      )
+  }
+
+  function floorDrag(from, origin) {
+    const deltaAt = screenDrag(from)
+    const normal = camera.getForwardRay().direction
+    // Cap depth amplification near the horizon, where an exact intersection
+    // with the floor is undefined. Horizontal pointer motion still works.
+    const incidence =
+      (normal.y > 1e-6 ? 1 : -1) * Math.max(0.15, Math.abs(normal.y))
+    return (at) => {
+      const delta = deltaAt(at)
+      delta.subtractInPlace(normal.scale(delta.y / incidence))
+      delta.y = 0
+      return origin.add(delta)
+    }
   }
   const inverse = (m) => m.clone().invert()
 
@@ -99,23 +121,18 @@ export function attachCanvas(world, view, hooks) {
     const node = instances.get(id)
     if (!item || !node) return null
     const origin = node.getAbsolutePosition().clone()
-    const hit = onPlane(at, origin.y)
-    if (!hit) return null
     return {
       kind: 'item',
       id,
       item,
       node,
-      height: origin.y,
-      grab: hit.subtract(origin),
+      positionAt: floorDrag(at, origin),
       copy: e.altKey,
       dropped: origin,
     }
   }
   function moveItem(g, at, e) {
-    const hit = onPlane(at, g.height)
-    if (!hit) return
-    g.dropped = hit.subtract(g.grab)
+    g.dropped = g.positionAt(at)
     const local = Vector3.TransformCoordinates(
       g.dropped,
       inverse(rooms.get(g.item.room).computeWorldMatrix(true)),
@@ -141,22 +158,17 @@ export function attachCanvas(world, view, hooks) {
       Vector3.FromArray(s.position),
       matrix,
     )
-    const hit = onPlane(at, origin.y)
-    if (!hit) return null
     return {
       kind: 'spot',
       id: s.id,
       spot: s,
-      height: origin.y,
-      grab: hit.subtract(origin),
+      positionAt: floorDrag(at, origin),
       inverse: inverse(matrix),
       start: s.position.slice(),
     }
   }
   function moveSpot(g, at, e) {
-    const hit = onPlane(at, g.height)
-    if (!hit) return
-    const local = Vector3.TransformCoordinates(hit.subtract(g.grab), g.inverse)
+    const local = Vector3.TransformCoordinates(g.positionAt(at), g.inverse)
     const fit = hooks.snapping() !== (e.metaKey || e.ctrlKey)
     const f = fit ? snap : round
     // The shown layout is live in the scene, so pins and the box follow.
@@ -165,13 +177,15 @@ export function attachCanvas(world, view, hooks) {
   }
 
   function beginPan(at, hit) {
-    const anchor = onPlane(at, camera.target.y)
-    return anchor && { kind: 'pan', anchor, hit }
+    return {
+      kind: 'pan',
+      origin: camera.target.clone(),
+      deltaAt: screenDrag(at),
+      hit,
+    }
   }
   function movePan(g, at) {
-    const now = onPlane(at, camera.target.y)
-    if (!now) return
-    camera.target.addInPlace(g.anchor.subtract(now))
+    camera.target.copyFrom(g.origin.subtract(g.deltaAt(at)))
   }
 
   function start(g, e) {
