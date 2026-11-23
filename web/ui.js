@@ -54,3 +54,21 @@ export function stage() {
   const host = el('section', { class: 'stage' }, canvas, overlay, loading)
   return { host, canvas, overlay, loading }
 }
+
+export function zoomButtons(change) {
+  return [
+    ['＋', '확대', 1.4],
+    ['−', '축소', 1 / 1.4],
+  ].map(([label, name, factor]) =>
+    el(
+      'button',
+      {
+        type: 'button',
+        'aria-label': name,
+        title: name,
+        onclick: () => change(factor),
+      },
+      label,
+    ),
+  )
+}

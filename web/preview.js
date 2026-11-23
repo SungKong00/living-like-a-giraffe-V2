@@ -1,4 +1,4 @@
-import { api, button, el, stage } from './ui.js'
+import { api, button, el, zoomButtons, stage } from './ui.js'
 import { createScene } from './scene.js'
 export async function preview(
   saved,
@@ -32,6 +32,7 @@ export async function preview(
       'div',
       { class: 'studio-bar' },
       el('strong', {}, candidateView ? '제작본 검토' : '방문자 미리보기'),
+      ...zoomButtons((factor) => viewer?.zoom(factor)),
       all,
       close,
     ),

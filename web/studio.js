@@ -1,5 +1,5 @@
 import { field, safe, input, select, vec } from './fields.js'
-import { app, api, el, button, stage, notify } from './ui.js'
+import { app, api, el, button, zoomButtons, stage, notify } from './ui.js'
 import { preview } from './preview.js'
 import { EditHistory } from './history.js'
 import { createScene } from './scene.js'
@@ -554,6 +554,7 @@ export async function studio() {
       button('이동', () => setMode('position')),
       button('회전', () => setMode('rotation')),
       button('크기', () => setMode('scale')),
+      ...zoomButtons((factor) => world.zoom(factor)),
       button('전체', () => world.selectRoom(null)),
     ),
   )

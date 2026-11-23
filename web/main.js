@@ -1,4 +1,4 @@
-import { el, button, api, app, stage, small } from './ui.js'
+import { el, button, api, app, zoomButtons, stage, small } from './ui.js'
 const route = location.pathname
 document
   .querySelector(
@@ -83,11 +83,8 @@ async function visit(data) {
   const tools = el(
     'div',
     { class: 'map-tools' },
-    button('＋', () => world?.zoom(0.25)),
-    button('−', () => world?.zoom(-0.25)),
+    ...zoomButtons((factor) => world?.zoom(factor)),
   )
-  tools.children[0].ariaLabel = '확대'
-  tools.children[1].ariaLabel = '축소'
   const recent = el(
     'aside',
     { class: 'map-events' },

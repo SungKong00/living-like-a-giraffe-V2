@@ -32,7 +32,7 @@ export async function createScene(
   )
   const scene = new Scene(engine)
   scene.useRightHandedSystem = true
-  scene.clearColor = new Color4(0.895, 0.895, 0.842, 1)
+  scene.clearColor = new Color4(0.012, 0.014, 0.018, 1)
   const center = new Vector3(34, 1, -24)
   const alpha = Math.PI / 4
   const camera = new ArcRotateCamera(
@@ -44,9 +44,10 @@ export async function createScene(
     scene,
   )
   camera.mode = Camera.ORTHOGRAPHIC_CAMERA
-  camera.lowerAlphaLimit = alpha - 0.175
-  camera.upperAlphaLimit = alpha + 0.175
-  camera.lowerBetaLimit = camera.upperBetaLimit = camera.beta
+  camera.lowerAlphaLimit = alpha - Math.PI / 3
+  camera.upperAlphaLimit = alpha + Math.PI / 3
+  camera.lowerBetaLimit = Math.PI / 9
+  camera.upperBetaLimit = (5 * Math.PI) / 12
   camera.lowerRadiusLimit = camera.upperRadiusLimit = 150
   camera.inputs.removeByType('ArcRotateCameraMouseWheelInput')
   camera.panningSensibility = 0
@@ -240,14 +241,83 @@ export async function createScene(
     markers()
     onRoom?.(id)
   }
+  function magnify(factor, point) {
+    const next = Math.min(10, Math.max(0.5, zoom * factor))
+    if (point && next !== zoom) {
+      // Keep the point under the pointer stationary as the orthographic window shrinks.
+      const rect = view.canvas.getBoundingClientRect()
+      const x =
+        ((2 * (point.x - rect.left)) / rect.width - 1) * camera.orthoRight
+      const y = (1 - (2 * (point.y - rect.top)) / rect.height) * camera.orthoTop
+      const offset = Vector3.TransformNormal(
+        new Vector3(x, y, 0),
+        camera.getViewMatrix().clone().invert(),
+      )
+      camera.target.addInPlace(offset.scale(1 - zoom / next))
+    }
+    zoom = next
+    resize()
+    wake()
+  }
+  const gestures = new AbortController()
+  view.canvas.addEventListener(
+    'wheel',
+    (event) => {
+      event.preventDefault()
+      const unit =
+        event.deltaMode === 1
+          ? 16
+          : event.deltaMode === 2
+            ? view.canvas.clientHeight
+            : 1
+      magnify(
+        Math.exp(-Math.max(-500, Math.min(500, event.deltaY * unit)) * 0.002),
+        { x: event.clientX, y: event.clientY },
+      )
+    },
+    { passive: false, signal: gestures.signal },
+  )
+  let pinchDistance = 0,
+    multiTouch = false
+  function span(touches) {
+    return Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY,
+    )
+  }
+  for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) {
+    view.canvas.addEventListener(
+      type,
+      (event) => {
+        const t = event.touches
+        if (t.length !== 2) {
+          pinchDistance = 0
+          return
+        }
+        multiTouch = true
+        const distance = span(t)
+        if (type === 'touchmove' && pinchDistance > 0 && distance > 0) {
+          event.preventDefault()
+          magnify(distance / pinchDistance, {
+            x: (t[0].clientX + t[1].clientX) / 2,
+            y: (t[0].clientY + t[1].clientY) / 2,
+          })
+        }
+        pinchDistance = distance
+      },
+      { passive: false, signal: gestures.signal },
+    )
+  }
   const obs = new ResizeObserver(resize)
   obs.observe(view.host)
   const previous = { x: 0, y: 0 }
   view.canvas.onpointerdown = (e) => {
+    if (e.isPrimary) multiTouch = false
     previous.x = e.clientX
     previous.y = e.clientY
   }
   view.canvas.onpointerup = (e) => {
+    if (multiTouch) return
     if (Math.hypot(e.clientX - previous.x, e.clientY - previous.y) > 6) return
     const mesh = scene.pick(scene.pointerX, scene.pointerY)?.pickedMesh
     for (let n = mesh; n; n = n.parent) {
@@ -377,17 +447,14 @@ export async function createScene(
         box.scaling = v(s.size)
       }
     },
-    zoom(delta) {
-      wake()
-      zoom = Math.min(2, Math.max(0.75, zoom + delta))
-      resize()
-    },
+    zoom: magnify,
     update(next) {
       layout = next
       if (draft) applyItems(next)
       markers()
     },
     dispose() {
+      gestures.abort()
       redraw.disconnect()
       obs.disconnect()
       scene.dispose()
