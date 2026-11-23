@@ -8,6 +8,18 @@ function outline(shape) {
   if (shape.type === 'area') {
     const x = shape.width / 2,
       y = shape.height / 2
+    if (['disk', 'ellipse'].includes(shape.form)) {
+      const rim = Array.from(
+        { length: 33 },
+        (_, i) =>
+          new Vector3(
+            x * Math.cos((i * Math.PI) / 16),
+            y * Math.sin((i * Math.PI) / 16),
+            0,
+          ),
+      )
+      return [...lines, rim]
+    }
     const corners = [
       [-x, -y],
       [x, -y],
@@ -40,9 +52,13 @@ export function lightGuide(scene, rooms) {
       mesh = key = null
       return
     }
-    const geometry = [shape.type, shape.angle, shape.width, shape.height].join(
-      '/',
-    )
+    const geometry = [
+      shape.type,
+      shape.angle,
+      shape.form,
+      shape.width,
+      shape.height,
+    ].join('/')
     if (geometry !== key) {
       mesh?.dispose()
       mesh = CreateLineSystem('조명 방향', { lines: outline(shape) }, scene)
@@ -50,7 +66,7 @@ export function lightGuide(scene, rooms) {
       mesh.color = Color3.FromHexString('#ffc067')
       key = geometry
     }
-    mesh.parent = rooms.get(light.room)
+    mesh.parent = rooms.get(light.room) ?? null
     mesh.position.copyFromFloats(...light.position)
     mesh.rotationQuaternion = Quaternion.FromArray(shape.rotation)
   }

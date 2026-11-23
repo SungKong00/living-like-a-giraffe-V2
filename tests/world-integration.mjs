@@ -64,6 +64,20 @@ try {
       },
     },
   ]
+  const softbox = catalog('initial').sourceLights.find(
+    (l) => l.label === 'Large_softbox',
+  )
+  assert.equal(softbox.room, null)
+  assert.equal(softbox.shape.form, 'disk')
+  layout.sourceLights = [
+    {
+      id: softbox.id,
+      energy: 18500,
+      position: [22, 24, 11],
+      color: '#ffd400',
+      rotation: [0, 0, 0, 1],
+    },
+  ]
   layout.items.push(twin)
   layout.spots.push({
     ...layout.spots[0],
@@ -75,6 +89,11 @@ try {
   assert.throws(() => store.edit(initial.id, 'initial', layout))
   const downloads = Promise.all([jobs.download(saved), jobs.download(saved)])
   layout.items[1].color = '#884422'
+  layout.sourceLights[0].energy = 17200
+  const removedLamp = catalog('initial').sourceLights.find(
+    (l) => l.label === 'Club red wall wash.003',
+  )
+  layout.sourceLights.push({ id: removedLamp.id, energy: 50 })
   const web = store.edit(saved.id, 'initial', layout)
   const [blend, second] = await downloads
   assert.equal(blend, second)
@@ -97,6 +116,12 @@ items=tagged(s,'itemId')
 a=items[sys.argv[2]]
 assert a['color']=='#226655' and a['finish']=='matte' and len(a.children)==2
 assert all(part.material_slots[0].material['riragiBase'] for part in a.children)
+native=s.objects['Large_softbox']
+assert native.parent is None and native.data.shape=='DISK' and native.data.energy==18500
+assert max(abs(a-b) for a,b in zip(native.matrix_world.translation,(22,-11,24)))<0.0001
+bpy.data.objects.remove(s.objects['Club red wall wash.003'],do_unlink=True)
+native.name = 'Studio softbox'
+native.data.color=(0,1,0)
 lamp=tagged(s,'webLightId')['bench-lamp']
 assert lamp.data.energy==550
 lamp.data.energy=600
@@ -127,7 +152,13 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
     jobs.upload(fs.readFileSync(path.join(inspect, 'missing.blend'))),
     /missing-riragi-image/,
   )
-  const candidate = await jobs.upload(fs.readFileSync(changed))
+  const comparison = await jobs.upload(fs.readFileSync(changed))
+  const removedKey = 'source:' + removedLamp.id
+  assert.equal(
+    comparison.conflicts.find((c) => c.key === removedKey).removedSource,
+    removedLamp.label,
+  )
+  const candidate = jobs.compare(comparison.model, { [removedKey]: 'file' })
   const studioPath = await jobs.studioAsset(candidate.model)
   const studioBytes = fs.readFileSync(studioPath)
   const studio = JSON.parse(
@@ -149,6 +180,25 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
   assert.equal(studio.materials.filter((m) => m.extras?.riragiBaked).length, 4)
   assert.ok(studio.nodes.some((n) => n.extras?.itemId === twin.id))
   assert.equal(candidate.conflicts.length, 0)
+  assert.deepEqual(candidate.sourceLights, [{ id: softbox.id, energy: 17200 }])
+  assert.equal(
+    candidate.sourceCatalog.find((l) => l.id === softbox.id).color,
+    '#00ff00',
+  )
+  assert.equal(
+    candidate.sourceCatalog.find((l) => l.id === softbox.id).label,
+    'Studio softbox',
+  )
+  assert.notDeepEqual(lighting.ambientField, lighting.field)
+  assert.equal(
+    studio.materials.filter(
+      (m) =>
+        m.extras?.studioReceiver &&
+        m.emissiveTexture &&
+        m.pbrMetallicRoughness.baseColorTexture,
+    ).length,
+    4,
+  )
   const point = candidate.lights.find((l) => l.id === 'bench-lamp')
   assert.deepEqual(point, {
     ...layout.lights[0],
@@ -171,6 +221,7 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
     ...layout,
     items: candidate.items,
     lights: candidate.lights,
+    sourceLights: candidate.sourceLights,
   })
   const beforeLighting = store.state
   const preview = await jobs.previewLighting(merged.id)

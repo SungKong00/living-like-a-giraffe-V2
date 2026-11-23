@@ -3,14 +3,14 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture'
 
 // Fixed-room textures already contain the source view transform. Only live PBR
 // surfaces pass through the scene's Blender-generated HDR-to-display table.
-export function studioDisplay(scene, encoded, fields) {
+export function studioDisplay(scene, encoded, getFields) {
   // One ambient cube per draw. Bilinear interpolation follows the live mesh,
   // including drags between commits; six signed axes preserve light direction.
   const samples = new WeakMap()
   function irradiance(mesh) {
     let room = mesh
     while (room && !room.metadata?.gltf?.extras?.roomId) room = room.parent
-    const field = fields[room?.metadata?.gltf?.extras?.roomId]
+    const field = getFields()[room?.metadata?.gltf?.extras?.roomId]
     if (!field) return null
     const center = mesh.getBoundingInfo().boundingBox.centerWorld
     const grid = (n, axis) =>

@@ -72,6 +72,56 @@ try {
     (await page.request.get(origin + '/api/world').then((r) => r.json())).id,
     before.id,
   )
+  await tree('Blender 원본 조명').click()
+  await tree('Large_softbox').click()
+  const output = page.getByLabel('정확한 조명 출력')
+  assert.ok(Number(await output.inputValue()) > 10000)
+  await output.fill('17300')
+  await output.press('Tab')
+  await page.getByLabel('조명 위치 Y').fill('18')
+  await page.getByLabel('조명 위치 Y').press('Tab')
+  await saved()
+  const nativeDraft = await page.request
+    .get(origin + '/api/admin/draft')
+    .then((r) => r.json())
+  const native = nativeDraft.sourceLights.find(
+    (l) => l.label === 'Large_softbox',
+  )
+  assert.equal(nativeDraft.layout.sourceLights[0].id, native.id)
+  assert.equal(nativeDraft.layout.sourceLights[0].position[1], 18)
+  assert.equal(nativeDraft.layout.sourceLights[0].energy, 17300)
+  const canvasBox = await page.locator('.studio-viewport canvas').boundingBox()
+  for (const action of ['위치 지정', '비출 곳 지정']) {
+    await page.getByRole('button', { name: action, exact: true }).click()
+    await page.getByRole('button', { name: '지정 취소' }).waitFor()
+    // Aim beside the new position: the original softbox already points straight down.
+    const offsets =
+      action === '위치 지정' ? [0, -60, 60, -110, 110] : [85, -85, 140, -140]
+    for (const offset of offsets) {
+      await page.mouse.click(
+        canvasBox.x + canvasBox.width / 2 + offset,
+        canvasBox.y + canvasBox.height / 2,
+      )
+      if (await page.getByRole('button', { name: action, exact: true }).count())
+        break
+    }
+    await page.getByRole('button', { name: action, exact: true }).waitFor()
+    await saved()
+  }
+  const moved = (
+    await page.request.get(origin + '/api/admin/draft').then((r) => r.json())
+  ).layout.sourceLights[0]
+  assert.equal(moved.position[1], 18)
+  assert.notEqual(moved.position[0], native.position[0])
+  assert.equal(moved.rotation.length, 4)
+  await page.getByRole('button', { name: '원본값 복원' }).click()
+  await saved()
+  assert.equal(
+    (await page.request.get(origin + '/api/admin/draft').then((r) => r.json()))
+      .layout.sourceLights,
+    undefined,
+  )
+  await tree('Blender 원본 조명').click()
   const addLight = async (kind) => {
     await page.getByRole('button', { name: '조명 추가', exact: true }).click()
     await page.getByRole('menuitem', { name: new RegExp('^' + kind) }).click()

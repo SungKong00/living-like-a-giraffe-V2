@@ -28,7 +28,15 @@ const props = {
 }
 const finishes = { original: '원본', matte: '무광', gloss: '유광' }
 
-function describe(prop, value, rooms) {
+function direction([x, y, z, w]) {
+  return (
+    '방향 ' +
+    [-2 * (x * z + w * y), 2 * (w * x - y * z), 2 * (x * x + y * y) - 1]
+      .map((v) => v.toFixed(2))
+      .join(', ')
+  )
+}
+function describe(prop, value, rooms, source) {
   if (value == null) return '삭제됨'
   if (!prop) return '있음 · ' + value.label
   if (prop === 'enabled') return value ? '켜짐' : '꺼짐'
@@ -42,17 +50,11 @@ function describe(prop, value, rooms) {
     if (value.type === 'area')
       info.push(value.width + ' × ' + value.height + ' m')
     if (value.rotation) {
-      const [x, y, z, w] = value.rotation
-      const direction = [
-        -2 * (x * z + w * y),
-        2 * (w * x - y * z),
-        2 * (x * x + y * y) - 1,
-      ]
-      info.push('방향 ' + direction.map((v) => v.toFixed(2)).join(', '))
+      info.push(direction(value.rotation))
     }
     return info.join(' · ')
   }
-  if (prop === 'rotation') return yawOf(value) + '°'
+  if (prop === 'rotation') return source ? direction(value) : yawOf(value) + '°'
   if (prop === 'position' || prop === 'scale')
     return value.map((v) => Math.round(v * 100) / 100).join(' · ')
   if (prop === 'color')
@@ -149,6 +151,10 @@ export function openHandoff({ flush, draft, rooms, onError }) {
       (s) => !known.some((k) => k.id === s.anchor),
     )
     const name = (id) => {
+      if (id.startsWith('source:'))
+        return (
+          candidate.sourceCatalog.find((l) => l.id === id.slice(7))?.label || id
+        )
       const isLight = id.startsWith('light:')
       const rows = isLight
         ? [...(candidate.lights ?? []), ...(layout.lights ?? [])]
@@ -165,21 +171,41 @@ export function openHandoff({ flush, draft, rooms, onError }) {
         const [id, prop] = c.key.split('.')
         return RadioCards({
           legend:
-            name(id) + (prop ? ' · ' + (props[prop] || prop) : ' · 오브젝트'),
+            (c.removedSource || name(id)) +
+            (prop ? ' · ' + (props[prop] || prop) : ' · 오브젝트'),
           name: c.key,
           value: choices[c.key],
-          options: [
-            {
-              value: 'web',
-              title: '웹',
-              content: describe(prop, c.web, rooms),
-            },
-            {
-              value: 'file',
-              title: '제작본',
-              content: describe(prop, c.file, rooms),
-            },
-          ],
+          options: c.removedSource
+            ? [
+                {
+                  value: 'file',
+                  title: '제작본의 삭제 반영',
+                  content:
+                    '이 조명을 유지하려면 Blender에서 복원한 전체 파일을 다시 올리세요.',
+                },
+              ]
+            : [
+                {
+                  value: 'web',
+                  title: '웹',
+                  content: describe(
+                    prop,
+                    c.web,
+                    rooms,
+                    id.startsWith('source:'),
+                  ),
+                },
+                {
+                  value: 'file',
+                  title: '제작본',
+                  content: describe(
+                    prop,
+                    c.file,
+                    rooms,
+                    id.startsWith('source:'),
+                  ),
+                },
+              ],
           onChange: (side) => {
             choices[c.key] = side
             render()

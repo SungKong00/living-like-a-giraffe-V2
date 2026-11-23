@@ -1,3 +1,4 @@
+import { sourceDifference, sourceValues } from '../shared/source-lights.mjs'
 import { lightLimit, lightWithDefaults } from '../shared/studio-lights.mjs'
 import { z } from 'zod'
 import { isDeepStrictEqual as equal } from 'node:util'
@@ -69,7 +70,19 @@ const light = z
   })
   .transform(lightWithDefaults)
 export const studioLights = z.array(light).max(lightLimit)
+const sourceEdit = z.strictObject({
+  id,
+  enabled: z.boolean().optional(),
+  position: vector.optional(),
+  rotation: rotation.optional(),
+  energy: z.number().min(0).max(10000000).optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-f]{6}$/)
+    .optional(),
+})
 const layout = z.strictObject({
+  sourceLights: z.array(sourceEdit).optional(),
   lights: studioLights.optional(),
   items: z.array(item).max(500),
   spots: z.array(hotspot).max(1000),
@@ -78,6 +91,21 @@ const layout = z.strictObject({
 
 export function validate(input, catalog) {
   const data = layout.parse(input)
+  if (data.sourceLights) {
+    const originals = new Map(
+      (catalog.sourceLights ?? []).map((l) => [l.id, l]),
+    )
+    const seen = new Set()
+    data.sourceLights = data.sourceLights.flatMap((edit) => {
+      const base = originals.get(edit.id)
+      if (!base || seen.has(edit.id) || (edit.rotation && !base.shape.rotation))
+        throw Error('원본 조명의 ID 또는 방향을 확인하세요.')
+      seen.add(edit.id)
+      const difference = sourceDifference(base, sourceValues(base, edit))
+      return difference ? [difference] : []
+    })
+    if (!data.sourceLights.length) delete data.sourceLights
+  }
   const rooms = catalog.rooms.map((r) => r.id)
   const kinds = new Set(catalog.items.map((i) => i.kind))
   const ids = [...rooms, ...data.items.map((i) => i.id)]
@@ -91,7 +119,10 @@ export function validate(input, catalog) {
     if (new Set(keys).size !== keys.length) throw Error('중복된 ID가 있습니다.')
   }
   for (const light of data.lights ?? [])
-    if (!rooms.includes(light.room))
+    if (
+      !rooms.includes(light.room) ||
+      catalog.sourceLights?.some((l) => l.id === light.id)
+    )
       throw Error(light.label + '의 방을 확인하세요.')
   for (const i of data.items)
     if (!rooms.includes(i.room) || !kinds.has(i.kind))

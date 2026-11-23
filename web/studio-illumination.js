@@ -23,14 +23,21 @@ FileToolsOptions.PreprocessUrl = (url) =>
 
 const fixed = 1,
   live = 2
-export function studioIllumination(scene, rooms, meshes) {
+export function studioIllumination(scene, rooms, meshes, originals) {
   const host = [...rooms.values()].find(
     (n) => n.metadata?.gltf?.extras?.studioLighting,
   )
   if (!host)
     throw Error('편집용 방 조명 데이터가 없습니다. 모델을 다시 준비하세요.')
   const profile = JSON.parse(host.metadata.gltf.extras.studioLighting)
-  const applyDisplay = studioDisplay(scene, profile.lut, profile.field)
+  let relighting = false
+  const sourceIds = new Set(originals.map((l) => l.id))
+  const importedSources = scene.lights.filter((l) =>
+    sourceIds.has(l.parent?.metadata?.gltf?.extras?.sourceLightId),
+  )
+  const applyDisplay = studioDisplay(scene, profile.lut, () =>
+    relighting ? profile.ambientField : profile.field,
+  )
   // Punctual glTF lights use candela; Blender exports radiant power using 683 lm/W.
   for (const light of scene.lights) {
     light.specular.copyFrom(light.diffuse)
@@ -91,6 +98,8 @@ export function studioIllumination(scene, rooms, meshes) {
     false,
   )
   const staticMaterials = new Map()
+  const receivers = new Map()
+  const receiverMaterials = new Map()
   const fixedSurfaces = new Set(),
     liveSurfaces = new Set()
   let fixtureSlots = 0
@@ -108,6 +117,22 @@ export function studioIllumination(scene, rooms, meshes) {
     const material = mesh.material
     if (!material) continue
     if (material.metadata?.gltf?.extras?.riragiBaked) {
+      if (material.metadata.gltf.extras.studioReceiver) {
+        let raw = receiverMaterials.get(material)
+        if (!raw) {
+          raw = material.clone(material.name + ' · 실시간 재질')
+          raw.emissiveTexture = null
+          raw.emissiveColor = Color3.Black()
+          raw.metallic = 0
+          raw.roughness = 1
+          style(raw)
+          material.albedoTexture = material.emissiveTexture
+          material.emissiveTexture = null
+          material.emissiveColor = Color3.Black()
+          receiverMaterials.set(material, raw)
+        }
+        receivers.set(mesh, { raw, baked: material })
+      }
       fixedSurfaces.add(material)
       material.maxSimultaneousLights = 1
       mesh.layerMask = fixed
@@ -150,14 +175,26 @@ export function studioIllumination(scene, rooms, meshes) {
     style(material) {
       if (material.albedoColor && !material.unlit) style(material)
     },
-    update(instances, lights) {
+    update(instances, lights, sources, changed) {
+      const switched = relighting !== changed
+      if (switched) {
+        relighting = changed
+        for (const [mesh, { raw, baked }] of receivers)
+          mesh.material = changed ? raw : baked
+        for (const light of importedSources) light.setEnabled(!changed)
+        sun.setEnabled(!changed)
+      }
       // Tint, slider and metadata edits reuse the same light and caster lists.
       const unchanged =
         membership?.size === instances.size &&
         [...instances.values()].every(
           (node) => membership.get(node) === node.parent,
         )
-      const count = syncFixtures(lights ?? [], !unchanged)
+      const count = syncFixtures(
+        changed ? [...lights, ...sources] : lights,
+        !unchanged || switched,
+        sourceIds,
+      )
       if (count !== fixtureSlots) {
         fixtureSlots = count
         for (const material of fixedSurfaces)
@@ -165,7 +202,7 @@ export function studioIllumination(scene, rooms, meshes) {
         for (const material of liveSurfaces)
           material.maxSimultaneousLights = 8 + count
       }
-      if (unchanged) return
+      if (unchanged && !switched) return
       membership = new Map(
         [...instances.values()].map((node) => [node, node.parent]),
       )
@@ -183,7 +220,7 @@ export function studioIllumination(scene, rooms, meshes) {
       }
       for (const [p, list] of assigned) {
         p.light.includedOnlyMeshes = list
-        p.light.setEnabled(list.length > 0)
+        p.light.setEnabled(list.length > 0 && !(changed && p.panel.source))
       }
     },
   }

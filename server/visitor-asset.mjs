@@ -56,6 +56,7 @@ export async function buildVisitorAsset(snapshot, onStage = () => {}, signal) {
     put(input, {
       items: snapshot.layout.items,
       lights: snapshot.layout.lights,
+      sourceLights: snapshot.layout.sourceLights,
       handoff: snapshot.id,
     })
     await blender(

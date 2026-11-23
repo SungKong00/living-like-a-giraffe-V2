@@ -318,7 +318,8 @@ export function attachCanvas(world, view, hooks) {
     if (sel.type === 'item') return instances.get(sel.id)?.getAbsolutePosition()
     if (sel.type === 'room') return rooms.get(sel.id)?.getAbsolutePosition()
     if (sel.type === 'light') {
-      const light = layout.lights?.find((l) => l.id === sel.id)
+      const light = hooks.light(sel.id)
+      if (light && !light.room) return Vector3.FromArray(light.position)
       if (light)
         return Vector3.TransformCoordinates(
           Vector3.FromArray(light.position),
@@ -338,6 +339,13 @@ export function attachCanvas(world, view, hooks) {
     }
   }
   function frame(sel) {
+    if (sel?.type === 'light' && hooks.isSource(sel.id)) {
+      const light = hooks.light(sel.id)
+      if (light.room)
+        world.look(rooms.get(light.room).getAbsolutePosition(), 2.2)
+      else world.overview()
+      return
+    }
     const target = sel && anchorPosition(sel)
     if (!target) return
     world.look(target, sel.type === 'room' ? 2.2 : Math.max(world.zoomLevel, 4))

@@ -37,7 +37,7 @@ def panel(obj):
     return dict(position=values(AXIS @ obj.matrix_world.translation),
                 rotation=values((orientation.x, orientation.y, orientation.z, orientation.w)),
                 width=data.size * abs(scale.x), height=height * abs(scale.y),
-                energy=data.energy, color=values(data.color))
+                energy=data.energy, color=values(data.color), source=obj.get("sourceLightId"))
 
 
 def prepare(scene, out):
@@ -57,7 +57,7 @@ def prepare(scene, out):
     profile = {
         "areas": [panel(o) for o in scene.objects
                   if o.type == "LIGHT" and o.data.type == "AREA" and not o.hide_render],
-        "field": field,
+        **field,
         "lut": display_lut(scene, out),
     }
     next(iter(tagged(scene, "roomId").values()))["studioLighting"] = json.dumps(profile)

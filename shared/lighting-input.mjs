@@ -25,5 +25,16 @@ export function lightingInput(layout) {
         ...(shape && shape.type !== 'point' ? { shape } : {}),
       }))
       .sort(byId),
+    ...(layout.sourceLights?.length
+      ? [
+          layout.sourceLights
+            .map(({ id, enabled, energy, color, position, rotation }) =>
+              enabled === false
+                ? { id, enabled }
+                : { id, enabled, energy, color, position, rotation },
+            )
+            .sort(byId),
+        ]
+      : []),
   ]
 }

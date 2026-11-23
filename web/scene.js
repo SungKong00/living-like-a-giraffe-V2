@@ -1,3 +1,4 @@
+import { resolvedSources } from '../shared/source-lights.mjs'
 import { MeshoptCompression } from '@babylonjs/core/Meshes/Compression/meshoptCompression'
 import decoderURL from '../node_modules/meshoptimizer/meshopt_decoder.cjs?url'
 MeshoptCompression.Configuration.decoder.url = decoderURL
@@ -129,7 +130,12 @@ async function openScene(
   if (draft) {
     try {
       const { studioIllumination } = await import('./studio-illumination.js')
-      illumination = studioIllumination(scene, rooms, imported.meshes)
+      illumination = studioIllumination(
+        scene,
+        rooms,
+        imported.meshes,
+        state.sourceLights ?? [],
+      )
     } catch (error) {
       scene.dispose()
       engine.dispose()
@@ -153,6 +159,19 @@ async function openScene(
   const guide = editing
     ? (await import('./light-guide.js')).lightGuide(scene, rooms)
     : null
+  let sourceRows = []
+  function updateIllumination(next) {
+    sourceRows = resolvedSources(state.sourceLights ?? [], next.sourceLights)
+    illumination.update(
+      instances,
+      next.lights ?? [],
+      sourceRows,
+      !!next.sourceLights?.length,
+    )
+  }
+  const activeLight = () =>
+    (layout.lights ?? []).find((l) => l.id === selectedLight) ||
+    sourceRows.find((l) => l.id === selectedLight)
   let selectedLight
   let box,
     chosenSpot = null
@@ -197,7 +216,7 @@ async function openScene(
         mesh.receiveShadows = true
       }
     }
-    illumination.update(instances, next.lights)
+    updateIllumination(next)
   }
   // Anchors are independent of baked triangles and survive material batching.
   function spotWorld(s) {
@@ -243,14 +262,19 @@ async function openScene(
       })
     }
     if (editing)
-      for (const light of layout.lights ?? [])
+      for (const light of [
+        ...(layout.lights ?? []),
+        ...sourceRows.filter((l) => l.id === selectedLight),
+      ])
         add(
           '조명 · ' + light.label,
           () =>
-            Vector3.TransformCoordinates(
-              v(light.position),
-              rooms.get(light.room).getWorldMatrix(),
-            ),
+            light.room == null
+              ? v(light.position)
+              : Vector3.TransformCoordinates(
+                  v(light.position),
+                  rooms.get(light.room).getWorldMatrix(),
+                ),
           () => onLight?.(light.id),
           'place',
         )
@@ -542,6 +566,7 @@ async function openScene(
     camera,
     rooms,
     roomBounds,
+    overview: () => look(center, 1),
     instances,
     look,
     get zoomLevel() {
@@ -570,9 +595,12 @@ async function openScene(
           mesh.isPickable &&
           mesh.isEnabled() &&
           mesh.isVisible &&
-          mesh.isDescendantOf(room),
+          (room
+            ? mesh.isDescendantOf(room)
+            : [...rooms.values()].some((r) => mesh.isDescendantOf(r))),
       )
       if (!hit?.pickedPoint) return null
+      if (!room) return hit.pickedPoint.asArray()
       return Vector3.TransformCoordinates(
         hit.pickedPoint,
         room.getWorldMatrix().clone().invert(),
@@ -581,7 +609,8 @@ async function openScene(
     chooseLight(id) {
       if (selectedLight === id) return
       selectedLight = id
-      guide(layout.lights?.find((l) => l.id === id))
+      guide(activeLight())
+      markers()
       wake()
     },
     chooseSpot(id) {
@@ -609,14 +638,14 @@ async function openScene(
     itemMoved(changedRoom) {
       wake()
       if (changedRoom) {
-        illumination.update(instances, layout.lights)
+        updateIllumination(layout)
       }
     },
     update(next) {
       wake()
       layout = next
       applyItems(next)
-      guide(next.lights?.find((l) => l.id === selectedLight))
+      guide(activeLight())
       markers()
     },
   }

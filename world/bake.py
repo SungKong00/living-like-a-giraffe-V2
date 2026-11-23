@@ -78,7 +78,14 @@ def bake(scene, out, *, fixed_only=False):
     field = None
     if fixed_only:
         from light_field import capture
-        field = capture(scene, rooms)
+        from source_lights import sources
+        lamps = [obj for obj in sources(scene).values() if not obj.hide_render]
+        field = {"field": capture(scene, rooms)}
+        for obj in lamps:
+            obj.hide_render = True
+        field["ambientField"] = capture(scene, rooms)
+        for obj in lamps:
+            obj.hide_render = False
     outputs = []
     groups = []
     for key, room in rooms.items():
@@ -134,9 +141,17 @@ def bake(scene, out, *, fixed_only=False):
             margin=2,
             uv_layer=uv_name,
         )
-        outputs.append((mesh, image, uv_name, owner.get("finish", "original")))
+        albedo = None
+        if fixed_only:
+            albedo = bpy.data.images.new(key + " surface colour", resolution, resolution, alpha=False)
+            for slot in mesh.material_slots:
+                if slot.material:
+                    slot.material.node_tree.nodes.active.image = albedo
+            bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"}, margin=2, uv_layer=uv_name)
+            albedo.pack()
+        outputs.append((mesh, image, albedo, uv_name, owner.get("finish", "original")))
     # Preserve the original bounce lighting until every target has been baked.
-    for mesh, image, uv_name, finish in outputs:
+    for mesh, image, albedo, uv_name, finish in outputs:
         for name in list(mesh.data.uv_layers.keys()):
             if name != uv_name:
                 mesh.data.uv_layers.remove(mesh.data.uv_layers[name])
@@ -158,6 +173,17 @@ def bake(scene, out, *, fixed_only=False):
         links.new(coords.outputs["UV"], tex.inputs["Vector"])
         links.new(tex.outputs["Color"], emit.inputs["Color"])
         links.new(emit.outputs[0], output.inputs["Surface"])
+        if albedo:
+            # Carry two textures on the same UVs in the private editor only.
+            mat["studioReceiver"] = True
+            surface = nodes.new("ShaderNodeBsdfPrincipled")
+            raw = nodes.new("ShaderNodeTexImage")
+            raw.image = albedo
+            links.new(coords.outputs["UV"], raw.inputs["Vector"])
+            links.new(raw.outputs["Color"], surface.inputs["Base Color"])
+            links.new(tex.outputs["Color"], surface.inputs["Emission Color"])
+            surface.inputs["Emission Strength"].default_value = 1
+            links.new(surface.outputs[0], output.inputs["Surface"])
         mesh.data.materials.clear()
         mesh.data.materials.append(mat)
     return field

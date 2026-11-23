@@ -124,3 +124,31 @@ test('조명 모양 계약과 굽기 캐시는 기존 점광원·방향·켜짐�
   ])
     assert.throws(() => validate(withLamp({ shape }), catalog))
 })
+
+test('원본 조명은 수정한 값만 저장하고 복원하면 원래 굽기 키로 돌아간다', async () => {
+  const { editSource } = await import('../shared/source-lights.mjs')
+  const { lightingInput } = await import('../shared/lighting-input.mjs')
+  const native = {
+    id: 'native-demo',
+    label: 'Fill',
+    room: null,
+    shape: { type: 'area', rotation: [0, 0, 0, 1] },
+    position: [3, 24, 9],
+    energy: 15000,
+    enabled: true,
+    color: '#ffffff',
+  }
+  const model = { ...catalog, sourceLights: [native] },
+    d = seed(model)
+  const initial = lightingInput(d)
+  editSource(d, native, { rotation: [0, 0, 0, -1], energy: 17000 })
+  assert.deepEqual(validate(d, model).sourceLights, [
+    { id: native.id, energy: 17000 },
+  ])
+  assert.notDeepEqual(initial, lightingInput(d))
+  assert.throws(() =>
+    validate({ ...d, sourceLights: [{ id: 'missing', energy: 1 }] }, model),
+  )
+  editSource(d, native, null)
+  assert.deepEqual(initial, lightingInput(d))
+})

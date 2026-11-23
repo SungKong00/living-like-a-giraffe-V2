@@ -1,3 +1,4 @@
+import { editSource, resolvedSources } from '../shared/source-lights.mjs'
 import './views/studio.css'
 import { app, api, stage } from './ui.js'
 import {
@@ -168,6 +169,25 @@ export async function studio() {
   }
   document.body.dataset.surface = 'studio'
   const history = new EditHistory(saved.layout)
+  const sourceCatalog = saved.sourceLights ?? []
+  const sourceMap = new Map(sourceCatalog.map((l) => [l.id, l]))
+  const lightById = (id) =>
+    ops.find(shown, 'lights', id) ||
+    resolvedSources(sourceCatalog, shown.sourceLights).find((l) => l.id === id)
+  let sourceOpen = false
+  function changeLight(id, values, temporary = false) {
+    const fn = temporary ? preview : change
+    const source = sourceMap.get(id)
+    fn((d) => {
+      if (source)
+        editSource(
+          d,
+          source,
+          values?.shape ? { rotation: values.shape.rotation } : values,
+        )
+      else Object.assign(ops.find(d, 'lights', id), values)
+    })
+  }
   const rooms = saved.rooms
   const kinds = saved.kinds || []
   let shown = history.value,
@@ -491,6 +511,7 @@ export async function studio() {
     page: 'pages',
   }
   function exists(sel) {
+    if (sel.type === 'light') return !!lightById(sel.id)
     if (sel.type === 'room') return rooms.some((r) => r.id === sel.id)
     return !!ops.find(shown, listOf[sel.type], sel.id)
   }
@@ -509,7 +530,7 @@ export async function studio() {
   const roomOf = (sel) => {
     if (!sel) return null
     if (sel.type === 'room') return sel.id
-    if (sel.type === 'light') return ops.find(shown, 'lights', sel.id)?.room
+    if (sel.type === 'light') return lightById(sel.id)?.room
     if (sel.type === 'item') return ops.find(shown, 'items', sel.id)?.room
     if (sel.type === 'spot') {
       const s = ops.find(shown, 'spots', sel.id)
@@ -527,6 +548,7 @@ export async function studio() {
   }
   function remove() {
     if (selection?.type === 'light') {
+      if (sourceMap.has(selection.id)) return
       change((d) => {
         d.lights = d.lights.filter((l) => l.id !== selection.id)
       })
@@ -610,7 +632,14 @@ export async function studio() {
   let outlineKey = '',
     inspectorKey = ''
   function renderOutline() {
-    const key = JSON.stringify([tab, query, selection, shown, [...collapsed]])
+    const key = JSON.stringify([
+      tab,
+      query,
+      selection,
+      shown,
+      sourceOpen,
+      [...collapsed],
+    ])
     if (key === outlineKey) return
     outlineKey = key
     renderKeepingFocus(outline, () => [
@@ -672,8 +701,8 @@ export async function studio() {
         'div',
         { class: 'studio-outline__tools' },
         TextInput({
-          label: '가구·안내 찾기',
-          placeholder: '가구·안내 찾기',
+          label: '가구·조명·안내 찾기',
+          placeholder: '가구·조명·안내 찾기',
           type: 'search',
           icon: 'search',
           size: 'sm',
@@ -729,7 +758,37 @@ export async function studio() {
   function layoutTree() {
     const match = (label) =>
       !query || label.toLowerCase().includes(query.toLowerCase())
-    return rooms
+    const originalRows = sourceCatalog.filter((l) => match(l.label))
+    const toggleSource = () => {
+      sourceOpen = !sourceOpen
+      renderOutline()
+    }
+    const sourceGroup = originalRows.length
+      ? [
+          el(
+            'div',
+            { class: 'studio-outline__group', role: 'listitem' },
+            TreeItem({
+              label: 'Blender 원본 조명',
+              key: 'source-lights',
+              icon: 'room',
+              meta: String(sourceCatalog.length),
+              expanded: !!query || sourceOpen,
+              onToggle: toggleSource,
+              onSelect: toggleSource,
+            }),
+            ...(query || sourceOpen
+              ? originalRows.map((l) =>
+                  row({ type: 'light', id: l.id }, l.label, {
+                    depth: 1,
+                    meta: l.room ? roomName(l.room) : '월드 전체',
+                  }),
+                )
+              : []),
+          ),
+        ]
+      : []
+    const roomGroups = rooms
       .map((r) => {
         const items = shown.items.filter((i) => i.room === r.id)
         const roomSpots = shown.spots.filter((s) => s.anchor === r.id)
@@ -787,18 +846,20 @@ export async function studio() {
         )
       })
       .filter(Boolean)
-      .concat(
-        query &&
-          !shown.items.some((i) => match(i.label)) &&
-          !shown.spots.some((s) => match(s.label))
-          ? [
-              EmptyState({
-                title: '찾는 항목이 없습니다',
-                description: '다른 이름으로 찾아보세요.',
-              }),
-            ]
-          : [],
-      )
+    return [...sourceGroup, ...roomGroups].concat(
+      query &&
+        !originalRows.length &&
+        !(shown.lights ?? []).some((l) => match(l.label)) &&
+        !shown.items.some((i) => match(i.label)) &&
+        !shown.spots.some((s) => match(s.label))
+        ? [
+            EmptyState({
+              title: '찾는 항목이 없습니다',
+              description: '다른 이름으로 찾아보세요.',
+            }),
+          ]
+        : [],
+    )
   }
   function pageTools() {
     return [
@@ -834,18 +895,21 @@ export async function studio() {
   // Strategy: one builder per selection type. Add a type by adding a builder.
   const inspectors = {
     light: () => {
-      const light = ops.find(shown, 'lights', selection.id)
-      const set = (values) => patch('lights', light.id, values)
+      const light = lightById(selection.id)
+      const source = sourceMap.get(light.id)
+      const set = (values) => changeLight(light.id, values)
       return lightInspector(light, {
         rooms,
         picking: lightPick,
         pick: setLightPick,
-        title: labelInput('조명 이름', light.label, (label) => set({ label })),
+        source,
+        reset: () => changeLight(light.id, null),
+        modified: shown.sourceLights?.some((e) => e.id === light.id),
+        title: source
+          ? light.label
+          : labelInput('조명 이름', light.label, (label) => set({ label })),
         set,
-        preview: (values) =>
-          preview((d) =>
-            Object.assign(ops.find(d, 'lights', light.id), values),
-          ),
+        preview: (values) => changeLight(light.id, values, true),
         remove,
       })
     },
@@ -1624,20 +1688,25 @@ export async function studio() {
   // ---- Scene ----
   const hooks = {
     layout: () => shown,
+    light: lightById,
+    isSource: (id) => sourceMap.has(id),
     snapping: () => snapping,
     select: (sel) => select(sel),
     toolbar: floating,
     pickLightPoint(at) {
       if (!lightPick) return false
-      const light =
-        selection?.type === 'light' && ops.find(shown, 'lights', selection.id)
+      const light = selection?.type === 'light' && lightById(selection.id)
       if (!light) {
         setLightPick(null)
         return false
       }
       const point = world.roomPoint(at.x, at.y, light.room)
       if (!point) {
-        notify(roomName(light.room) + '의 바닥이나 물체를 클릭하세요.')
+        notify(
+          light.room
+            ? roomName(light.room) + '의 바닥이나 물체를 클릭하세요.'
+            : '방의 바닥이나 물체를 클릭하세요.',
+        )
         return true
       }
       let values
@@ -1657,7 +1726,7 @@ export async function studio() {
           ],
         }
       setLightPick(null)
-      patch('lights', light.id, values)
+      changeLight(light.id, values)
       return true
     },
     dragging(on) {

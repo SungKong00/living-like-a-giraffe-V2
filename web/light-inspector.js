@@ -55,7 +55,18 @@ export function aimShape(light, target) {
 
 export function lightInspector(
   row,
-  { rooms, title, set, preview, remove, picking, pick },
+  {
+    rooms,
+    title,
+    set,
+    preview,
+    remove,
+    picking,
+    pick,
+    source,
+    modified,
+    reset,
+  },
 ) {
   const light = lightWithDefaults(row)
   const shape = light.shape,
@@ -98,8 +109,9 @@ export function lightInspector(
       icon: mode === 'aim' ? 'pointer' : 'spot',
       onClick: () => pick(picking === mode ? null : mode),
     })
-  const beam =
-    shape.type === 'spot'
+  const beam = source
+    ? []
+    : shape.type === 'spot'
       ? [
           shapeSlider('빔 각도', 'angle', 1, 180, '°'),
           shapeSlider('가장자리 부드러움', 'blend', 0, 100, '%', 100),
@@ -109,22 +121,32 @@ export function lightInspector(
         : []
   return [
     PanelHeader({
-      eyebrow: kind.label,
+      eyebrow: source ? 'Blender 원본 · ' + kind.label : kind.label,
       title,
-      description: kind.description,
+      description: source
+        ? (rooms.find((r) => r.id === light.room)?.label ?? '월드 전체') +
+          ' · 원본 조명의 밝기와 위치를 조절합니다.'
+        : kind.description,
       actions: [
         Toggle({
           label: '조명 켜기',
           pressed: light.enabled,
           onChange: (enabled) => set({ enabled }),
         }),
-        IconButton({
-          label: '조명 삭제',
-          icon: 'delete',
-          variant: 'ghost',
-          size: 'sm',
-          onClick: remove,
-        }),
+        source
+          ? Button({
+              label: '원본값 복원',
+              size: 'sm',
+              disabled: !modified,
+              onClick: reset,
+            })
+          : IconButton({
+              label: '조명 삭제',
+              icon: 'delete',
+              variant: 'ghost',
+              size: 'sm',
+              onClick: remove,
+            }),
       ],
     }),
     PanelSection({
@@ -136,7 +158,9 @@ export function lightInspector(
             label: '조명 출력',
             key: 'energy',
             min: 0,
-            max: 10000,
+            max: source
+              ? Math.max(20000, Math.ceil(light.energy / 10000) * 10000)
+              : 10000,
             step: 1,
             value: light.energy,
             format: (v) => v + ' W',
@@ -150,7 +174,7 @@ export function lightInspector(
             label: '정확한 조명 출력',
             key: 'watts',
             min: 0,
-            max: 10000,
+            max: source ? 10000000 : 10000,
             step: 1,
             value: light.energy,
             onCommit: (energy) => set({ energy }),
@@ -173,17 +197,22 @@ export function lightInspector(
     }),
     PanelSection({
       title: '배치',
+      meta: '높이는 Y로 조절',
       children: [
-        property(
-          '방',
-          Select({
-            label: '조명 위치 기준 방',
-            value: light.room,
-            key: 'light-room',
-            options: rooms.map(({ id, label }) => ({ value: id, label })),
-            onChange: (room) => set({ room }),
-          }),
-        ),
+        ...(source
+          ? []
+          : [
+              property(
+                '방',
+                Select({
+                  label: '조명 위치 기준 방',
+                  value: light.room,
+                  key: 'light-room',
+                  options: rooms.map(({ id, label }) => ({ value: id, label })),
+                  onChange: (room) => set({ room }),
+                }),
+              ),
+            ]),
         property(
           '위치 (m)',
           ...['X', 'Y', 'Z'].map((axis, index) =>
@@ -204,7 +233,11 @@ export function lightInspector(
           ),
         ),
         PropertyRow({
-          label: picking ? '이 방의 표면을 클릭 · Esc 취소' : '장면에서 지정',
+          label: picking
+            ? light.room
+              ? '이 방의 표면을 클릭 · Esc 취소'
+              : '방의 표면을 클릭 · Esc 취소'
+            : '장면에서 지정',
           stack: true,
           children: [
             place('move', '위치 지정'),

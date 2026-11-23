@@ -11,6 +11,7 @@ const recipe = createHash('sha256')
 for (const input of [
   'bake.py',
   'model.py',
+  'source_lights.py',
   'worker.py',
   'studio_lighting.py',
   'light_field.py',

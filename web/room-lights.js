@@ -34,9 +34,12 @@ const emitters = {
   area: {
     create: (scene) => new RectAreaLight('면광원', Vector3.Zero(), 1, 1, scene),
     update(lamp, { energy, shape }) {
-      lamp.width = shape.width
-      lamp.height = shape.height
-      lamp.intensity = energy / (Math.PI * shape.width * shape.height)
+      const factor = ['disk', 'ellipse'].includes(shape.form)
+        ? Math.sqrt(Math.PI / 4)
+        : 1
+      lamp.width = shape.width * factor
+      lamp.height = shape.height * factor
+      lamp.intensity = energy / (Math.PI * lamp.width * lamp.height)
     },
   },
 }
@@ -45,7 +48,7 @@ const emitters = {
 // Rebuild membership only when geometry or room ownership changes.
 export function roomLights(scene, rooms) {
   const fixtures = new Map()
-  return (rows, membershipChanged) => {
+  return (rows, membershipChanged, sourceIds) => {
     const ids = new Set(rows.map(({ id }) => id))
     for (const [id, fixture] of fixtures) {
       if (ids.has(id)) continue
@@ -53,11 +56,16 @@ export function roomLights(scene, rooms) {
       fixtures.delete(id)
     }
     const counts = new Map()
+    let globalCount = 0
     for (const row of rows) {
       const light = lightWithDefaults(row)
       const type = light.shape.type
-      const room = rooms.get(light.room)
-      if (light.enabled) counts.set(room, (counts.get(room) ?? 0) + 1)
+      const room = rooms.get(light.room) ?? null
+      const global = sourceIds.has(light.id)
+      if (light.enabled) {
+        if (global) globalCount++
+        else counts.set(room, (counts.get(room) ?? 0) + 1)
+      }
       let f = fixtures.get(light.id)
       if (f?.type !== type) {
         f?.mount.dispose()
@@ -70,11 +78,13 @@ export function roomLights(scene, rooms) {
         f.lamp.renderPriority = 2
         fixtures.set(light.id, f)
       }
-      if (membershipChanged || f.mount.parent !== room) {
+      if (membershipChanged || f.mount.parent !== room || !f.bound) {
         f.mount.parent = room
-        f.lamp.includedOnlyMeshes = room
-          .getChildMeshes()
-          .filter((m) => m.isEnabled())
+        f.bound = true
+        const scopes = global ? [...rooms.values()] : [room]
+        f.lamp.includedOnlyMeshes = scopes.flatMap((node) =>
+          node.getChildMeshes().filter((m) => m.isEnabled()),
+        )
       }
       f.mount.position.copyFromFloats(...light.position)
       if (light.shape.rotation)
@@ -86,6 +96,6 @@ export function roomLights(scene, rooms) {
     }
     // Materials can be shared between rooms. Reserve slots for the room with
     // most enabled fixtures in addition to its authored lights and shadow.
-    return Math.max(0, ...counts.values())
+    return globalCount + Math.max(0, ...counts.values())
   }
 }

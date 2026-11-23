@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import bpy
+import source_lights
 from model import apply, apply_web_lights, bootstrap, export_glb, inventory, wrap_mesh_anchors
 
 
@@ -41,10 +42,12 @@ def run(command, source, out, request=None):
     else:
         scene = load(source)
     manifest = inventory(scene)
+    manifest["sourceLights"] = source_lights.inventory(scene)
     if request:
         data = json.loads(request.read_text())
         apply(scene, data["items"])
         apply_web_lights(scene, data.get("lights", []))
+        source_lights.apply(scene, data.get("sourceLights", []))
         scene["handoff"] = data["handoff"]
     if command == "download":
         save(out / "world.blend")

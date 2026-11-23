@@ -13,6 +13,10 @@ if (!fs.existsSync(modelDir('initial')))
   throw Error('npm run prepare:world를 먼저 실행하세요.')
 const { default: lockfile } = await import('proper-lockfile')
 await lockfile.lock(root, { stale: 120000, update: 10000 })
+const { ensureSourceCatalog } = await import('./model-catalog.mjs')
+for (const model of fs.readdirSync(path.join(root, 'models')))
+  if (fs.existsSync(path.join(modelDir(model), 'source.blend')))
+    await ensureSourceCatalog(model)
 const store = new WorldStore(),
   jobs = new Jobs(store)
 if (
@@ -79,6 +83,7 @@ function editorView(snap) {
       ([kind, label]) => ({ kind, label }),
     ),
     lights: model.lights,
+    sourceLights: model.sourceLights,
     asset: '/api/admin/model/' + snap.model,
   }
 }
@@ -206,6 +211,7 @@ app.post('/api/admin/import', (req, res) => {
     ...store.state.draft.layout,
     items: result.items,
     lights: result.lights,
+    sourceLights: result.sourceLights,
   }
   if (spots) layout.spots = spots
   res.json(editorView(store.edit(revision, model, layout)))
@@ -213,8 +219,8 @@ app.post('/api/admin/import', (req, res) => {
 app.get('/api/admin/compare/:id', (req, res) =>
   res.json(jobs.compare(req.params.id)),
 )
-app.get('/api/admin/candidate/:id', (req, res) => {
-  const result = jobs.compare(req.params.id)
+function showCandidate(req, res) {
+  const result = jobs.compare(req.params.id, req.body?.choices)
   res.json(
     editorView({
       id: result.revision,
@@ -223,10 +229,12 @@ app.get('/api/admin/candidate/:id', (req, res) => {
         ...store.state.draft.layout,
         items: result.items,
         lights: result.lights,
+        sourceLights: result.sourceLights,
       },
     }),
   )
-})
+}
+app.route('/api/admin/candidate/:id').get(showCandidate).post(showCandidate)
 
 app.use('/api', (req, res) => res.sendStatus(404))
 app.use((err, req, res, next) =>

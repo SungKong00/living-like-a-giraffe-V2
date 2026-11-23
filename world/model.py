@@ -348,7 +348,7 @@ def select(objects):
 def export_glb(scene, path):
     rooms = tagged(scene, "roomId")
     objects = [o for r in rooms.values() for o in [r, *r.children_recursive]]
-    select([o for o in objects if not ("webLightId" in o and o.hide_render)])
+    select([o for o in objects if not (o.type == "LIGHT" and o.hide_render)])
     bpy.ops.export_scene.gltf(
         filepath=str(path),
         use_selection=True,

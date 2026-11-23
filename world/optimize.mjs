@@ -17,6 +17,10 @@ async function finishBakedMaterials(doc) {
     const texture = material.getEmissiveTexture()
     if (!texture || !material.getExtras().riragiBaked) continue
     textures.add(texture)
+    if (material.getExtras().studioReceiver) {
+      textures.add(material.getBaseColorTexture())
+      continue
+    }
     const finish = material.getExtras().riragiFinish
     if (finish === 'gloss' || finish === 'matte') {
       material
