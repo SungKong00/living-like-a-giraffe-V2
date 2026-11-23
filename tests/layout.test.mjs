@@ -75,3 +75,11 @@ test('가구 종류의 허용 옵션을 서버에서 검사한다', () => {
   d.items[0].color = '#226655'
   assert.deepEqual(validate(d, limited), d)
 })
+test('Blender 왕복 반올림과 동등한 쿼터니언은 충돌로 표시하지 않는다', () => {
+  const web = { ...bench, rotation: [0, 0.6, 0, 0.8], position: [4, 0, 1] }
+  const file = { ...bench, rotation: [0, 0, 0, -1], position: [0.00001, 0, 0] }
+  assert.deepEqual(mergeItems([bench], [web], [file]), {
+    items: [web],
+    conflicts: [],
+  })
+})

@@ -19,6 +19,25 @@ def render_meshes(objects, owner):
     return mesh
 
 
+def live_surface(material):
+    if material is None or not material.use_nodes:
+        return False
+    for node in material.node_tree.nodes:
+        if node.type in {"BSDF_GLASS", "BSDF_TRANSPARENT"}:
+            return True
+        if node.type == "BSDF_PRINCIPLED":
+            transmission = node.inputs["Transmission Weight"]
+            alpha = node.inputs["Alpha"]
+            if (
+                transmission.is_linked
+                or transmission.default_value > 0
+                or alpha.is_linked
+                or alpha.default_value < 1
+            ):
+                return True
+    return False
+
+
 def bake(scene, out):
     rooms = tagged(scene, "roomId")
     visible = {
@@ -47,10 +66,7 @@ def bake(scene, out):
                 o
                 for o in children
                 if o.type in {"MESH", "FONT", "CURVE"}
-                and not any(
-                    slot.material and "glass" in slot.material.name.lower()
-                    for slot in o.material_slots
-                )
+                and not any(live_surface(slot.material) for slot in o.material_slots)
             ]
             if meshes:
                 groups.append((key, owner, meshes))
@@ -88,17 +104,17 @@ def bake(scene, out):
             margin=2,
             uv_layer=uv_name,
         )
-        outputs.append((mesh, image, uv_name))
+        outputs.append((mesh, image, uv_name, owner.get("finish", "original")))
     # Preserve the original bounce lighting until every target has been baked.
-    for mesh, image, uv_name in outputs:
+    for mesh, image, uv_name, finish in outputs:
         for name in list(mesh.data.uv_layers.keys()):
             if name != uv_name:
                 mesh.data.uv_layers.remove(mesh.data.uv_layers[name])
         mesh.data.uv_layers[uv_name].active_render = True
         image.pack()
-        mat = bpy.data.materials.new(
-            "Baked " + str(mesh.as_pointer()) + " display light"
-        )
+        mat = bpy.data.materials.new(mesh.name + " baked")
+        mat["riragiBaked"] = True
+        mat["riragiFinish"] = finish
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         nodes.clear()

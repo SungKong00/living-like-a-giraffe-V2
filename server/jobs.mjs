@@ -130,7 +130,7 @@ export class Jobs {
         digest(published.layout.items) === digest(snap.layout.items)
       const asset = sameGeometry
         ? published.asset
-        : digest([snap.model, snap.layout.items, 'bake-v2'])
+        : digest([snap.model, snap.layout.items, 'bake-v3'])
       const dir = buildDir(asset)
       try {
         if (!fs.existsSync(path.join(dir, 'world.glb'))) {

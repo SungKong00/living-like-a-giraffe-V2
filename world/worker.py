@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 import bpy
-from model import apply, bootstrap, export_glb, inventory
+from model import apply, bootstrap, export_glb, inventory, wrap_mesh_anchors
 
 
 def load(path):
@@ -51,6 +51,7 @@ def run(command, source, out, request=None):
     elif command == "publish":
         from bake import bake
 
+        wrap_mesh_anchors(scene)
         bake(scene, out)
         export_glb(scene, out / "raw.glb")
     else:
@@ -60,6 +61,7 @@ def run(command, source, out, request=None):
         from bake import render_meshes
         from model import tagged, appearance
 
+        wrap_mesh_anchors(scene)
         cache = {}
         for item in tagged(scene, "itemId").values():
             appearance(item, {"color": "original", "finish": "original"}, cache)

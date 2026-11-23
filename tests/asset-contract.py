@@ -5,7 +5,7 @@ from pathlib import Path
 import bpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "world"))
-from model import inventory, tagged, transform
+from model import apply, inventory, tagged, transform
 from worker import load
 
 scene = load(Path(".world/models/initial/source.blend"))
@@ -44,3 +44,17 @@ invalid(
     bench.name,
 )
 print("방 회전, 편집 경계, 빈 ID·중복·방 누락 검사 통과")
+
+# Shared material must never transfer ownership of a fixed floor.
+floor.material_slots[0].material = bench.children[0].material_slots[0].material
+fixed = tuple(floor.matrix_world.translation)
+parts = [tuple(child.matrix_world.translation) for child in bench.children]
+row = inventory(scene)["items"][0]
+row.update(position=[3, 0, 3], rotation=[0, 0.6, 0, 0.8], scale=[2, 2, 2])
+apply(scene, [row])
+assert tuple(floor.matrix_world.translation) == fixed
+assert all(
+    tuple(child.matrix_world.translation) != prev
+    for child, prev in zip(bench.children, parts)
+)
+assert inventory(scene)["items"][0]["rotation"] == row["rotation"]

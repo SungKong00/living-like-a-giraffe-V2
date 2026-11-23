@@ -234,6 +234,28 @@ def apply(scene, items):
     bpy.context.view_layer.update()
 
 
+def wrap_mesh_anchors(scene):
+    # Geometry compression may change a mesh node's local transform. Give its
+    # logical ID an independent transform before touching the derived mesh.
+    for obj in list(scene.objects):
+        if obj.type == "EMPTY" or not ("itemId" in obj or "roomId" in obj):
+            continue
+        root = empty(scene, obj.name + " anchor")
+        root.parent = obj.parent
+        root.matrix_basis = obj.matrix_local.copy()
+        for key in ("itemId", "roomId", "label", "kind", "color", "finish"):
+            if key in obj:
+                root[key] = obj[key]
+                del obj[key]
+        children = list(obj.children)
+        obj.parent = root
+        obj.matrix_parent_inverse = Matrix.Identity(4)
+        obj.matrix_basis = Matrix.Identity(4)
+        for child in children:
+            child.parent = root
+        bpy.context.view_layer.update()
+
+
 def select(objects):
     bpy.ops.object.select_all(action="DESELECT")
     for obj in objects:

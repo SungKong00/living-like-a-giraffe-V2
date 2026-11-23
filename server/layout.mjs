@@ -79,14 +79,21 @@ export function validate(input, catalog) {
   return data
 }
 
+function sameValue(key, a, b) {
+  if (equal(a, b)) return true
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length)
+    return false
+  const near = (sign) => a.every((v, i) => Math.abs(v - sign * b[i]) <= 0.00002)
+  return near(1) || (key.endsWith('.rotation') && near(-1))
+}
 export function mergeItems(base, current, incoming, choices = {}) {
   const maps = [base, current, incoming].map(
     (rows) => new Map(rows.map((i) => [i.id, i])),
   )
   const conflicts = []
   function choose(key, b, w, f) {
-    if (equal(w, f) || equal(b, f)) return w
-    if (equal(b, w)) return f
+    if (sameValue(key, w, f) || sameValue(key, b, f)) return w
+    if (sameValue(key, b, w)) return f
     if (choices[key] === 'web') return w
     if (choices[key] === 'file') return f
     conflicts.push({ key, web: w ?? null, file: f ?? null })

@@ -51,12 +51,26 @@ try {
   await page.getByLabel('이름', { exact: true }).press('Tab')
   await page.getByLabel('가구 색').fill('#113355')
   await page.getByLabel('표면').selectOption('matte')
+  for (const [field, value] of [
+    ['회전 각도', '35'],
+    ['위치 · X / 높이 / Z X', '4'],
+    ['크기 X', '1.4'],
+  ]) {
+    const control = page.getByLabel(field, { exact: true })
+    await control.fill(value)
+    await control.press('Tab')
+  }
   await page.getByRole('button', { name: '초안 저장', exact: true }).click()
   await page.getByText('저장됨', { exact: true }).waitFor()
   await page.reload()
   await page.getByRole('button', { name: '↳ 파란 벤치' }).click()
   assert.equal(await page.getByLabel('가구 색').inputValue(), '#113355')
   assert.equal(await page.getByLabel('표면').inputValue(), 'matte')
+  assert.equal(await page.getByLabel('회전 각도').inputValue(), '35')
+  assert.equal(
+    await page.getByLabel('크기 X', { exact: true }).inputValue(),
+    '1.4',
+  )
   await page.getByRole('button', { name: '＋ 페이지' }).click()
   await page.getByLabel('제목', { exact: true }).fill('벤치 이야기')
   await page.getByLabel('제목', { exact: true }).press('Tab')
@@ -78,6 +92,40 @@ try {
     (await (await fetch(origin + '/api/world')).json()).id,
     before.id,
   )
+  const originalDraft = await (
+    await page.request.get(origin + '/api/admin/draft')
+  ).json()
+  const external = {
+    ...before.layout.spots[0],
+    id: 'external',
+    anchor: 'sports',
+    label: '행사 원문',
+    action: { type: 'url', url: 'https://www.instagram.com/p/Db5UwdEEaVs/' },
+  }
+  const updated = {
+    ...before.layout,
+    spots: [...before.layout.spots, external],
+  }
+  const invalid = await page.request.put(origin + '/api/admin/draft', {
+    data: {
+      revision: originalDraft.id,
+      layout: { ...updated, spots: [{ ...external, anchor: 'missing' }] },
+    },
+  })
+  assert.equal(invalid.status(), 400)
+  const publishable = await (
+    await page.request.put(origin + '/api/admin/draft', {
+      data: { revision: originalDraft.id, layout: updated },
+    })
+  ).json()
+  await page.request.post(origin + '/api/admin/publish', {
+    data: { revision: publishable.id },
+  })
+  await page.waitForFunction(
+    async (expected) =>
+      (await (await fetch('/api/world')).json()).id === expected,
+    publishable.id,
+  )
   for (const device of ['iPhone 13', 'Pixel 7']) {
     const mobile = await browser.newPage({ ...devices[device] })
     mobile.on('pageerror', (e) => errors.push(e.message))
@@ -89,6 +137,20 @@ try {
     await mobile.getByRole('link', { name: '행사 자세히 보기' }).tap()
     assert.equal(await mobile.locator('h1').innerText(), '멘탈 사우나')
     assert.ok(!scripts.some((u) => /\/assets\/studio-/.test(u)))
+    await mobile.goto(origin)
+    await mobile.getByRole('button', { name: '운동회', exact: true }).tap()
+    await mobile.getByRole('button', { name: '행사 원문', exact: true }).tap()
+    assert.equal(
+      await mobile
+        .getByRole('link', { name: '링크 열기' })
+        .getAttribute('href'),
+      external.action.url,
+    )
+    const { width, height } = mobile.viewportSize()
+    await mobile.setViewportSize({ width: height, height: width })
+    await mobile.getByRole('button', { name: '닫기', exact: true }).tap()
+    await mobile.getByRole('button', { name: '확대', exact: true }).tap()
+    await mobile.getByRole('button', { name: '전체 공간', exact: false }).tap()
     await mobile.route('**/api/world/*', (r) => r.abort())
     await mobile.goto(origin + '/events')
     assert.equal(await mobile.locator('.event-card').count(), 2)

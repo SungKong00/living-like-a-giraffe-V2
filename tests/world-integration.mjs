@@ -33,10 +33,10 @@ try {
   })
   const saved = store.edit(initial.id, 'initial', layout)
   assert.throws(() => store.edit(initial.id, 'initial', layout))
-  const [blend, second] = await Promise.all([
-    jobs.download(saved),
-    jobs.download(saved),
-  ])
+  const downloads = Promise.all([jobs.download(saved), jobs.download(saved)])
+  layout.items[1].color = '#884422'
+  const web = store.edit(saved.id, 'initial', layout)
+  const [blend, second] = await downloads
   assert.equal(blend, second)
   const inspect = path.join(dir, 'returned')
   fs.mkdirSync(inspect)
@@ -55,7 +55,7 @@ s=load(Path(sys.argv[1]))
 assert len(bpy.data.scenes)==2
 items=tagged(s,'itemId')
 a=items[sys.argv[2]]
-assert a['finish']=='matte' and len(a.children)==2
+assert a['color']=='#226655' and a['finish']=='matte' and len(a.children)==2
 assert all(part.material_slots[0].material['riragiBase'] for part in a.children)
 a.location.x += 2
 save(Path(sys.argv[3]))
@@ -75,8 +75,6 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
     jobs.upload(fs.readFileSync(path.join(inspect, 'missing.blend'))),
     /missing-riragi-image/,
   )
-  layout.items[1].color = '#884422'
-  const web = store.edit(saved.id, 'initial', layout)
   const candidate = await jobs.upload(fs.readFileSync(changed))
   assert.equal(candidate.conflicts.length, 0)
   const result = candidate.items.find((i) => i.id === twin.id)
@@ -87,7 +85,8 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
     ...layout,
     items: candidate.items,
   })
-  jobs.publish(merged.id)
+  const requested = jobs.publish(merged.id)
+  assert.equal(jobs.publish(merged.id), requested)
   assert.equal(store.state.published.id, initial.id)
   const deadline = Date.now() + 180000
   while (
@@ -100,6 +99,19 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
   assert.ok(
     fs.statSync(path.join(buildDir(store.state.published.asset), 'world.glb'))
       .size > 10000,
+  )
+  const bytes = fs.readFileSync(
+    path.join(buildDir(store.state.published.asset), 'world.glb'),
+  )
+  const gltf = JSON.parse(
+    bytes.subarray(20, 20 + bytes.readUInt32LE(12)).toString(),
+  )
+  assert.ok(
+    gltf.materials.some(
+      (m) =>
+        m.extras?.riragiFinish === 'matte' &&
+        Math.abs(m.pbrMetallicRoughness.roughnessFactor - 0.88) < 0.001,
+    ),
   )
   const updated = {
     ...merged.layout,

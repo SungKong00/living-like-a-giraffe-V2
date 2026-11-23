@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { NodeIO } from '@gltf-transform/core'
 import { ALL_EXTENSIONS, KHRMaterialsUnlit } from '@gltf-transform/extensions'
 import { dedup, prune, meshopt, weld } from '@gltf-transform/functions'
@@ -14,7 +15,16 @@ async function finishBakedMaterials(doc) {
   const textures = new Set()
   for (const material of doc.getRoot().listMaterials()) {
     const texture = material.getEmissiveTexture()
-    if (!texture || !material.getName().endsWith('display light')) continue
+    if (!texture || !material.getExtras().riragiBaked) continue
+    textures.add(texture)
+    const finish = material.getExtras().riragiFinish
+    if (finish === 'gloss' || finish === 'matte') {
+      material
+        .setBaseColorFactor([0, 0, 0, 1])
+        .setMetallicFactor(0)
+        .setRoughnessFactor(finish === 'gloss' ? 0.22 : 0.88)
+      continue
+    }
     material.setBaseColorTexture(texture).setBaseColorFactor([1, 1, 1, 1])
     material
       .getBaseColorTextureInfo()
@@ -23,7 +33,6 @@ async function finishBakedMaterials(doc) {
       .setEmissiveTexture(null)
       .setEmissiveFactor([0, 0, 0])
       .setExtension('KHR_materials_unlit', extension.createUnlit())
-    textures.add(texture)
   }
   for (const texture of textures) {
     const jpeg = await sharp(texture.getImage())
@@ -61,8 +70,8 @@ export async function optimize(input, output, expectedRooms) {
     prune({ keepExtras: true, keepLeaves: true }),
     meshopt({ encoder: MeshoptEncoder, level: 'medium' }),
   )
-  await io.write(output, doc)
-  const reopened = await io.read(output)
+  const bytes = await io.writeBinary(doc)
+  const reopened = await io.readBinary(bytes)
   const after = identities(reopened)
   if (
     JSON.stringify(before) !== JSON.stringify(after) ||
@@ -70,7 +79,7 @@ export async function optimize(input, output, expectedRooms) {
     !reopened.getRoot().listMeshes().length
   )
     throw Error('최적화 결과의 방과 가구 식별자를 확인하세요.')
-  const report = await validator.validateBytes(await fs.readFile(output), {
+  const report = await validator.validateBytes(bytes, {
     maxIssues: 100,
   })
   if (report.issues.numErrors)
@@ -78,4 +87,11 @@ export async function optimize(input, output, expectedRooms) {
       'GLB 검증 실패 · ' +
         report.issues.messages.find((m) => m.severity === 0)?.message,
     )
+  const temp = output + '.' + randomUUID()
+  try {
+    await fs.writeFile(temp, bytes)
+    await fs.rename(temp, output)
+  } finally {
+    await fs.rm(temp, { force: true })
+  }
 }

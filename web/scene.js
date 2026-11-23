@@ -184,7 +184,12 @@ export async function createScene(
         label,
       )
       view.overlay.append(node)
-      marks.push({ node, pos })
+      marks.push({
+        node,
+        pos,
+        width: node.offsetWidth,
+        height: node.offsetHeight,
+      })
     }
     if (!focus && !editing)
       for (const r of state.rooms) {
@@ -319,6 +324,7 @@ export async function createScene(
     const width = view.canvas.clientWidth,
       height = view.canvas.clientHeight
     const port = camera.viewport.toGlobal(width, height)
+    const placed = []
     for (const m of marks) {
       const pos = m.pos()
       if (!pos) {
@@ -331,8 +337,21 @@ export async function createScene(
         scene.getTransformMatrix(),
         port,
       )
-      m.node.style.left = p.x + 'px'
-      m.node.style.top = p.y + 'px'
+      m.node.hidden = false
+      const x = Math.max(m.width / 2, Math.min(width - m.width / 2, p.x))
+      let y = p.y
+      if (focus) {
+        for (const bounds of placed) {
+          if (
+            Math.abs(x - bounds.x) < (m.width + bounds.width) / 2 + 6 &&
+            Math.abs(y - bounds.y) < m.height + 12
+          )
+            y = bounds.y + m.height + 12
+        }
+        placed.push({ x, y, width: m.width })
+      }
+      m.node.style.left = x + 'px'
+      m.node.style.top = y + 'px'
     }
   })
   return {
