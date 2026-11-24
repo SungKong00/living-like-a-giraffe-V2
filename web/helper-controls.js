@@ -48,6 +48,7 @@ export function helperControls(kind, onError) {
   let connected = false,
     detail,
     checking = null,
+    showSetup = false,
     showOptions = false
   async function check(ticket, waiting = false, retry = false) {
     if (checking) await checking
@@ -103,6 +104,7 @@ export function helperControls(kind, onError) {
         connected = false
       })
       .finally(() => {
+        if (!connected) showSetup = false
         checking = null
       })
     await checking
@@ -111,7 +113,6 @@ export function helperControls(kind, onError) {
     const installed = !!localStorage.getItem(pairing)
     const id = ticket && new URL(ticket).pathname.split('/').pop()
     const needsUpdate = connected && !detail?.bakeProgress
-    const setup = !connected || needsUpdate
     const windows = /Windows/i.test(navigator.userAgent)
     const downloads = [
       {
@@ -125,6 +126,23 @@ export function helperControls(kind, onError) {
     ]
     const reopen = () =>
       Button({ label: '설치한 도우미 열기', href: 'giraffe-studio://open' })
+    const setupControls = [
+      ButtonGroup({
+        label: '도우미 설치와 실행',
+        children: [
+          Button({ ...downloads[Number(windows)], variant: 'primary' }),
+          reopen(),
+        ],
+      }),
+      Disclosure({
+        summary: '다른 운영체제용 다운로드',
+        open: showOptions,
+        onToggle: (open) => {
+          showOptions = open
+        },
+        children: [Button(downloads[Number(!windows)])],
+      }),
+    ]
     return el(
       'div',
       { class: 'publish-panel' },
@@ -168,14 +186,16 @@ export function helperControls(kind, onError) {
           {},
           '굽기 진행률을 보려면 최신 도우미를 설치하세요. 이전 도우미가 실행 중이면 설치 후 컴퓨터에 다시 로그인하세요.',
         ),
-      setup &&
-        ButtonGroup({
-          label: '도우미 설치와 실행',
-          children: [
-            Button({ ...downloads[Number(windows)], variant: 'primary' }),
-            reopen(),
-          ],
-        }),
+      connected
+        ? Disclosure({
+            summary: '도우미 연결 및 다운로드',
+            open: showSetup,
+            onToggle: (open) => {
+              showSetup = open
+            },
+            children: setupControls,
+          })
+        : setupControls,
       !connected &&
         installed &&
         Button({
@@ -184,15 +204,6 @@ export function helperControls(kind, onError) {
             await check(ticket)
             await refresh().catch((e) => onError(e.message))
           },
-        }),
-      setup &&
-        Disclosure({
-          summary: '다른 운영체제용 다운로드',
-          open: showOptions,
-          onToggle: (open) => {
-            showOptions = open
-          },
-          children: [Button(downloads[Number(!windows)])],
         }),
     )
   }
