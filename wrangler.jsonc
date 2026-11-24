@@ -1,0 +1,11 @@
+{
+  "name": "living-like-a-giraffe",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [{
+    "binding": "STUDIO",
+    "database_name": "giraffe-studio",
+    "database_id": "f825e299-a3cc-4cc9-818b-978e566af3c0"
+  }]
+}

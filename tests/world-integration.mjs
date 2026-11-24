@@ -222,7 +222,7 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
     items: candidate.items,
     lights: candidate.lights,
     sourceLights: candidate.sourceLights,
-  })
+  }, 'import')
   const beforeLighting = store.state
   const preview = await jobs.previewLighting(merged.id)
   assert.deepEqual(store.state, beforeLighting)
@@ -299,6 +299,15 @@ save(Path(sys.argv[3]).with_name("missing.blend"))
   retry.complete()
   store.restore()
   assert.throws(() => store.approveReview(retry.id))
+  const persisted = new WorldStore()
+  const beforeImport = persisted.versions().find((v) => v.kind === 'import')
+  assert.deepEqual(persisted.version(beforeImport.id), web)
+  const publicScene = persisted.state.published
+  const back = persisted.restoreVersion(persisted.state.draft.id, beforeImport.id)
+  assert.equal(back.model, web.model)
+  assert.deepEqual(back.layout, web.layout)
+  assert.deepEqual(persisted.state.published, publicScene)
+  assert.ok(fs.existsSync(await jobs.studioAsset(back.model)))
   await assert.rejects(jobs.upload(Buffer.from('invalid blend')))
   console.log(
     '전체 파일 왕복, 독립 변경 병합, 실제 베이크, 콘텐츠 발행 재사용, 직전 개정 복원 통과',

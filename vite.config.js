@@ -9,5 +9,18 @@ export default defineConfig({
       deny: ['.env*', '*.blend', '**/.world/**'],
     },
   },
-  build: { outDir: '../dist', emptyOutDir: true },
+  build: {
+    outDir: '../dist',
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Babylon loads meshoptimizer's classic script through a script element.
+        // Pages serves .cjs with a non-JavaScript MIME type and nosniff.
+        assetFileNames: (asset) =>
+          asset.names?.includes('meshopt_decoder.cjs')
+            ? 'assets/[name]-[hash].js'
+            : 'assets/[name]-[hash][extname]',
+      },
+    },
+  },
 })

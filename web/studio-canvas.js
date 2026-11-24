@@ -81,7 +81,7 @@ export function attachCanvas(world, view, hooks) {
   // never share one.
   const nodeOf = (key) => {
     const [type, id] = key.split(/:(.*)/s)
-    return type === 'item' ? instances.get(id) : hooks.characterRoot(id)
+    return hooks.modelRoot({ type, id })
   }
   function paint() {
     glow.removeAllMeshes()
@@ -165,7 +165,7 @@ export function attachCanvas(world, view, hooks) {
 
   function beginCharacter(id, at) {
     const character = hooks.character(id)
-    const node = hooks.characterRoot(id)
+    const node = hooks.modelRoot({ type: 'character', id })
     if (!character || !node) return null
     return {
       kind: 'character',
@@ -391,8 +391,10 @@ export function attachCanvas(world, view, hooks) {
           : null,
       )
     }
-    const node = selection?.type === 'item' && instances.get(selection.id)
-    toolbar.hidden = !node || !!gesture?.moved
+    const node =
+      (selection?.type === 'item' || selection?.type === 'character') &&
+      hooks.modelRoot(selection)
+    toolbar.hidden = !node || !!gesture?.moved || !!hooks.placing()
     if (toolbar.hidden) return
     // Sit above the furniture's whole on-screen footprint so the toolbar
     // never covers the part the operator wants to grab.
@@ -425,10 +427,8 @@ export function attachCanvas(world, view, hooks) {
 
   function anchorPosition(sel) {
     const layout = hooks.layout()
-    if (sel.type === 'item') return instances.get(sel.id)?.getAbsolutePosition()
-    if (sel.type === 'character')
-      return hooks.characterRoot(sel.id)?.getAbsolutePosition()
-    if (sel.type === 'room') return rooms.get(sel.id)?.getAbsolutePosition()
+    const model = hooks.modelRoot(sel)
+    if (model) return model.getAbsolutePosition()
     if (sel.type === 'light') {
       const light = hooks.light(sel.id)
       if (light && !light.room) return Vector3.FromArray(light.position)

@@ -30,22 +30,24 @@ import {
 import { previewLayout } from './preview.js'
 import { EditHistory } from './history.js'
 import { aimShape, showLightPosition } from './light-inspector.js'
-import { entities as entityQueries } from './studio-entities.js'
+import { entities as entityQueries, WORLD } from './studio-entities.js'
 import { outline as outlinePanel } from './studio-outline.js'
-import { inspectors, scopePath, emptyInspector } from './studio-inspectors.js'
+import { inspectors, scopePath } from './studio-inspectors.js'
 import { selectionPreview } from './selection-preview.js'
 import { openEditorScene } from './scene.js'
 import { Autosave } from './autosave.js'
 import { attachCanvas } from './studio-canvas.js'
 import { publishControl } from './studio-publish.js'
-import { openHandoff } from './studio-handoff.js'
+import { openHandoff, resumeUpload } from './studio-handoff.js'
 import * as ops from './edit-ops.js'
 import {
   characterLayer,
   characterModel,
   characterMotion,
+  motionList,
 } from './studio-characters.js'
-import { clayLayer } from './studio-clay-layer.js'
+import { clayLayer, updateStudioClay } from './studio-clay-layer.js'
+import { openVersions } from './studio-versions.js'
 import { clayDefaults } from './clay-field.js'
 
 const newId = () => crypto.randomUUID()
@@ -178,10 +180,11 @@ export async function studio() {
     world?.updateLights(shown)
     transient = true
   }
+  const cloud = saved.publishing === 'helper'
   const rooms = saved.rooms
   const kinds = saved.kinds || []
   let shown = history.value,
-    selection = null,
+    selection = WORLD,
     snapping = true,
     world = null,
     canvas = null
@@ -201,6 +204,8 @@ export async function studio() {
     lightTool: 'move',
     // Character following the pointer until a floor click places it.
     placing: null,
+    // Library model whose settings are open in the world panel.
+    libraryModel: null,
     // Which clay sections show their detail sliders, by section key.
     clayDetail: {},
   }
@@ -214,49 +219,20 @@ export async function studio() {
   function refreshScene({ moving = false } = {}) {
     if (!world) return
     cast?.update(shown)
-    const owned = new Set(world.instances.values())
-    const characterRoots = (shown.characters ?? []).map((c) => cast?.root(c.id))
-    for (const root of characterRoots) if (root) owned.add(root)
-    // A room's own meshes: not furniture, characters, hidden template copies or
-    // editor helpers (which are not pickable).
-    const ownGeometry = (room) => () =>
-      room.getChildMeshes(false).filter((mesh) => {
-        if (!mesh.isEnabled() || !mesh.isPickable) return false
-        for (let n = mesh; n && n !== room; n = n.parent)
-          if (owned.has(n)) return false
-        return true
-      })
-    const subtree = (root) => () => root.getChildMeshes(false)
-    clay.update(
-      shown,
-      [
-        ...[...world.rooms].map(([id, root]) => ({
-          id,
-          root,
-          scope: 'world',
-          meshes: ownGeometry(root),
-        })),
-        ...[...world.instances].map(([id, root]) => ({
-          id,
-          root,
-          scope: 'objects',
-          meshes: subtree(root),
-        })),
-        ...(shown.characters ?? []).map((c, i) => ({
-          id: c.id,
-          root: characterRoots[i],
-          scope: 'characters',
-          meshes: subtree(characterRoots[i] ?? world.scene),
-        })),
-      ],
-      { skip: moving ? new Set(['world']) : undefined },
-    )
+    updateStudioClay(clay, world, cast, shown, moving)
+    projection?.invalidate()
   }
   const entities = entityQueries({
     get layout() {
       return shown
     },
     rooms,
+    get world() {
+      return world
+    },
+    get cast() {
+      return cast
+    },
     light: lightById,
   })
 
@@ -306,6 +282,7 @@ export async function studio() {
     flush,
     revision: () => saved.id,
     onError: fail,
+    helper: cloud,
   })
 
   const top = el(
@@ -317,7 +294,23 @@ export async function studio() {
       Brand({ product: '스튜디오' }),
       el('span', { class: 'studio-bar__divider', 'aria-hidden': 'true' }),
       saveStatus,
-      ButtonGroup({ label: '편집 기록', children: [undoButton, redoButton] }),
+      ButtonGroup({
+        label: '편집 기록',
+        children: [
+          undoButton,
+          redoButton,
+          IconButton({
+            icon: 'history',
+            label: '버전 기록',
+            onClick: () =>
+              openVersions({
+                flush,
+                current: () => saved,
+                library: () => characterLibrary,
+              }),
+          }),
+        ],
+      }),
     ),
     el(
       'div',
@@ -336,11 +329,13 @@ export async function studio() {
           previewLayout(saved, history.value).catch((e) => fail(e.message)),
       }),
       Button({
-        label: 'Blender 인계',
+        label: cloud ? 'Blender 파일' : 'Blender 인계',
         icon: 'handoff',
         variant: 'ghost',
         onClick: () =>
           openHandoff({
+            cloud,
+            revision: () => saved.id,
             flush,
             draft: () => history.value,
             rooms,
@@ -414,7 +409,7 @@ export async function studio() {
     el('span', {}, '오른쪽 버튼으로 시점 회전'),
   )
   const floating = Toolbar({
-    label: '선택한 가구',
+    label: '선택한 모델',
     appearance: 'inverse',
     className: 'float-tools',
     hidden: true,
@@ -461,7 +456,10 @@ export async function studio() {
     'aria-label': '속성',
   })
   const scope = el('div', { class: 'studio-inspector__scope', hidden: true })
-  const portrait = ObjectPreview({ label: '선택 오브젝트 미리보기' })
+  const portrait = ObjectPreview({
+    label: '선택 모델 미리보기',
+    onOrbit: (yaw, pitch) => projection?.orbit(yaw, pitch),
+  })
   const properties = el('div')
   inspector.append(scope, portrait, properties)
   let projection
@@ -536,12 +534,7 @@ export async function studio() {
     shown = history.value
     world?.update(shown)
     refreshScene()
-    projection?.invalidate()
-    if (selection && !entities.exists(selection)) {
-      selection = null
-      setLightPick(null)
-      setPlacing(null)
-    }
+    if (!entities.exists(selection)) return select(null)
     render()
   }
   function change(edit) {
@@ -558,7 +551,6 @@ export async function studio() {
     edit(shown)
     world?.update(shown)
     refreshScene({ moving: true })
-    projection?.invalidate()
   }
   function undo() {
     if (canvas?.cancel()) return
@@ -572,22 +564,19 @@ export async function studio() {
     autosave.schedule()
     apply()
   }
-  function select(sel, { frame = false } = {}) {
+  function select(target, { frame = false } = {}) {
+    const sel = target ?? WORLD
     setLightPick(null)
     setPlacing(null)
-    if (selection?.id !== sel?.id || selection?.type !== sel?.type) {
+    if (selection.id !== sel.id || selection.type !== sel.type) {
       canvas?.cancel()
       ui.lightTool = 'move'
       inspector.scrollTop = 0
     }
     selection = sel
-    if (sel?.type === 'page') ui.tab = 'pages'
-    else if (sel) ui.tab = 'scene'
-    if (frame && sel?.type === 'world') world?.selectRoom(null)
-    else if (frame && sel?.type === 'character') {
-      const at = cast?.root(sel.id)?.getAbsolutePosition()
-      if (at) world.look(at, Math.max(world.zoomLevel, 3))
-    } else if (frame && sel) canvas?.frame(sel)
+    if (target) ui.tab = sel.type === 'page' ? 'pages' : 'scene'
+    if (frame && sel.type === 'world') world?.selectRoom(null)
+    else if (frame) canvas?.frame(sel)
     render()
   }
   const selectedItem = () =>
@@ -745,23 +734,51 @@ export async function studio() {
   }
   const uploadMotion = (file) =>
     upload('admin/characters/motions', file, file.name + ' 동작을 올렸습니다.')
-  async function removeFile(kind, id) {
+  // Characters (and the world default) that would lose a library file.
+  function fileUsers(kind, id) {
     const characters = shown.characters ?? []
-    const users =
-      kind === 'models'
-        ? characters.filter((c) => characterModel(characterLibrary, c) === id)
-        : [shown.defaults?.character, ...characters].filter((c) =>
-            c?.motion?.startsWith(id + '/'),
-          )
-    const warning =
-      kind === 'models'
-        ? '이 모델을 쓰는 캐릭터 ' +
-          users.length +
-          '개는 자리 표시로 보입니다. 계속할까요?'
-        : '이 동작 파일을 쓰는 캐릭터가 있습니다. 삭제하면 그 캐릭터는 멈춥니다. 계속할까요?'
-    if (users.length && !confirm(warning)) return
+    return kind === 'models'
+      ? characters.filter((c) => characterModel(characterLibrary, c) === id)
+      : [shown.defaults?.character, ...characters].filter((c) =>
+          motionList(c?.motion).some((clip) => clip.startsWith(id + '/')),
+        )
+  }
+  // Files in use stay; their characters are changed first.
+  async function removeFile(kind, id) {
+    const users = fileUsers(kind, id).length
+    if (users)
+      return fail(
+        (kind === 'models' ? '이 모델' : '이 동작 파일') +
+          '을 쓰는 곳이 ' +
+          users +
+          '개 있어 지울 수 없습니다. 다른 것으로 바꾼 뒤 지우세요.',
+      )
     try {
       useLibrary(await api('admin/characters/' + kind + '/' + id, 'DELETE'))
+      notify('자료실에서 뺐습니다. 같은 파일을 다시 올리면 돌아옵니다.')
+    } catch (e) {
+      fail(e.message)
+    }
+  }
+  // A new file for a model: characters keep it, and motions embedded in the
+  // old file move to the same clips in the new one.
+  async function replaceModel(id, file) {
+    const next = await upload(
+      'admin/characters/models/' + id + '/file',
+      file,
+      modelName(id) + ' 모델을 새 파일로 바꿨습니다.',
+    )
+    const moved = next?.motion
+    if (!moved) return
+    const clips =
+      next.library.motions
+        .find((m) => m.id === moved.to)
+        ?.clips.map((c) => c.name) ?? []
+    change((d) => ops.moveMotionFile(d, moved.from, moved.to, clips))
+  }
+  async function updateModel(id, values) {
+    try {
+      useLibrary(await api('admin/characters/models/' + id, 'PATCH', values))
     } catch (e) {
       fail(e.message)
     }
@@ -954,6 +971,7 @@ export async function studio() {
     setLightPick,
     setLightTool,
     zoomRoom: (id) => world?.selectRoom(id),
+    libraryReadOnly: cloud,
     get characterLibrary() {
       return characterLibrary
     },
@@ -961,6 +979,7 @@ export async function studio() {
     characterModel: (c) => characterModel(characterLibrary, c),
     characterState: (c) => cast?.state(shown, c) ?? 'loading',
     supportsProportions: (id) => cast?.supportsProportions(id),
+    clayProtection: (id) => cast?.protection(id) ?? null,
     setWorldClay,
     setClayMotion: (settings) =>
       change((d) => ops.setDefault(d, 'clayMotion', null, settings)),
@@ -970,6 +989,8 @@ export async function studio() {
     },
     setClay,
     setCharacterDefault,
+    setCharacterWear: (id, wear, on) =>
+      change((d) => ops.setWear(d, id, wear, on)),
     setCharacterProportion(id, key, value, temporary = false) {
       const edit = (layout) => {
         const c = ops.find(layout, 'characters', id)
@@ -985,6 +1006,14 @@ export async function studio() {
     chooseModelFile,
     uploadMotion,
     removeModel: (id) => removeFile('models', id),
+    replaceModel,
+    updateModel,
+    selectLibraryModel(id) {
+      ui.libraryModel = ui.libraryModel === id ? null : id
+      inspectorKey = ''
+      render()
+    },
+    fileUsers: (kind, id) => fileUsers(kind, id).length,
     removeMotion: (id) => removeFile('motions', id),
     renderOutline,
     renderInspector,
@@ -1024,9 +1053,7 @@ export async function studio() {
     scope.replaceChildren(...scopePath(editor))
     scope.hidden = !scope.childElementCount
     renderKeepingFocus(properties, () =>
-      selection
-        ? inspectors[selection.type](entities.find(selection), editor)
-        : emptyInspector(),
+      inspectors[selection.type](entities.find(selection), editor),
     )
   }
   // ---- Render loop ----
@@ -1036,7 +1063,7 @@ export async function studio() {
     // Wait a frame so a Tab keypress finishes moving focus before rebuilding.
     frame = requestAnimationFrame(() => {
       renderOutline()
-      projection?.select(selection)
+      projection?.select(entities.modelRoot(selection), selection)
       renderInspector()
       undoButton.disabled = !history.canUndo
       redoButton.disabled = !history.canRedo
@@ -1115,7 +1142,9 @@ export async function studio() {
   // ---- Status polling ----
   await publish.refresh().catch((e) => fail(e.message))
   const timer = setInterval(() => {
-    if (!document.hidden) publish.refresh().catch(() => {})
+    if (document.hidden) return
+    publish.refresh().catch(() => {})
+    if (cloud) resumeUpload().catch(() => {})
   }, 3000)
   addEventListener('pagehide', () => clearInterval(timer), { once: true })
 
@@ -1156,7 +1185,7 @@ export async function studio() {
       if (spot.room !== c.room)
         notify(roomName(spot.room) + '(으)로 옮겼습니다.', true)
     },
-    characterRoot: (id) => cast?.root(id),
+    modelRoot: entities.modelRoot,
     character: (id) => ops.find(shown, 'characters', id),
     commitCharacter(id, values) {
       patch('characters', id, values)
@@ -1252,14 +1281,16 @@ export async function studio() {
       world.wake()
     },
   })
-  try {
-    characterLibrary = await api('admin/characters')
-    cast.setLibrary(characterLibrary)
-  } catch (e) {
+  const library = await api('admin/characters').catch((e) => {
     fail('캐릭터 자료를 읽지 못했습니다 · ' + e.message)
-  }
-  refreshScene()
-  projection = selectionPreview(world, portrait)
+    return characterLibrary
+  })
+  useLibrary(library)
+  projection = selectionPreview(
+    world,
+    portrait,
+    () => selection?.type === 'character' && cast.playing(selection.id),
+  )
   canvas = attachCanvas(world, view, hooks)
   render()
 }

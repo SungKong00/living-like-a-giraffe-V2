@@ -239,6 +239,193 @@ test('캐릭터 자료실은 여러 리깅 모델과 맞는 동작만 받는다'
   await assert.rejects(library.removeModel('riragi'), /지울 수 없습니다/)
 })
 
+test('모델은 파일을 바꿔도 ID를 지키고 쓰는 중이면 지울 수 없다', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'characters-'))
+  const layouts = []
+  const library = characterLibrary(dir, {
+    builtin: path.join(dir, 'none.glb'),
+    layouts: () => layouts,
+  })
+  const added = await library.addModel(await riggedGiraffe(), '기린')
+  const { id } = added
+  const first = added.library.models[0]
+  assert.equal(first.file, id)
+  assert.equal(first.measured, 4.5)
+  assert.equal(first.height, 4.5)
+  // Name and the height a character at 100% shows.
+  let view = await library.updateModel(id, { name: '키 큰 기린', height: 2.4 })
+  assert.equal(view.models[0].name, '키 큰 기린')
+  assert.equal(view.models[0].height, 2.4)
+  await assert.rejects(library.updateModel(id, { height: 0 }), /기본 키/)
+  await assert.rejects(library.updateModel(id, { name: ' ' }), /이름/)
+  // A new file keeps the ID, name and height; the embedded action moves.
+  const replaced = await library.replaceModel(
+    id,
+    await riggedGiraffe({ top: 3, clip: 'Idle' }),
+  )
+  const model = replaced.library.models[0]
+  assert.equal(replaced.id, id)
+  assert.notEqual(model.file, id)
+  assert.equal(model.name, '키 큰 기린')
+  assert.equal(model.height, 2.4)
+  assert.equal(model.measured, 3)
+  assert.deepEqual(replaced.motion, { from: id, to: model.file })
+  assert.deepEqual(
+    replaced.library.motions.map((m) => [m.id, m.model]),
+    [[model.file, id]],
+  )
+  assert.ok(library.file(model.file))
+  await assert.rejects(
+    library.replaceModel('riragi', Buffer.from('')),
+    /교체할 수 없습니다/,
+  )
+  // In use by a draft character or the world default motion: kept.
+  layouts.push({ characters: [{ id: 'a', model: id }] })
+  await assert.rejects(library.removeModel(id), /1곳에서 쓰는 모델/)
+  const walk = await library.addMotion(await giraffeMotion('Walk'), '걷기')
+  const walkId = walk.motions.find((m) => m.name === '걷기').id
+  layouts[0] = {
+    characters: [],
+    defaults: { character: { motion: walkId + '/Walk' } },
+  }
+  await assert.rejects(library.removeMotion(walkId), /쓰는 동작/)
+  // Unused: removed from the list, and uploading the file brings it back.
+  layouts.length = 0
+  view = await library.removeModel(id)
+  assert.equal(view.models.length, 0)
+  const back = await library.addModel(
+    await riggedGiraffe({ top: 3 }),
+    '돌아온 기린',
+  )
+  assert.equal(back.library.models[0].measured, 3)
+})
+
+test('교체한 모델의 동작은 같은 클립으로 옮기고 캐릭터마다 시작 시점이 다르다', async () => {
+  const { moveMotionFile, motionPhase } = await import('../web/edit-ops.js')
+  const layout = {
+    defaults: { character: { motion: 'aaaa/Idle' } },
+    characters: [
+      { id: 'a', motion: 'aaaa/Idle' },
+      { id: 'b', motion: 'aaaa/Gone' },
+      { id: 'c', motion: 'bbbb/Idle' },
+      { id: 'd', motion: ['bbbb/Idle', 'aaaa/Idle'] },
+    ],
+  }
+  assert.equal(moveMotionFile(layout, 'aaaa', 'cccc', ['Idle']), 3)
+  assert.equal(layout.defaults.character.motion, 'cccc/Idle')
+  assert.deepEqual(
+    layout.characters.map((c) => c.motion),
+    ['cccc/Idle', 'aaaa/Gone', 'bbbb/Idle', ['bbbb/Idle', 'cccc/Idle']],
+  )
+  assert.equal(motionPhase('a'), motionPhase('a'))
+  assert.notEqual(motionPhase('a'), motionPhase('b'))
+  assert.ok(motionPhase('x') >= 0 && motionPhase('x') < 1)
+})
+
+test('모델의 착용물과 점토 보호 정점을 읽고 캐릭터에 착용·동작 목록을 저장한다', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'characters-'))
+  const library = characterLibrary(dir, { builtin: path.join(dir, 'none.glb') })
+  const plain = await library.addModel(await riggedGiraffe(), '맨몸')
+  assert.deepEqual(plain.library.models[0].wearables, [])
+  assert.equal(plain.library.models[0].protect, false)
+  const dressed = await library.addModel(
+    await riggedGiraffe({ wear: true, protect: true, top: 3 }),
+    '망토 기린',
+  )
+  const model = dressed.library.models.find((m) => m.id === dressed.id)
+  assert.deepEqual(model.wearables, [
+    { id: 'cape', label: '케이프', nodes: ['Wear.Cape'] },
+  ])
+  assert.equal(model.protect, true)
+
+  const { setWear } = await import('../web/edit-ops.js')
+  const input = draft({
+    characters: [{ ...character, room: 'sauna', model: dressed.id }],
+    defaults: {
+      character: {
+        motion: [model.id + '/Idle', 'riragi/Look'],
+        order: 'random',
+      },
+    },
+  })
+  setWear(input, 'tall', 'cape', true)
+  setWear(input, 'tall', 'flower', true)
+  setWear(input, 'tall', 'flower', false)
+  assert.deepEqual(input.characters[0].wear, ['cape'])
+  input.characters[0].motion = [model.id + '/Idle']
+  const saved = validate(input, catalog)
+  assert.deepEqual(saved.characters[0].wear, ['cape'])
+  assert.equal(saved.defaults.character.order, 'random')
+  assert.equal(saved.defaults.character.motion.length, 2)
+  setWear(input, 'tall', 'cape', false)
+  assert.equal(input.characters[0].wear, undefined)
+  input.characters[0].motion = Array(9).fill('riragi/Look')
+  assert.throws(() => validate(input, catalog))
+  input.characters[0].motion = []
+  assert.throws(() => validate(input, catalog))
+})
+
+test('정점 보호 값이 1인 점은 점토로 움직이지 않는다', () => {
+  const rest = new Float32Array([0, 1, 0, 0, 3, 0.2, 0.3, 2, 0.1])
+  const bounds = { min: [-0.5, 0, -0.5], max: [0.5, 4, 0.5] }
+  const field = clayField(bounds, 'x', 'characters', { head: false })
+  const free = clayPositions(rest, field, clayPresets.strong)
+  const kept = clayPositions(rest, field, clayPresets.strong, null, [1, 0, 0.5])
+  assert.deepEqual([...kept.slice(0, 3)], [...rest.slice(0, 3)])
+  assert.deepEqual([...kept.slice(3, 6)], [...free.slice(3, 6)])
+  for (let k = 6; k < 9; k++)
+    assert.ok(Math.abs(kept[k] - (rest[k] + free[k]) / 2) < 1e-6)
+})
+
+test('공개본은 처음 조회할 때 쓰는 캐릭터 파일을 고정하고 그 파일만 내준다', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'characters-'))
+  const library = characterLibrary(dir, { builtin: path.join(dir, 'none.glb') })
+  const { id } = await library.addModel(await riggedGiraffe(), '기린')
+  const walk = await library.addMotion(await giraffeMotion('Walk'), '걷기')
+  const walkFile = walk.motions.find((m) => m.name === '걷기').id
+  const unused = await library.addModel(
+    await riggedGiraffe({ names: ['A', 'B', 'C'] }),
+    '안 쓰는 모델',
+  )
+  const layout = {
+    characters: [{ ...character, model: id, motion: [walkFile + '/Walk'] }],
+  }
+  assert.equal(await library.published('snap-0', { characters: [] }), null)
+  const fixed = await library.published('snap-1', layout)
+  assert.deepEqual(Object.keys(fixed.models), [id])
+  assert.equal(fixed.models[id].height, 4.5)
+  assert.deepEqual(fixed.files.sort(), [id, walkFile].sort())
+  // Library edits wait for the next publication.
+  await library.updateModel(id, { height: 2 })
+  await library.replaceModel(id, await riggedGiraffe({ top: 3 }))
+  const again = await library.published('snap-1', layout)
+  assert.equal(again.models[id].height, 4.5)
+  assert.equal(again.models[id].file, id)
+  const next = await library.published('snap-2', layout)
+  assert.equal(next.models[id].height, 2)
+  assert.notEqual(next.models[id].file, id)
+  assert.equal(library.servesPublished(['snap-1'], id), true)
+  assert.equal(library.servesPublished(['snap-1'], unused.id), false)
+  assert.equal(library.servesPublished(['../x', null], id), false)
+  assert.equal(await library.published('../escape', layout), null)
+})
+
+test('캐릭터의 연결 페이지는 지운 페이지를 따라 풀린다', async () => {
+  const { deletePage } = await import('../web/edit-ops.js')
+  const page = { id: 'p1', title: '행사', summary: '요약', body: '', url: '' }
+  const input = draft({
+    characters: [{ ...character, room: 'sauna', page: 'p1' }],
+  })
+  input.pages = [page]
+  const saved = validate(structuredClone(input), catalog)
+  assert.equal(saved.characters[0].page, 'p1')
+  deletePage(input, 'p1')
+  assert.equal(input.characters[0].page, undefined)
+  // A draft that still points at a removed page loses only the link.
+  input.characters[0].page = 'gone'
+  assert.equal(validate(input, catalog).characters[0].page, undefined)
+})
+
 test('기린이라 부르던 자료실과 하나뿐이던 모델을 그대로 읽는다', async () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'world-'))
   const legacy = path.join(base, 'giraffes')

@@ -80,26 +80,8 @@
     position: absolute;
     top: clamp(20px, 5vh, 56px);
     left: var(--gutter);
-    display: grid;
-    gap: var(--space-3);
     max-width: 440px;
     pointer-events: none;
-  }
-  .world-intro__eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1-5);
-    font: var(--text-label);
-    letter-spacing: var(--tracking-label);
-    color: var(--color-text-secondary);
-  }
-  .world-intro__title {
-    font: var(--text-display);
-    letter-spacing: var(--tracking-display);
-  }
-  .world-intro__description {
-    font: var(--text-body);
-    color: var(--color-text-secondary);
   }
   .world-back {
     position: absolute;
@@ -380,10 +362,6 @@
     }
     .world-intro {
       max-width: calc(100% - 2 * var(--gutter));
-      gap: var(--space-2);
-    }
-    .world-intro__description {
-      font: var(--text-ui);
     }
     .world-back {
       bottom: auto;

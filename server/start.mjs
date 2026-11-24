@@ -4,8 +4,8 @@ import path from 'node:path'
 import { timingSafeEqual, createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { WorldStore, conflict } from './store.mjs'
-import { buildDir, root, modelDir, catalog } from './world-files.mjs'
-import { migrate } from './layout.mjs'
+import { buildDir, root, modelDir, catalog, json, versionFile } from './world-files.mjs'
+import * as views from './world-views.mjs'
 import { cachedLighting } from './baked-lighting.mjs'
 import { Jobs } from './jobs.mjs'
 import { StudioSessions, sessionLifetime } from './studio-sessions.mjs'
@@ -72,35 +72,37 @@ app.use('/api/admin', (req, res, next) => {
   if (!sessions.accepts(sid)) return res.sendStatus(401)
   next()
 })
-function editorView(snap) {
-  const model = catalog(snap.model)
-  return {
-    id: snap.id,
-    layout: migrate(snap.layout),
-    rooms: model.rooms,
-    render: 'editor',
-    options: model.options,
-    // Each kind the model can clone, named after its first catalog instance.
-    kinds: [...new Map(model.items.map((i) => [i.kind, i.label]))].map(
-      ([kind, label]) => ({ kind, label }),
-    ),
-    lights: model.lights,
-    sourceLights: model.sourceLights,
-    asset: '/api/admin/model/' + snap.model,
-  }
-}
-function visitorView(snap, asset) {
-  return {
-    id: snap.id,
-    layout: snap.layout,
-    rooms: catalog(snap.model).rooms,
-    render: 'visitor',
-    asset,
-  }
-}
-app.get('/api/world', (req, res) => {
+const editorView = (snap) => views.editorView(snap, catalog(snap.model))
+const visitorView = (snap, asset) =>
+  views.visitorView(snap, catalog(snap.model), asset)
+app.get('/api/world', async (req, res) => {
   const snap = store.state.published
-  res.json(visitorView(snap, '/api/world/' + snap.asset))
+  const cast = await characters.published(snap.id, snap.layout)
+  res.json({
+    ...visitorView(snap, '/api/world/' + snap.asset),
+    ...(cast && {
+      characters: { ...cast, base: '/api/world/characters/' },
+    }),
+  })
+})
+// Unpublished previews show the library as it is now.
+async function withCast(view, layout) {
+  const cast = await characters.sheet(layout)
+  return cast
+    ? { ...view, characters: { ...cast, base: '/api/admin/characters/files/' } }
+    : view
+}
+// Character files of the current and previous published worlds only.
+app.get('/api/world/characters/:file', (req, res) => {
+  const name = req.params.file.replace(/\.glb$/, '')
+  const { published, previous } = store.state
+  const file = characters.file(name)
+  if (!file || !characters.servesPublished([published.id, previous?.id], name))
+    return res.sendStatus(404)
+  res
+    .set('Cache-Control', 'public, max-age=31536000, immutable')
+    .type('model/gltf-binary')
+    .sendFile(file, { dotfiles: 'allow' })
 })
 app.get('/api/world/:id', (req, res) => {
   // Only assets which have completed publication receive a public route.
@@ -117,6 +119,16 @@ app.get('/api/world/:id', (req, res) => {
 })
 app.get('/api/admin/draft', (req, res) =>
   res.json(editorView(store.state.draft)),
+)
+app.get('/api/admin/versions', (_req, res) => res.json(store.versions()))
+app.post('/api/admin/versions', (req, res) =>
+  res.json(store.nameVersion(req.body.revision, req.body.name)),
+)
+app.get('/api/admin/versions/:id', (req, res) =>
+  res.json(editorView(store.version(req.params.id))),
+)
+app.post('/api/admin/versions/:id/restore', (req, res) =>
+  res.json(editorView(store.restoreVersion(req.body.revision, req.params.id))),
 )
 app.get('/api/admin/clay-giraffe', (req, res) =>
   res
@@ -144,7 +156,17 @@ app.get('/api/admin/model/:id', async (req, res) => {
   })
 })
 // ---- Character library: rigged models and motion files for their skeletons.
-const characters = characterLibrary()
+// Drafts, saved versions and the published world retain their library references.
+const characters = characterLibrary(undefined, {
+  layouts: () => {
+    const state = store.state
+    const revisions = new Set((state.versions ?? []).map((entry) => entry.revision))
+    const saved = Array.from(revisions, (revision) =>
+      json(versionFile(revision)).layout,
+    )
+    return [state.draft.layout, state.published.layout, ...saved]
+  },
+})
 const glb = express.raw({ type: 'application/octet-stream', limit: '120mb' })
 const fileName = (req, fallback) =>
   String(req.query.name || fallback).replace(/\.glb$/i, '')
@@ -159,6 +181,13 @@ app.post('/api/admin/characters/models', glb, async (req, res) => {
   if (glbBody(req, res))
     res.json(await characters.addModel(req.body, fileName(req, '캐릭터 모델')))
 })
+app.post('/api/admin/characters/models/:id/file', glb, async (req, res) => {
+  if (glbBody(req, res))
+    res.json(await characters.replaceModel(req.params.id, req.body))
+})
+app.patch('/api/admin/characters/models/:id', async (req, res) =>
+  res.json(await characters.updateModel(req.params.id, req.body ?? {})),
+)
 app.delete('/api/admin/characters/models/:id', async (req, res) =>
   res.json(await characters.removeModel(req.params.id)),
 )
@@ -196,7 +225,12 @@ app.post('/api/admin/lighting', async (req, res) => {
     req.body.revision,
     controller.signal,
   )
-  res.json(visitorView(snapshot, '/api/admin/lighting/' + snapshot.asset))
+  res.json(
+    await withCast(
+      visitorView(snapshot, '/api/admin/lighting/' + snapshot.asset),
+      snapshot.layout,
+    ),
+  )
 })
 app.get('/api/admin/lighting/:asset', (req, res) => {
   if (!/^[a-f0-9]{64}$/.test(req.params.asset)) return res.sendStatus(404)
@@ -209,10 +243,13 @@ app.get('/api/admin/lighting/:asset', (req, res) => {
 app.post('/api/admin/reviews', (req, res) =>
   res.status(202).json({ job: jobs.prepareReview(req.body.revision) }),
 )
-app.get('/api/admin/reviews/:id', (req, res) => {
+app.get('/api/admin/reviews/:id', async (req, res) => {
   const snapshot = store.reviewedSnapshot(req.params.id)
   res.json(
-    visitorView(snapshot, '/api/admin/reviews/' + req.params.id + '/asset'),
+    await withCast(
+      visitorView(snapshot, '/api/admin/reviews/' + req.params.id + '/asset'),
+      snapshot.layout,
+    ),
   )
 })
 app.get('/api/admin/reviews/:id/asset', (req, res) => {
@@ -263,7 +300,7 @@ app.post('/api/admin/import', (req, res) => {
     sourceLights: result.sourceLights,
   }
   if (spots) layout.spots = spots
-  res.json(editorView(store.edit(revision, model, layout)))
+  res.json(editorView(store.edit(revision, model, layout, 'import')))
 })
 app.get('/api/admin/compare/:id', (req, res) =>
   res.json(jobs.compare(req.params.id)),

@@ -1,13 +1,14 @@
-import { GlassHeading } from './ds/index.js'
 import { api, app, stage, zoomControls } from './ui.js'
 import {
   el,
   Brand,
+  brandName,
   Button,
   EmptyState,
   Icon,
   IconButton,
   NavLinks,
+  SceneCaption,
 } from './ds/index.js'
 
 const route = location.pathname
@@ -89,7 +90,7 @@ function archive(pages) {
         el(
           'p',
           { class: 'page-lead' },
-          '리라지의 공간에서 열린 행사들을 사진과 글로 남겨 둡니다.',
+          `${brandName}의 공간에서 열린 행사들을 사진과 글로 남겨 둡니다.`,
         ),
       ),
       pages.length
@@ -212,28 +213,17 @@ async function visit(data) {
         ),
       ),
   )
-  const title = GlassHeading({
-    className: 'world-intro__title',
-    text: '리라지의 공간',
-  })
-  const description = el(
-    'p',
-    { class: 'world-intro__description' },
-    '방을 선택해 그곳의 행사를 만나보세요.',
-  )
+  const overviewDescription = '방을 선택해 그곳의 행사를 만나보세요.'
+  const title = document.createTextNode(brandName)
+  const description = document.createTextNode(overviewDescription)
   view.host.append(
-    el(
-      'div',
-      { class: 'world-intro' },
-      el(
-        'span',
-        { class: 'world-intro__eyebrow' },
-        Icon('map', 'xs'),
-        '공간 아카이브',
-      ),
+    SceneCaption({
+      className: 'world-intro',
+      eyebrow: '공간 아카이브',
+      icon: 'map',
       title,
       description,
-    ),
+    }),
     back,
     shortcuts,
     zoomControls((factor) => world?.zoom(factor), { className: 'world-zoom' }),
@@ -290,17 +280,20 @@ async function visit(data) {
     placeCard.hidden = false
   }
 
+  // Characters of the published world; only the chosen room's move.
+  let cast = null
   try {
     const { openVisitorScene } = await import('./scene.js')
     world = await openVisitorScene(view, data, {
+      onPick: (owner) => !!cast?.pick(owner),
       onRoom(id) {
+        cast?.focus(id)
         shortcuts.hidden = !!id
         back.hidden = !id
         placeCard.hidden = true
-        title.textContent =
-          data.rooms.find((r) => r.id === id)?.label || '리라지의 공간'
-        description.textContent = !id
-          ? '방을 선택해 그곳의 행사를 만나보세요.'
+        title.data = data.rooms.find((r) => r.id === id)?.label || brandName
+        description.data = !id
+          ? overviewDescription
           : data.layout.spots.some(
                 (s) =>
                   s.anchor === id ||
@@ -313,6 +306,15 @@ async function visit(data) {
       },
       onSpot: open,
     })
+    if (data.characters)
+      cast = (await import('./visitor-characters.js')).visitorCharacters(
+        world,
+        data,
+        {
+          onPage: (page, c) =>
+            open({ label: c.label, action: { type: 'page', page } }),
+        },
+      )
   } catch (e) {
     view.loading.replaceChildren(
       Icon('alert', 'sm'),

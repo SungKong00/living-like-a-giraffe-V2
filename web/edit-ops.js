@@ -181,9 +181,51 @@ export function deleteCharacter(layout, id) {
   setClay(layout, id, null)
 }
 /** Clears a character's own value so it follows the world default again. */
+/** Switches a wearable of a character's model on or off. */
+export function setWear(layout, id, wear, on) {
+  const c = find(layout, 'characters', id)
+  if (!c) return
+  const list = (c.wear ?? []).filter((w) => w !== wear)
+  if (on) list.push(wear)
+  if (list.length) c.wear = list
+  else delete c.wear
+}
+
 export function inheritCharacter(layout, id, key) {
   const c = find(layout, 'characters', id)
   if (c) delete c[key]
+}
+
+/** Where in its loop (0–1) a character starts, fixed by its ID. */
+export function motionPhase(id) {
+  let h = 2166136261
+  for (const ch of String(id)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
+  return (h >>> 0) / 2 ** 32
+}
+
+/**
+ * Points motions of file `from` at file `to` where the new file has the same
+ * clip, after a model's file was replaced. Returns how many changed.
+ */
+export function moveMotionFile(layout, from, to, clips) {
+  let moved = 0
+  const swap = (motion) => {
+    if (typeof motion !== 'string' || !motion.startsWith(from + '/'))
+      return motion
+    const clip = motion.slice(from.length + 1)
+    if (!clips.includes(clip)) return motion
+    moved++
+    return to + '/' + clip
+  }
+  for (const owner of [
+    layout.defaults?.character,
+    ...(layout.characters ?? []),
+  ])
+    if (owner?.motion != null)
+      owner.motion = Array.isArray(owner.motion)
+        ? owner.motion.map(swap)
+        : swap(owner.motion)
+  return moved
 }
 
 export function deleteSpot(layout, id) {
@@ -198,6 +240,8 @@ export function deletePage(layout, id) {
   layout.spots = layout.spots.filter(
     (s) => !(s.action.type === 'page' && s.action.page === id),
   )
+  // Characters stay; only their link goes.
+  for (const c of layout.characters ?? []) if (c.page === id) delete c.page
   return linked
 }
 

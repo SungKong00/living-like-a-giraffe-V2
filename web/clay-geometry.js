@@ -1,4 +1,3 @@
-import { giraffeClayInfluence } from './clay-field.js'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
 import { NodeGeometry } from '@babylonjs/core/Meshes/Node/nodeGeometry'
@@ -10,41 +9,22 @@ import { SetPositionsBlock } from '@babylonjs/core/Meshes/Node/Blocks/Set/setPos
 import { NodeGeometryBlockConnectionPointTypes as Type } from '@babylonjs/core/Meshes/Node/Enums/nodeGeometryConnectionPointTypes'
 import { NodeGeometryContextualSources as Context } from '@babylonjs/core/Meshes/Node/Enums/nodeGeometryContextualSources'
 
-export const presets = {
-  original: { strength: 0, depth: 0, width: 50 },
-  light: { strength: 28, depth: 24, width: 50 },
-  medium: { strength: 58, depth: 55, width: 50 },
-  strong: { strength: 94, depth: 90, width: 50 },
-}
-
-// Fixed press centres in the rest model's metres. Both sides of each joint
-// sample the same continuous field, including the giraffe's fitted cape.
-const presses = {
-  bench: [
-    [0.46, -2.35],
-    [-0.46, -1.35],
-    [0.41, -0.25],
-    [-0.56, 0.85],
-    [0.53, 2.06],
-    [-0.48, 2.83],
-  ],
-  giraffe: [
-    [-0.66, 1.7],
-    [-0.23, 1.51],
-    [0.16, 1.8],
-    [0.53, 2.01],
-    [0.69, 2.47],
-    [0.82, 2.96],
-    [1.18, 3.34],
-  ],
-}
+// Fixed bench press centres in its rest geometry's metres.
+const benchPresses = [
+  [0.46, -2.35],
+  [-0.46, -1.35],
+  [0.41, -0.25],
+  [-0.56, 0.85],
+  [0.53, 2.06],
+  [-0.48, 2.83],
+]
 const axisOffsets = [
   new Vector3(2, 3, 7),
   new Vector3(8, 1, 3),
   new Vector3(5, 9, 2),
 ]
 
-export function clayDeformer(mesh, kind, giraffeHeight) {
+export function clayDeformer(mesh, characterField) {
   const graph = new NodeGeometry('점토 조형')
   const source = new GeometryInputBlock('원본', Type.Geometry)
   const data = new VertexData()
@@ -68,45 +48,42 @@ export function clayDeformer(mesh, kind, giraffeHeight) {
   const nextNormals = new Float32Array(normals.length)
   const rightHanded = { useRightHandedSystem: true }
   VertexData.ComputeNormals(rest, indices, baseline, rightHanded)
-  const bench = kind === 'bench'
+  const moved = [0, 0, 0]
   const result = new Vector3()
 
   return {
-    apply({ strength, depth, width }) {
+    apply(settings) {
+      const { strength, depth, width } = settings
       if (strength === 0 && depth === 0) {
         mesh.updateVerticesData('position', rest, true)
         mesh.updateVerticesData('normal', normals)
         return
       }
-      const radius = (bench ? 0.54 : 0.31) * (0.55 + width / 100)
-      // Wide, low-frequency warps keep thin parts and facial features legible.
+      const radius = 0.54 * (0.55 + width / 100)
       const freq = 0.44 / radius
-      const amplitude = (strength / 100) * (bench ? 0.19 : 0.2)
-      const pressure = (depth / 100) * (bench ? 0.19 : 0.21)
-      warp.customFunction = (p) => {
-        const grounded = Math.max(0, p.y) / (Math.max(0, p.y) + 0.18)
-        // Ease off above the cheeks so the expression and ear fittings stay aligned.
-        const h =
-          grounded * (bench ? 1 : giraffeClayInfluence(p.y / giraffeHeight))
-        const sample = (offset) =>
-          (noise.noise(0, 0, p, offset, freq) - 0.5) * 2
-        let dent = 0
-        for (const [a, b] of presses[kind]) {
-          const u = ((bench ? p.x : p.z) - a) / radius
-          const v = ((bench ? p.z : p.y) - b) / (radius * 0.82)
-          dent += Math.exp(-1.7 * (u * u + v * v))
-        }
-        const press = dent * pressure
-        result.set(
-          p.x +
-            (amplitude * sample(axisOffsets[0]) -
-              (bench ? 0 : Math.tanh(5 * p.x) * press)) *
-              h,
-          p.y + (amplitude * sample(axisOffsets[1]) - (bench ? press : 0)) * h,
-          p.z + amplitude * sample(axisOffsets[2]) * h,
-        )
-        return result
-      }
+      const amplitude = (strength / 100) * 0.19
+      const pressure = (depth / 100) * 0.19
+      warp.customFunction = characterField
+        ? (p) => {
+            characterField(p.x, p.y, p.z, settings, moved)
+            return result.set(...moved)
+          }
+        : (p) => {
+            const h = Math.max(0, p.y) / (Math.max(0, p.y) + 0.18)
+            const sample = (offset) =>
+              (noise.noise(0, 0, p, offset, freq) - 0.5) * 2
+            let dent = 0
+            for (const [a, b] of benchPresses) {
+              const u = (p.x - a) / radius
+              const v = (p.z - b) / (radius * 0.82)
+              dent += Math.exp(-1.7 * (u * u + v * v))
+            }
+            return result.set(
+              p.x + amplitude * sample(axisOffsets[0]) * h,
+              p.y + (amplitude * sample(axisOffsets[1]) - dent * pressure) * h,
+              p.z + amplitude * sample(axisOffsets[2]) * h,
+            )
+          }
       graph.build()
       const next = graph.vertexData.positions
       VertexData.ComputeNormals(next, indices, nextNormals, rightHanded)

@@ -78,7 +78,7 @@ test('점토 강하게에서도 얼굴 부속은 제자리에 있고 몸통은 �
     'characters',
   )
   const nodes = new Map(root.listNodes().map((node) => [node.getName(), node]))
-  function displacement(name) {
+  function displacement(name, settings = clayPresets.strong) {
     const positions = nodes
       .get(name)
       .getMesh()
@@ -89,7 +89,7 @@ test('점토 강하게에서도 얼굴 부속은 제자리에 있고 몸통은 �
     let max = 0
     for (let i = 0; i < positions.getCount(); i++) {
       positions.getElement(i, point)
-      field(point[0], point[1], point[2], clayPresets.strong, moved)
+      field(point[0], point[1], point[2], settings, moved)
       max = Math.max(
         max,
         Math.hypot(
@@ -103,7 +103,36 @@ test('점토 강하게에서도 얼굴 부속은 제자리에 있고 몸통은 �
   }
   for (const name of ['Eye.L', 'Eye.R', 'Mouth', 'Nostril.L', 'Nostril.R'])
     assert.equal(displacement('Giraffe.' + name), 0, name)
-  assert.ok(displacement('Giraffe.Body') > 0.03)
+  const light = displacement('Giraffe.Body', clayPresets.light)
+  const medium = displacement('Giraffe.Body', clayPresets.medium)
+  const strong = displacement('Giraffe.Body')
+  assert.ok(light > 0 && light < 0.025)
+  assert.ok(light < medium && medium < strong)
+  assert.ok(strong > 0.03 && strong < 0.085)
+})
+
+test('캐릭터 파일의 원점과 단위가 달라도 굴곡과 눌림의 상대 크기가 같다', () => {
+  const bounds = { min: [-0.5, 0, -1.5], max: [0.5, 4, 1.5] }
+  const field = clayField(bounds, 'riragi', 'characters')
+  for (const scale of [0.01, 100]) {
+    const offset = [3, -2, 0.25]
+    const transform = (p) => p.map((v, i) => v * scale + offset[i])
+    const scaled = clayField(
+      { min: transform(bounds.min), max: transform(bounds.max) },
+      'riragi',
+      'characters',
+    )
+    for (const width of [0, 50, 100]) {
+      const settings = { strength: 100, depth: 100, width }
+      for (const h of [0, 0.1, 0.4, 0.63, 0.9]) {
+        const point = [0.33, h * 4, -0.15]
+        const expected = transform(field(...point, settings, []))
+        const actual = scaled(...transform(point), settings, [])
+        actual.forEach((v, i) => assert.ok(Math.abs(v - expected[i]) < 1e-9))
+        if (h === 0 || h === 0.9) assert.deepEqual(actual, transform(point))
+      }
+    }
+  }
 })
 
 test('기린 체형은 실제 골격의 머리·의상 소켓을 따라가고 발굽과 원래 포즈를 보존한다', async () => {
@@ -167,7 +196,9 @@ test('기린 체형은 실제 골격의 머리·의상 소켓을 따라가고 �
       shape.set({ body })
       for (const axis of [0, 2])
         close(axes('Neck.03')[axis], neckAxes[axis] * body)
-      axes('Socket.Back').forEach((value, i) => close(value, restAxes[i] * body))
+      axes('Socket.Back').forEach((value, i) =>
+        close(value, restAxes[i] * body),
+      )
       close(length('Pelvis', 'Chest'), torsoLength * body)
       close(length('Neck.01', 'Head'), neckLength)
       close(length('Head', 'Socket.Face'), faceLength)

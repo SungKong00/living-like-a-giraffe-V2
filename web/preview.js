@@ -90,17 +90,32 @@ async function showPreview(state, { title, description, open, approve }) {
     zoomControls((f) => viewer?.zoom(f), { className: 'preview-zoom' }),
   )
   dialog.open()
+  // Characters of the reviewed world, drawn from the library as it is now.
+  let cast = null
   try {
     viewer = await open(target, state, {
       onReady: () => {
         if (publish && dialog.isOpen) publish.disabled = false
       },
+      onRoom: (id) => cast?.focus(id),
+      onPick: (owner) => !!cast?.pick(owner),
       onSpot: (s) => {
         const page = state.layout.pages.find((p) => p.id === s.action.page)
         note.textContent =
           s.label + ' · ' + (page?.summary || s.action.url || '연결 확인 필요')
       },
     })
+    if (state.characters && open === openVisitorScene)
+      cast = (await import('./visitor-characters.js')).visitorCharacters(
+        viewer,
+        state,
+        {
+          onPage: (page, c) => {
+            const p = state.layout.pages.find((x) => x.id === page)
+            note.textContent = c.label + ' · ' + (p?.summary || p?.title || '')
+          },
+        },
+      )
     if (!dialog.isOpen) {
       viewer.dispose()
       viewer = undefined

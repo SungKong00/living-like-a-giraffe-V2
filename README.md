@@ -18,6 +18,8 @@ brew install adrs
 
 프로젝트 루트에서 `openspec list`로 진행 중인 변경을, `adrs list`로 설계 결정을 조회한다. Codex의 프로젝트 MCP 설정은 `adrs`와 `uvx`를 PATH에서 찾는다.
 
+운영 사이트의 편집·발행과 배포 명령은 [클라우드 스튜디오](docs/world/README.md#클라우드-스튜디오)에 있다.
+
 ## 로컬 실행
 
 Node 22.17 이상, uv와 macOS에서 프로젝트 루트에서 실행한다. Blender 작업은 독립 Python 환경에 설치되며 별도 애드온이 필요하지 않다.

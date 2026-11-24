@@ -9,12 +9,64 @@ const python = path.resolve('.venv/bin/python')
 const worker = path.resolve('world/worker.py')
 const quote = (value) => JSON.stringify(fs.realpathSync(value))
 const maxTime = 15 * 60 * 1000
-export async function blender(mode, source, dir, input, signal) {
+export async function blender(mode, source, dir, input, signal, onBakePercent) {
   fs.mkdirSync(dir, { recursive: true })
+  if (!onBakePercent) return runBlender(mode, source, dir, input, signal)
+  // Keep reading our own file descriptor across the sandbox boundary on both OSes.
+  const file = path.join(dir, 'bake.percent')
+  const fd = fs.openSync(file, 'wx+', 0o600)
+  const bytes = Buffer.alloc(3)
+  let last = -1
+  const sample = () => {
+    if (fs.readSync(fd, bytes, 0, 3, 0) !== 3) return
+    const value = bytes.toString('ascii')
+    if (!/^\d{3}$/.test(value)) return
+    const percent = Number(value)
+    if (percent <= 100 && percent > last) {
+      last = percent
+      onBakePercent(percent)
+    }
+  }
+  let sampleError
+  const timer = setInterval(() => {
+    try {
+      sample()
+    } catch (error) {
+      sampleError = error
+      clearInterval(timer)
+    }
+  }, 500)
+  try {
+    await runBlender(mode, source, dir, input, signal)
+    if (sampleError) throw sampleError
+    sample()
+  } finally {
+    clearInterval(timer)
+    fs.closeSync(fd)
+    fs.rmSync(file, { force: true })
+  }
+}
+
+async function runBlender(mode, source, dir, input, signal) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'riragi-job-'))
   try {
+    const args = [worker, mode, source, dir]
+    if (input) args.push(input)
+    if (process.platform === 'win32') {
+      await exec(
+        path.resolve('Giraffe Studio.exe'),
+        ['--worker', dir, ...args],
+        {
+          cwd: process.cwd(),
+          windowsHide: true,
+          signal,
+          timeout: maxTime,
+        },
+      )
+      return
+    }
     if (process.platform !== 'darwin')
-      throw Error('현재 Blender 작업 격리는 macOS를 지원합니다.')
+      throw Error('이 운영체제에는 사용할 수 있는 Blender 도우미가 없습니다.')
     const prefix = path.dirname(path.dirname(fs.realpathSync(python)))
     const reads = [
       path.resolve('.venv'),
@@ -34,8 +86,6 @@ export async function blender(mode, source, dir, input, signal) {
       '(deny file-write* (require-all ' +
       except([dir, tmp]) +
       '(require-not (literal "/dev/null"))))'
-    const args = [worker, mode, source, dir]
-    if (input) args.push(input)
     const running = exec(
       '/usr/bin/sandbox-exec',
       ['-p', policy, python, ...args],

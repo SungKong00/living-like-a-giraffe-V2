@@ -1,10 +1,16 @@
+import {
+  helperControls,
+  rememberTask,
+  pendingTask,
+  forgetTask,
+} from './helper-controls.js'
 import { api } from './ui.js'
 import {
   el,
   Button,
   ColorDot,
   Dialog,
-  Icon,
+  FileDrop,
   RadioCards,
   Select,
   Spinner,
@@ -66,17 +72,48 @@ function describe(prop, value, rooms, source) {
   return String(value)
 }
 
+// A file may finish uploading before the first installation opens a new tab.
+// Pick up just that browser's waiting upload even with the file dialog closed.
+const pickup = helperControls('inspect')
+let pickingUp = false
+export async function resumeUpload() {
+  const id = pendingTask('inspect')
+  if (!id || pickingUp) return
+  pickingUp = true
+  try {
+    const incoming = await api('admin/upload-status')
+    if (incoming?.id !== id || incoming.status !== '대기' || !incoming.helper)
+      forgetTask('inspect', id)
+    else await pickup.check(incoming.helper, true)
+  } finally {
+    pickingUp = false
+  }
+}
+
 // Blender round trip as three steps: send the full file, take the edited file
 // back, then settle every conflict and broken click-area link before applying.
-export function openHandoff({ flush, draft, rooms, onError }) {
+export function openHandoff({
+  flush,
+  draft,
+  rooms,
+  onError,
+  cloud = false,
+  revision,
+}) {
+  const controls = helperControls('inspect', onError)
+  let incoming,
+    timer,
+    checkNumber = 0
   let candidate = null,
     choices = {},
     replacements = {},
     busy = ''
   const dialog = Dialog({
-    title: 'Blender 인계',
-    description:
-      '제작자와 전체 .blend 파일을 주고받고, 바뀐 점을 확인해 초안에 합칩니다.',
+    title: cloud ? 'Blender 파일' : 'Blender 인계',
+    onClose: () => clearTimeout(timer),
+    description: cloud
+      ? '공개 장면을 Blender에서 수정하고 웹 초안에 반영합니다.'
+      : '제작자와 전체 .blend 파일을 주고받고, 바뀐 점을 확인해 초안에 합칩니다.',
     size: 'lg',
   })
 
@@ -98,14 +135,77 @@ export function openHandoff({ flush, draft, rooms, onError }) {
     if (!res.ok)
       throw Error((await res.json().catch(() => ({}))).error || '다운로드 실패')
     const url = URL.createObjectURL(await res.blob())
-    el('a', { href: url, download: 'riragi-' + which + '.blend' }).click()
+    el('a', {
+      href: url,
+      download:
+        /filename="([^"]+)"/.exec(
+          res.headers.get('Content-Disposition') || '',
+        )?.[1] || 'riragi-' + which + '.blend',
+    }).click()
     setTimeout(() => URL.revokeObjectURL(url), 30000)
   }
   async function upload(file) {
     await flush()
-    candidate = await api('admin/upload', 'POST', file)
+    if (cloud && file.size > 16 * 1024 * 1024)
+      throw Error('16 MiB 이하의 .blend 파일을 선택하세요.')
+    if (!file.name.toLowerCase().endsWith('.blend'))
+      throw Error('.blend 파일 하나를 선택하세요.')
+    const result = cloud
+      ? await new Promise((resolve, reject) => {
+          const req = new XMLHttpRequest()
+          req.open('POST', '/api/admin/upload')
+          req.responseType = 'json'
+          req.setRequestHeader('Content-Type', 'application/octet-stream')
+          req.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              busy =
+                '파일 올리는 중 · ' +
+                Math.round((event.loaded / event.total) * 100) +
+                '%'
+              render()
+            }
+          }
+          req.onload = () =>
+            req.status >= 200 && req.status < 300
+              ? resolve(req.response)
+              : reject(
+                  Error(req.response?.error || '파일을 올리지 못했습니다.'),
+                )
+          req.onerror = req.ontimeout = () =>
+            reject(Error('연결을 확인하고 파일을 다시 올리세요.'))
+          req.timeout = 120000
+          req.send(file)
+        })
+      : await api('admin/upload', 'POST', file)
+    if (cloud) rememberTask('inspect', result.id)
+    candidate = cloud ? null : result
+    if (cloud) await checkUpload()
+
     choices = {}
     replacements = {}
+  }
+  async function checkUpload() {
+    const number = ++checkNumber
+    clearTimeout(timer)
+    const current = await api('admin/upload-status')
+    if (number !== checkNumber) return
+    await controls.check(current?.helper, current?.status === '대기')
+    if (!dialog.isOpen || number !== checkNumber) return
+    incoming = current
+    if (candidate?.model !== incoming?.id) candidate = null
+    if (!candidate && incoming?.status === '검토 가능') {
+      const result = await api('admin/compare/' + incoming.id)
+      if (!dialog.isOpen || number !== checkNumber) return
+      candidate = result
+      choices = {}
+      replacements = {}
+    }
+    render()
+    if (!candidate)
+      timer = setTimeout(
+        () => checkUpload().catch((e) => onError(e.message)),
+        3000,
+      )
   }
   async function compare() {
     await flush()
@@ -114,6 +214,10 @@ export function openHandoff({ flush, draft, rooms, onError }) {
   }
   async function accept() {
     await flush()
+    if (cloud && candidate.revision !== revision())
+      throw Error(
+        '다른 편집자가 초안을 저장했습니다. 스튜디오를 다시 열어 확인하세요.',
+      )
     const spots = draft()
       .spots.filter((s) => replacements[s.id] !== '__delete')
       .map((s) => ({ ...s, anchor: replacements[s.id] || s.anchor }))
@@ -122,27 +226,18 @@ export function openHandoff({ flush, draft, rooms, onError }) {
   }
 
   function dropzone() {
-    const file = el('input', {
-      type: 'file',
+    return FileDrop({
       accept: '.blend',
-      class: 'sr-only',
       disabled: !!busy,
+      onError,
+      label: candidate
+        ? '다른 .blend 파일 선택'
+        : '.blend 파일을 끌어놓거나 선택',
+      description: cloud
+        ? '현재 공개본에서 수정한 .blend · 최대 16 MiB'
+        : '외부 데이터를 패킹해 저장한 전체 파일 하나',
+      onFile: (file) => task('파일 올리는 중…', () => upload(file)),
     })
-    file.onchange = () =>
-      file.files[0] &&
-      task('Blender 파일을 확인하는 중…', () => upload(file.files[0]))
-    return el(
-      'label',
-      { class: 'dropzone' },
-      file,
-      el('span', { class: 'dropzone__icon' }, Icon('upload', 'lg')),
-      el(
-        'strong',
-        {},
-        candidate ? '다른 .blend 파일 선택' : '.blend 파일 선택',
-      ),
-      el('small', {}, '외부 데이터를 패킹해 저장한 전체 파일 하나'),
-    )
   }
 
   function review(layout) {
@@ -170,42 +265,52 @@ export function openHandoff({ flush, draft, rooms, onError }) {
       ...candidate.conflicts.map((c) => {
         const [id, prop] = c.key.split('.')
         return RadioCards({
-          legend:
-            (c.removedSource || name(id)) +
-            (prop ? ' · ' + (props[prop] || prop) : ' · 오브젝트'),
+          legend: c.replaceModel
+            ? '초안의 Blender 장면 교체'
+            : (c.removedSource || name(id)) +
+              (prop ? ' · ' + (props[prop] || prop) : ' · 오브젝트'),
           name: c.key,
           value: choices[c.key],
-          options: c.removedSource
+          options: c.replaceModel
             ? [
                 {
                   value: 'file',
-                  title: '제작본의 삭제 반영',
+                  title: '올린 장면으로 교체',
                   content:
-                    '이 조명을 유지하려면 Blender에서 복원한 전체 파일을 다시 올리세요.',
+                    '초안의 가구와 조명을 올린 파일로 교체합니다. 행사 글과 연결은 유지합니다.',
                 },
               ]
-            : [
-                {
-                  value: 'web',
-                  title: '웹',
-                  content: describe(
-                    prop,
-                    c.web,
-                    rooms,
-                    id.startsWith('source:'),
-                  ),
-                },
-                {
-                  value: 'file',
-                  title: '제작본',
-                  content: describe(
-                    prop,
-                    c.file,
-                    rooms,
-                    id.startsWith('source:'),
-                  ),
-                },
-              ],
+            : c.removedSource
+              ? [
+                  {
+                    value: 'file',
+                    title: '제작본의 삭제 반영',
+                    content:
+                      '이 조명을 유지하려면 Blender에서 복원한 전체 파일을 다시 올리세요.',
+                  },
+                ]
+              : [
+                  {
+                    value: 'web',
+                    title: '웹',
+                    content: describe(
+                      prop,
+                      c.web,
+                      rooms,
+                      id.startsWith('source:'),
+                    ),
+                  },
+                  {
+                    value: 'file',
+                    title: '제작본',
+                    content: describe(
+                      prop,
+                      c.file,
+                      rooms,
+                      id.startsWith('source:'),
+                    ),
+                  },
+                ],
           onChange: (side) => {
             choices[c.key] = side
             render()
@@ -270,7 +375,7 @@ export function openHandoff({ flush, draft, rooms, onError }) {
         'p',
         { class: 'handoff-note' },
         candidate.conflicts.length || orphans.length
-          ? '웹과 제작본이 같은 항목을 다르게 바꿨습니다. 남길 값을 고르세요.'
+          ? '초안에 적용할 항목과 연결을 확인하세요.'
           : '충돌이 없습니다. 미리 보고 초안에 적용하세요.',
       ),
       ...decisions,
@@ -284,23 +389,25 @@ export function openHandoff({ flush, draft, rooms, onError }) {
         label: 'Blender 인계 단계',
         steps: [
           {
-            title: '제작자에게 보낼 파일',
-            description:
-              '마지막으로 저장한 초안의 배치·복제본·옵션이 담긴 전체 .blend 파일입니다.',
+            title: cloud ? '현재 공개 장면' : '제작자에게 보낼 파일',
+            description: cloud
+              ? '방문자가 보는 장면의 가구와 조명이 담겨 있습니다.'
+              : '마지막으로 저장한 초안의 배치·복제본·옵션이 담긴 전체 .blend 파일입니다.',
             state: candidate ? 'done' : 'current',
             content: el(
               'div',
               { class: 'handoff-actions' },
+              !cloud &&
+                Button({
+                  label: '초안 내려받기',
+                  icon: 'download',
+                  variant: 'primary',
+                  disabled: !!busy,
+                  onClick: () =>
+                    task('전체 파일을 만드는 중…', () => download('draft')),
+                }),
               Button({
-                label: '초안 내려받기',
-                icon: 'download',
-                variant: 'primary',
-                disabled: !!busy,
-                onClick: () =>
-                  task('전체 파일을 만드는 중…', () => download('draft')),
-              }),
-              Button({
-                label: '공개본 내려받기',
+                label: cloud ? '공개본 .blend 내려받기' : '공개본 내려받기',
                 icon: 'download',
                 disabled: !!busy,
                 onClick: () =>
@@ -312,7 +419,30 @@ export function openHandoff({ flush, draft, rooms, onError }) {
             title: '수정한 파일 올리기',
             description: '제작자가 고친 파일을 올리면 웹 초안과 비교합니다.',
             state: candidate ? 'done' : 'upcoming',
-            content: dropzone(),
+            content: el(
+              'div',
+              {},
+              dropzone(),
+              cloud &&
+                !candidate &&
+                controls.panel(incoming?.helper, checkUpload),
+              cloud &&
+                incoming?.helper &&
+                el(
+                  'div',
+                  {},
+                  el(
+                    'p',
+                    {},
+                    incoming.status === '대기'
+                      ? '연결되면 이 컴퓨터에서 검토용 장면을 만듭니다.'
+                      : '도우미가 수정본을 확인하고 있습니다.',
+                  ),
+                ),
+              cloud &&
+                incoming?.error &&
+                el('p', { role: 'alert' }, incoming.error),
+            ),
           },
           {
             title: '바뀐 점 확인',
@@ -332,4 +462,5 @@ export function openHandoff({ flush, draft, rooms, onError }) {
   }
   render()
   dialog.open()
+  if (cloud) checkUpload().catch((e) => onError(e.message))
 }

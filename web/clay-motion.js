@@ -1,4 +1,6 @@
 import { MaterialPluginBase } from '@babylonjs/core/Materials/materialPluginBase'
+import { CLAY_PROTECT_KIND } from './clay-protect-loader.js'
+import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector'
 
 import { Texture } from '@babylonjs/core/Materials/Textures/texture'
 import { claySurfaceSettings } from '../shared/clay-motion.mjs'
@@ -11,6 +13,7 @@ class ClayBoil extends MaterialPluginBase {
     super(material, 'RiragiClayBoil', 210, {
       RIRAGI_CLAY_RELIEF: false,
       RIRAGI_CLAY_HATCH: false,
+      RIRAGI_CLAY_PROTECT: false,
     })
     this.motion = motion
     this.masks = masks
@@ -22,23 +25,38 @@ class ClayBoil extends MaterialPluginBase {
   getClassName() {
     return 'RiragiClayBoil'
   }
-  prepareDefines(defines) {
+  prepareDefines(defines, _scene, mesh) {
     defines.RIRAGI_CLAY_HATCH = this.motion.hatch > 0
     defines.RIRAGI_CLAY_RELIEF =
       this.motion.surface > 0 || this.motion.hatch > 0
+    // Vertices a character model marked keep their modelled surface.
+    defines.RIRAGI_CLAY_PROTECT =
+      defines.RIRAGI_CLAY_RELIEF &&
+      !!mesh?.isVerticesDataPresent?.(CLAY_PROTECT_KIND)
+  }
+  getAttributes(attributes, _scene, mesh) {
+    if (mesh?.isVerticesDataPresent?.(CLAY_PROTECT_KIND))
+      attributes.push(CLAY_PROTECT_KIND)
   }
   isReadyForSubMesh() {
     return !this.motion.hatch || this.motion.tile.isReady()
   }
   getUniforms() {
-    return { externalUniforms: ['clayBoil', 'clayRestHeight'] }
+    return { externalUniforms: ['clayBoil', 'clayRestSpace'] }
   }
   hardBindForSubMesh(_buffer, _scene, _engine, subMesh) {
-    const mask = this.masks.get(subMesh.getRenderingMesh())
+    const restSpace = this.masks.get(subMesh.getRenderingMesh())
     const effect = subMesh.effect
     const { surface, hatch, phase, tile } = this.motion
-    effect.setFloat3('clayBoil', mask ? surface : 0, mask ? hatch : 0, phase)
-    if (mask) effect.setFloat4('clayRestHeight', ...mask)
+    const strength = restSpace ? 0.55 : restSpace === null ? 1 : 0
+    effect.setFloat4(
+      'clayBoil',
+      strength * surface,
+      strength * hatch,
+      phase,
+      restSpace ? 1 : 0,
+    )
+    if (restSpace) effect.setMatrix('clayRestSpace', restSpace)
     if (hatch) effect.setTexture('claySlopes', tile)
   }
   getSamplers(samplers) {
@@ -51,15 +69,18 @@ class ClayBoil extends MaterialPluginBase {
     if (stage === 'vertex')
       return {
         CUSTOM_VERTEX_DEFINITIONS: enabled(
-          varying + '\nuniform vec4 clayRestHeight;',
+          varying + '\nuniform vec4 clayBoil;\nuniform mat4 clayRestSpace;',
         ),
         CUSTOM_VERTEX_UPDATE_WORLDPOS: enabled(`
         vec3 clayP = worldPos.xyz;
         #if NUM_BONE_INFLUENCERS > 0
           clayP = position;
         #endif
-        float h = dot(vec4(position, 1.0), clayRestHeight);
-        vClayPoint = vec4(clayP, 1.0 - smoothstep(.66,.815,h));
+        vClayPoint = vec4(clayP, 1.0);
+        if (clayBoil.w > 0.0) {
+          vec3 rest = (clayRestSpace * vec4(position, 1.0)).xyz;
+          vClayPoint = vec4(rest * 5.5, 1.0 - smoothstep(.66,.815,rest.y));
+        }
       `),
       }
     const color =
@@ -71,7 +92,7 @@ class ClayBoil extends MaterialPluginBase {
         varying +
           `
         uniform sampler2D claySlopes;
-        uniform vec3 clayBoil;
+        uniform vec4 clayBoil;
 
         // Analytic gradient of smooth 3D value noise. Rounded patches cross
         // UV seams and cover differently oriented walls without parallel bands.
@@ -127,8 +148,6 @@ class ClayBoil extends MaterialPluginBase {
   }
 }
 
-const fullSurface = [0, 0, 0, 0]
-
 export function clayMotion(scene, camera) {
   const clock = {
     surface: 0,
@@ -154,36 +173,37 @@ export function clayMotion(scene, camera) {
     attach(mesh.material)
     mesh.onMaterialChangedObservable.add(() => attach(mesh.material))
   }
-  function include(mesh, mask = fullSurface) {
+  function include(mesh, restSpace = null) {
     mesh = mesh.sourceMesh ?? mesh
     if (!mesh.getTotalVertices() || masks.has(mesh)) return
-    masks.set(mesh, mask)
+    masks.set(mesh, restSpace)
     if (installed) watchMaterial(mesh)
   }
 
   return {
     include,
+    get surfaceFrame() {
+      return clock.surface ? clock.frame : -1
+    },
     // Called at import/spawn before the rig plays or its placement changes.
     // Each part can have its own local axes, including bone-parented wearables.
     includeGiraffe(meshes) {
       if (!meshes.length) return
-      let low = Infinity,
-        high = -Infinity
+      const min = new Vector3(Infinity, Infinity, Infinity)
+      const max = min.scale(-1)
       for (const mesh of meshes) {
         mesh.computeWorldMatrix(true)
         const box = mesh.getBoundingInfo().boundingBox
-        low = Math.min(low, box.minimumWorld.y)
-        high = Math.max(high, box.maximumWorld.y)
+        min.minimizeInPlace(box.minimumWorld)
+        max.maximizeInPlace(box.maximumWorld)
       }
-      const height = Math.max(high - low, 0.001)
+      const height = max.y - min.y
+      if (height <= 0) return
+      const toRest = Matrix.Translation(-min.x, -min.y, -min.z).multiply(
+        Matrix.Scaling(1 / height, 1 / height, 1 / height),
+      )
       for (const mesh of meshes) {
-        const m = mesh.getWorldMatrix().m
-        include(mesh, [
-          m[1] / height,
-          m[5] / height,
-          m[9] / height,
-          (m[13] - low) / height,
-        ])
+        include(mesh, mesh.getWorldMatrix().multiply(toRest))
       }
     },
     set(settings) {

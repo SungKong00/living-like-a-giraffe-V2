@@ -1,3 +1,4 @@
+import { checkVersionHistory } from './version-history-browser.mjs'
 import { checkLightHandles, turnLightHandle } from './light-handles.mjs'
 import { copyPreparedWorld } from './prepared-world.mjs'
 import { chromium, devices } from 'playwright'
@@ -35,6 +36,10 @@ try {
   page.on('pageerror', (e) => errors.push(e.message))
   for (const [method, route] of [
     ['PUT', 'draft'],
+    ['GET', 'versions'],
+    ['POST', 'versions'],
+    ['GET', 'versions/test'],
+    ['POST', 'versions/test/restore'],
     ['POST', 'publish'],
     ['POST', 'reviews'],
     ['POST', 'lighting'],
@@ -73,7 +78,41 @@ try {
     (await page.request.get(origin + '/api/world').then((r) => r.json())).id,
     before.id,
   )
-  await tree('월드').click()
+  const worldPanel = page.getByRole('heading', { name: '월드', exact: true })
+  async function expectWorld() {
+    await worldPanel.waitFor()
+    assert.equal(await tree('월드').getAttribute('aria-current'), 'true')
+  }
+  await expectWorld()
+  await page.getByRole('button', { name: /리라지 점토 기린/ }).waitFor()
+  const draftId = async () =>
+    (await (await page.request.get(origin + '/api/admin/draft')).json()).id
+  await checkVersionHistory(page, origin)
+  const initialId = await draftId()
+  const pins = page.locator('.stage__markers .ui-pin--event')
+  const pinPositions = () =>
+    pins.evaluateAll((nodes) => nodes.map((n) => [n.style.left, n.style.top]))
+  await tree('나무 벤치').click()
+  await page.getByLabel('이름', { exact: true }).waitFor()
+  const benchView = await pinPositions()
+  assert.ok(benchView.some(([x, y]) => x && y))
+  await page.keyboard.press('Escape')
+  await expectWorld()
+  assert.deepEqual(await pinPositions(), benchView)
+  await tree('나무 벤치').click()
+  await page.getByLabel('이름', { exact: true }).waitFor()
+  await page
+    .getByLabel('장면 목록')
+    .getByRole('list')
+    .click({ position: { x: 2, y: 2 } })
+  await expectWorld()
+  await tree('나무 벤치').click()
+  await page.getByRole('button', { name: '전체 보기', exact: true }).click()
+  await page
+    .locator('.studio-viewport canvas')
+    .click({ position: { x: 8, y: 8 } })
+  await expectWorld()
+  assert.equal(await draftId(), initialId)
   const boil = page.getByRole('button', { name: '꿈틀거림', exact: true })
   const amount = page.getByRole('slider', { name: '꿈틀거림 전체 강도' })
   assert.equal(await boil.getAttribute('aria-pressed'), 'false')
@@ -96,6 +135,96 @@ try {
   const undoMotion = page.getByRole('button', { name: '되돌리기', exact: true })
   for (let i = 0; i < 4; i++) await undoMotion.click()
   await saved()
+  const portrait = page.getByRole('img', { name: '선택 모델 미리보기' })
+  const pixelsChanged = (before) =>
+    page.waitForFunction(
+      (image) =>
+        document.querySelector('.ui-object-preview').toDataURL() !== image,
+      before,
+    )
+  async function checkOrbit() {
+    await saved()
+    const draft = () =>
+      page.request.get(origin + '/api/admin/draft').then((r) => r.json())
+    const before = await draft()
+    const image = () => portrait.evaluate((c) => c.toDataURL())
+    const initial = await image()
+    const box = await portrait.boundingBox()
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box.x + box.width * 0.72, box.y + box.height * 0.6, {
+      steps: 4,
+    })
+    await page.mouse.up()
+    await pixelsChanged(initial)
+    const turned = await image()
+    await portrait.press('ArrowRight')
+    await pixelsChanged(turned)
+    assert.equal(
+      await page.locator('[data-save-state]').getAttribute('data-save-state'),
+      'saved',
+    )
+    assert.equal((await draft()).id, before.id)
+  }
+  // Adding from the library replaces the stand-in as soon as the rig loads.
+  await page.getByRole('button', { name: '추가', exact: true }).click()
+  await page.getByRole('menuitem', { name: /리라지 점토 기린/ }).click()
+  await page.keyboard.press('Escape')
+  await page.getByRole('slider', { name: '목 길이' }).waitFor()
+  await tree('나무 벤치').click()
+  await tree('리라지 점토 기린').click()
+  await portrait.waitFor()
+  const hasModel = () =>
+    page.waitForFunction(() => {
+      const c = document.querySelector('.ui-object-preview')
+      const pixels = c
+        .getContext('2d')
+        .getImageData(0, 0, c.width, c.height).data
+      return pixels.some((v, i) => i % 4 === 0 && Math.abs(v - pixels[0]) > 20)
+    })
+  await hasModel()
+  await checkOrbit()
+  // Turning the placed giraffe can change its lighting, but the portrait
+  // should still show the same silhouette from the chosen orbit angle.
+  const silhouette = () =>
+    portrait.evaluate((c) => {
+      const rgb = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+      let mask = ''
+      for (let i = 0; i < rgb.length; i += 4) {
+        const contrast = Math.max(
+          Math.abs(rgb[i] - rgb[0]),
+          Math.abs(rgb[i + 1] - rgb[1]),
+          Math.abs(rgb[i + 2] - rgb[2]),
+        )
+        mask += contrast > 12 ? '1' : '0'
+      }
+      return mask
+    })
+  const beforeYaw = await silhouette()
+  await page.getByRole('slider', { name: '캐릭터 방향' }).press('End')
+  await saved()
+  const turnedDraft = await page.request
+    .get(origin + '/api/admin/draft')
+    .then((r) => r.json())
+  assert.equal(Math.abs(turnedDraft.layout.characters[0].yaw), 180)
+  const afterYaw = await silhouette()
+  let changedArea = 0,
+    modelArea = 0
+  for (let i = 0; i < beforeYaw.length; i++) {
+    if (beforeYaw[i] !== afterYaw[i]) changedArea++
+    if (beforeYaw[i] === '1') modelArea++
+  }
+  assert.ok(
+    changedArea < modelArea * 0.035,
+    '배치 방향을 바꿔도 같은 면이 보여야 합니다',
+  )
+  const beforeShape = await portrait.evaluate((c) => c.toDataURL())
+  await page.getByRole('slider', { name: '목 길이' }).press('End')
+  await pixelsChanged(beforeShape)
+  await page.getByRole('button', { name: '캐릭터 삭제' }).click()
+  await expectWorld()
+  await saved()
+  await tree('월드').click()
   await checkLightHandles(page, origin, 'Large_softbox', true)
   await tree('Large_softbox').click()
   const output = page.getByLabel('정확한 조명 출력')
@@ -265,7 +394,7 @@ try {
     if (grabbed) break
   }
   assert.ok(grabbed, '선택한 벤치를 장면에서 잡을 수 있어야 합니다')
-  const thumbnail = page.getByRole('img', { name: '선택 오브젝트 미리보기' })
+  const thumbnail = page.getByRole('img', { name: '선택 모델 미리보기' })
   const initialPortrait = await thumbnail.evaluate((c) => c.toDataURL())
   const draftBeforeDrag = await (
     await page.request.get(origin + '/api/admin/draft')
@@ -297,15 +426,9 @@ try {
       label,
     )
   await inspecting('나무 벤치 2')
-  const portrait = page.getByRole('img', { name: '선택 오브젝트 미리보기' })
   await portrait.waitFor()
-  await page.waitForFunction(() => {
-    const c = document.querySelector('.ui-object-preview')
-    const pixels = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
-    return pixels.some(
-      (value, i) => i % 4 === 0 && Math.abs(value - pixels[0]) > 20,
-    )
-  })
+  await hasModel()
+  await checkOrbit()
   const originalPortrait = await portrait.evaluate((c) => c.toDataURL())
   // A missing session must not discard the current selection or pending edits.
   await saved()
@@ -586,8 +709,10 @@ try {
   )
 } finally {
   await browser?.close()
-  const ended = once(server, 'exit')
-  server.kill()
-  await ended
+  if (server.exitCode === null && server.signalCode === null) {
+    const ended = once(server, 'exit')
+    server.kill()
+    await ended
+  }
   fs.rmSync(root, { recursive: true, force: true })
 }

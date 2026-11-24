@@ -22,7 +22,7 @@ import {
 } from './clay-motion-controls.js'
 import { giraffeProportionSection } from './giraffe-proportion-controls.js'
 import { clayScene } from './clay-scene.js'
-import { presets } from './clay-geometry.js'
+import { clayPresets as presets, clayPresetOf } from './clay-field.js'
 import './views/studio-clay.css'
 
 const levels = [
@@ -66,7 +66,7 @@ export async function studioClay() {
   }
   const settings = {
     bench: { ...presets.medium },
-    giraffe: { ...presets.medium },
+    giraffe: { ...presets.light },
   }
   const canvas = el('canvas', {
     'aria-label': '원본과 점토 시안 3D 비교',
@@ -119,9 +119,7 @@ export async function studioClay() {
   )
   function updateLevel() {
     const current = settings[kind]
-    const level = levels.find(({ value }) =>
-      Object.keys(current).every((key) => presets[value][key] === current[key]),
-    )
+    const level = levels.find(({ value }) => value === clayPresetOf(current))
     variant.replaceChildren(
       Badge({
         label: '시안 · ' + (level?.label ?? '직접 조절'),

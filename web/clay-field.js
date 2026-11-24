@@ -117,11 +117,64 @@ export function giraffeClayInfluence(relativeHeight) {
   return (1 - 0.96 * ramp(0.67, 0.775)) * (1 - ramp(0.775, 0.815))
 }
 
+// Work in units of body thickness. Changing a file's units or the placed
+// character's height scales the marks along with the skin and clothing.
+export function characterClayField({ min, max }, seed) {
+  const [width, height, length] = max.map((v, i) => v - min[i])
+  const thickness = Math.min(width, height, length)
+  const unit = thickness > 0 ? thickness : 1
+  const key = hashString(String(seed))
+  const rand = random(key)
+  const alongZ = length >= width
+  const span = Math.max(width, length) / unit
+  const tall = height / unit
+  const presses = Array.from({ length: 7 }, (_, i) => [
+    ((i + rand()) / 7) * span,
+    (0.31 + 0.39 * rand()) * tall,
+  ])
+  return (x, y, z, settings, out) => {
+    out[0] = x
+    out[1] = y
+    out[2] = z
+    if (thickness <= 0 || isOriginalClay(settings)) return out
+    const u = (x - min[0]) / thickness
+    const v = (y - min[1]) / thickness
+    const w = (z - min[2]) / thickness
+    const h = v / tall
+    const influence =
+      fade(Math.max(0, Math.min(1, h / 0.35))) * giraffeClayInfluence(h)
+    if (!influence) return out
+    const radius = 0.1 + (0.18 * settings.width) / 100
+    const freq = 0.44 / radius
+    const warp = (thickness * influence * 0.035 * settings.strength) / 100
+    for (let axis = 0; axis < 3; axis++)
+      out[axis] += warp * noise(key + axis, u * freq, v * freq, w * freq)
+    let dent = 0
+    for (const [a, b] of presses) {
+      const dx = ((alongZ ? w : u) - a) / radius
+      const dy = (v - b) / (radius * 0.82)
+      dent += Math.exp(-1.7 * (dx * dx + dy * dy))
+    }
+    const side = alongZ ? u - width / thickness / 2 : w - length / thickness / 2
+    const depth = (thickness * influence * 0.042 * settings.depth) / 100
+    out[alongZ ? 0 : 2] -= Math.tanh(4 * side) * Math.min(1, dent) * depth
+    return out
+  }
+}
+
 /**
  * Prepares the field for one object. `bounds` is `{ min, max }` in the
- * object's own space (metres); `seed` is usually the object id.
+ * object's own space (metres); `seed` is usually the object id. `head` keeps
+ * the face of a standing giraffe (by relative height); it is on for
+ * characters unless their model marks its own protected vertices.
  */
-export function clayField(bounds, seed, scope = 'objects') {
+export function clayField(
+  bounds,
+  seed,
+  scope = 'objects',
+  { head = scope === 'characters' } = {},
+) {
+  if (scope === 'characters') return characterClayField(bounds, seed)
   const [x0, y0, z0] = bounds.min
   const [x1, y1, z1] = bounds.max
   const size = [x1 - x0, y1 - y0, z1 - z0]
@@ -160,12 +213,7 @@ export function clayField(bounds, seed, scope = 'objects') {
     const pressure = (settings.depth / 100) * Math.min(0.19, span * 0.05)
     // Keep the base on the floor: displacement grows away from the bottom.
     const lifted = Math.max(0, y - y0)
-    const head =
-      scope === 'characters'
-        ? giraffeClayInfluence(lifted / Math.max(size[1], 0.01))
-        : 1
-    const grounded =
-      (lifted / (lifted + Math.min(0.18, size[1] * 0.25 + 0.01))) * head
+    const grounded = lifted / (lifted + Math.min(0.18, size[1] * 0.25 + 0.01))
     let dent = 0
     for (const [a, b] of presses) {
       const u = (x - a) / radius
@@ -246,7 +294,9 @@ export function surfaceField(seed) {
  * Deforms a flat [x, y, z, …] array; returns a new Float32Array. `normals`
  * (same layout) lets a surface field press along each vertex's normal.
  */
-export function clayPositions(rest, field, settings, normals) {
+// `protect` (optional, one 0–1 value per vertex) keeps that share of each
+// vertex where it was: 1 leaves it untouched.
+export function clayPositions(rest, field, settings, normals, protect) {
   const next = new Float32Array(rest.length)
   const out = [0, 0, 0]
   for (let i = 0; i < rest.length; i += 3) {
@@ -262,9 +312,10 @@ export function clayPositions(rest, field, settings, normals) {
         normals[i + 2],
       )
     else field(rest[i], rest[i + 1], rest[i + 2], settings, out)
-    next[i] = out[0]
-    next[i + 1] = out[1]
-    next[i + 2] = out[2]
+    const keep = protect ? Math.min(1, Math.max(0, protect[i / 3])) : 0
+    next[i] = out[0] + (rest[i] - out[0]) * keep
+    next[i + 1] = out[1] + (rest[i + 1] - out[1]) * keep
+    next[i + 2] = out[2] + (rest[i + 2] - out[2]) * keep
   }
   return next
 }

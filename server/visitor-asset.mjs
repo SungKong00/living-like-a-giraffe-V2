@@ -1,10 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { buildDir, catalog, modelDir, put } from './world-files.mjs'
+import { buildDir, catalog, modelDir } from './world-files.mjs'
 import { lightingInput } from '../shared/lighting-input.mjs'
-import { blender } from './blender.mjs'
-import { optimizeVisitor } from '../world/optimize.mjs'
+import { renderVisitor } from './render-visitor.mjs'
 
 // Derive the pipeline version from the actual worker, optimizer and dependencies.
 // Updating Blender code cannot silently reuse an older immutable visitor file.
@@ -18,6 +17,8 @@ function pipelineFingerprint() {
   inputs.push(
     new URL(import.meta.url),
     new URL('./blender.mjs', import.meta.url),
+    new URL('./render-visitor.mjs', import.meta.url),
+    new URL('./blend-handoff.mjs', import.meta.url),
     new URL('../package-lock.json', import.meta.url),
   )
   const hash = createHash('sha256')
@@ -51,30 +52,14 @@ export async function buildVisitorAsset(snapshot, onStage = () => {}, signal) {
   fs.mkdirSync(dir, { recursive: true })
   const work = fs.mkdtempSync(path.join(dir, 'work-'))
   try {
-    onStage('베이크')
-    const input = path.join(work, 'input.json')
-    put(input, {
-      items: snapshot.layout.items,
-      lights: snapshot.layout.lights,
-      sourceLights: snapshot.layout.sourceLights,
-      handoff: snapshot.id,
-    })
-    await blender(
-      'publish',
+    const candidate = await renderVisitor(
+      snapshot,
       path.join(modelDir(snapshot.model), 'source.blend'),
+      catalog(snapshot.model).rooms.map((r) => r.id),
       work,
-      input,
+      onStage,
       signal,
     )
-    signal?.throwIfAborted()
-    onStage('최적화')
-    const candidate = path.join(work, 'world.glb')
-    await optimizeVisitor(
-      path.join(work, 'raw.glb'),
-      candidate,
-      catalog(snapshot.model).rooms.map((r) => r.id),
-    )
-    signal?.throwIfAborted()
     // The first fully validated build wins, including across CLI and server processes.
     try {
       fs.linkSync(candidate, output)

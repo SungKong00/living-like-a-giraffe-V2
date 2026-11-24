@@ -105,6 +105,18 @@ def bake(scene, out, *, fixed_only=False):
             ]
             if meshes:
                 groups.append((key, owner, meshes))
+    # The parent creates this file only for jobs with a progress display.
+    progress = out / "bake.percent"
+    reporting = progress.is_file()
+    total = len(groups) * (2 if fixed_only else 1)
+    completed = 0
+
+    def report():
+        if reporting:
+            with progress.open("r+b", buffering=0) as stream:
+                stream.write(f"{100 * completed // total if total else 100:03d}".encode("ascii"))
+
+    report()
     for key, owner, meshes in groups:
         mesh = render_meshes(meshes, owner if owner not in meshes else owner.parent)
         if not mesh:
@@ -141,6 +153,8 @@ def bake(scene, out, *, fixed_only=False):
             margin=2,
             uv_layer=uv_name,
         )
+        completed += 1
+        report()
         albedo = None
         if fixed_only:
             albedo = bpy.data.images.new(key + " surface colour", resolution, resolution, alpha=False)
@@ -149,6 +163,8 @@ def bake(scene, out, *, fixed_only=False):
                     slot.material.node_tree.nodes.active.image = albedo
             bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"}, margin=2, uv_layer=uv_name)
             albedo.pack()
+            completed += 1
+            report()
         outputs.append((mesh, image, albedo, uv_name, owner.get("finish", "original")))
     # Preserve the original bounce lighting until every target has been baked.
     for mesh, image, albedo, uv_name, finish in outputs:

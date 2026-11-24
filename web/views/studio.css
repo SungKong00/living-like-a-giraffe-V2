@@ -15,6 +15,39 @@
   }
 
   /* ---------- Top bar ---------- */
+  .version-history {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(13rem, 25%);
+  }
+  .version-history__stage {
+    height: min(62svh, 38rem);
+    min-height: 0;
+  }
+  .version-history__sidebar {
+    display: flex;
+    flex-direction: column;
+    max-height: min(62svh, 38rem);
+    padding: var(--space-3);
+    overflow: auto;
+    gap: var(--space-2);
+  }
+  .version-history__form { display: grid; gap: var(--space-2); }
+  .version-history__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-2);
+  }
+  .version-history__fit {
+    position: absolute;
+    bottom: var(--space-4);
+    left: var(--space-4);
+  }
+  @media (max-width: 700px) {
+    .version-history { grid-template-columns: minmax(0, 1fr); }
+    .version-history__stage { height: 36svh; }
+    .version-history__sidebar { max-height: 24svh; }
+  }
   .studio-bar {
     display: flex;
     align-items: center;
@@ -202,28 +235,6 @@
     font: var(--text-caption);
     color: var(--color-text-tertiary);
   }
-  .studio-tips {
-    display: grid;
-    gap: var(--space-2);
-    margin-top: var(--space-4);
-    padding: var(--space-3);
-    list-style: none;
-    border-radius: var(--radius-lg);
-    background: var(--color-surface-muted);
-    box-shadow: var(--ring-border);
-    text-align: left;
-  }
-  .studio-tips li {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--space-2);
-    font: var(--text-caption);
-    color: var(--color-text-secondary);
-  }
-  .studio-tips .ui-icon {
-    margin-top: 1px;
-    color: var(--color-text-tertiary);
-  }
 
   /* ---------- Publish popover ---------- */
   .publish-panel__head {
@@ -289,44 +300,6 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     margin-top: var(--space-3);
-  }
-  .dropzone {
-    display: grid;
-    justify-items: center;
-    gap: var(--space-1);
-    margin-top: var(--space-3);
-    padding: var(--space-6) var(--space-4);
-    border: 1.5px dashed var(--color-border-strong);
-    border-radius: var(--radius-lg);
-    background: var(--color-surface-muted);
-    text-align: center;
-    cursor: pointer;
-    transition:
-      border-color var(--duration-fast) var(--ease-out),
-      background-color var(--duration-fast) var(--ease-out);
-  }
-  .dropzone:hover,
-  .dropzone:focus-within {
-    border-color: var(--color-accent);
-    background: var(--color-accent-soft);
-  }
-  .dropzone__icon {
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    margin-bottom: var(--space-1);
-    border-radius: var(--radius-full);
-    background: var(--color-surface);
-    color: var(--color-text-secondary);
-    box-shadow: var(--shadow-sm);
-  }
-  .dropzone strong {
-    font: var(--text-ui-strong);
-  }
-  .dropzone small {
-    font: var(--text-caption);
-    color: var(--color-text-tertiary);
   }
   .handoff-review {
     display: grid;

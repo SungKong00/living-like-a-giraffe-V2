@@ -1,9 +1,23 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import {
+  changeDraft,
+  requireRevision,
+  versionName,
+  versionRecord,
+} from './draft-versions.mjs'
+import { publishedState } from './world-views.mjs'
 import { validate, seed } from './layout.mjs'
 
-import { root, json, put, catalog, buildDir } from './world-files.mjs'
+import {
+  root,
+  json,
+  put,
+  catalog,
+  buildDir,
+  versionFile,
+} from './world-files.mjs'
 import { cachedLighting } from './baked-lighting.mjs'
 import { initialAsset } from './visitor-asset.mjs'
 
@@ -48,21 +62,52 @@ export class WorldStore {
   get state() {
     return structuredClone(this.#state)
   }
-  edit(expected, model, layout) {
-    if (this.#state.draft.id !== expected)
-      throw conflict('다른 변경이 먼저 저장되었습니다. 다시 열어 확인하세요.')
-    const draft = {
-      id: randomUUID(),
-      model,
-      layout: validate(layout, catalog(model)),
+  versions() {
+    return structuredClone(this.#state.versions ?? [])
+  }
+  // Immutable layout files are written first. Only the atomic state swap
+  // makes them visible; a failed swap may leave an unreferenced file.
+  #record(next, records) {
+    if (!records.length) return this.#save(next)
+    const snapshot = this.#state.draft
+    const index = this.#state.versions ?? []
+    const additions = records.filter(
+      (r) => !index.some((entry) => entry.id === r.id),
+    )
+    if (additions.length) {
+      const file = versionFile(snapshot.id)
+      if (!fs.existsSync(file)) put(file, snapshot)
     }
-    const { job } = this.#state
-    this.#save({
-      ...this.#state,
-      draft,
-      job: job?.kind === 'review' ? null : job,
-    })
-    return draft
+    this.#save({ ...next, versions: [...additions.reverse(), ...index] })
+  }
+  version(id) {
+    const entry = this.#state.versions?.find((r) => r.id === id)
+    if (!entry)
+      throw Object.assign(Error('버전을 찾을 수 없습니다.'), { status: 404 })
+    return json(versionFile(entry.revision))
+  }
+  nameVersion(expected, name) {
+    requireRevision(this.#state.draft, expected)
+    const record = versionRecord(this.#state.draft, 'named', versionName(name))
+    this.#record(this.#state, [record])
+    return this.#state.versions.find((entry) => entry.id === record.id)
+  }
+  restoreVersion(expected, id) {
+    const { model, layout } = this.version(id)
+    return this.edit(expected, model, layout, 'restore')
+  }
+  edit(expected, model, layout, reason) {
+    requireRevision(this.#state.draft, expected)
+    const { next, records } = changeDraft(
+      this.#state,
+      expected,
+      model,
+      validate(layout, catalog(model)),
+      reason,
+    )
+    if (reason === 'restore' || next.job?.kind === 'review') next.job = null
+    this.#record(next, records)
+    return next.draft
   }
   beginReview(expected) {
     return this.#begin(expected, 'review')
@@ -103,14 +148,22 @@ export class WorldStore {
     // destination never cross the callback boundary.
     const active = () => this.#state.job?.id === id && building(this.#state.job)
     const status = (status, error) => {
-      this.#save({ ...this.#state, job: { ...this.#state.job, status, error } })
+      this.#save({
+        ...this.#state,
+        job: { ...this.#state.job, status, error, bakePercent: undefined },
+      })
     }
     return {
       id,
       isCurrent: active,
       snapshot: structuredClone(draft),
-      stage: (next) => {
+      stage: (next, percent) => {
         if (!active()) return
+        if (next === '베이크' && this.#state.job.status === next && Number.isInteger(percent)) {
+          if (percent >= 0 && percent <= 100 && percent > (this.#state.job.bakePercent ?? -1))
+            this.#state.job.bakePercent = percent
+          return
+        }
         const allowed = { 대기: '베이크', 베이크: '최적화' }
         if (allowed[this.#state.job.status] !== next)
           throw Error('잘못된 빌드 단계입니다.')
@@ -166,16 +219,7 @@ export class WorldStore {
     return fs.existsSync(path.join(buildDir(key), 'world.glb'))
   }
   #publish(snapshot) {
-    const { published, previous } = this.#state
-    this.#save({
-      ...this.#state,
-      published: snapshot,
-      previous:
-        published.id === snapshot.id && published.asset === snapshot.asset
-          ? previous
-          : published,
-      job: { ...this.#state.job, status: '공개 완료' },
-    })
+    this.#save(publishedState(this.#state, snapshot))
   }
   restore() {
     if (!this.#state.previous) throw conflict('복원할 이전 공개본이 없습니다.')

@@ -1,9 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { blender } from './blender.mjs'
+import { renderEditor } from './render-editor.mjs'
 import { catalog, modelDir } from './world-files.mjs'
-import { optimizeEditor } from '../world/optimize.mjs'
 
 // Source model IDs are immutable. A versioned filename also upgrades older
 // stores on first use without replacing their Blender source or public model.
@@ -29,9 +28,9 @@ export async function buildStudioAsset(model) {
   const dir = modelDir(model)
   const work = fs.mkdtempSync(path.join(dir, 'studio-'))
   try {
-    await blender('studio', path.join(dir, 'source.blend'), work)
-    await optimizeEditor(
-      path.join(work, 'raw.glb'),
+    await renderEditor(
+      path.join(dir, 'source.blend'),
+      work,
       output,
       catalog(model).rooms.map((r) => r.id),
     )

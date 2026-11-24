@@ -2,6 +2,7 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
 import { SubMesh } from '@babylonjs/core/Meshes/subMesh'
 import { tessellate } from './clay-tessellate.js'
+import { CLAY_PROTECT_KIND } from './clay-protect-loader.js'
 import {
   clayField,
   clayFor,
@@ -13,7 +14,8 @@ import {
 // Applies the clay look in the editing scene to three kinds of target:
 //   world    — a room's own geometry (floors, walls, fixed props)
 //   objects  — one movable piece of furniture
-//   giraffes — one giraffe
+//   characters — one character; its model's `clayProtect` vertex values,
+//                or the giraffe face rule, keep the face as modelled
 // Settings come from clayFor(): the target's override, else its kind's
 // default. Meshes get their own geometry the first time they are deformed and
 // the look is always recomputed from the original vertices, so changes never
@@ -111,7 +113,7 @@ export function clayLayer() {
   // Rest geometry of the target's meshes in the target's own space, so all
   // of its parts share one continuous field.
   function prepare(target) {
-    const { id, root, scope } = target
+    const { id, root, scope, head } = target
     root.computeWorldMatrix(true)
     const toRoot = root.getWorldMatrix().clone().invert()
     const min = [Infinity, Infinity, Infinity],
@@ -136,6 +138,7 @@ export function clayLayer() {
         )
         densify(mesh, (room ? 0.3 : 0.18) / unit)
         const rest = mesh.getVerticesData('position').slice()
+        const protect = mesh.getVerticesData(CLAY_PROTECT_KIND)?.slice()
         const normals = mesh.getVerticesData('normal')?.slice()
         // Loaded buffers are static; replace them with updatable copies.
         mesh.setVerticesData('position', rest.slice(), true)
@@ -174,6 +177,7 @@ export function clayLayer() {
           VertexData.ComputeNormals(rest, indices, baseline, rightHanded)
         return {
           mesh,
+          protect,
           rest,
           normals,
           baseline,
@@ -186,7 +190,9 @@ export function clayLayer() {
     return {
       root,
       parts,
-      field: room ? surfaceField(id) : clayField({ min, max }, id, scope),
+      field: room
+        ? surfaceField(id)
+        : clayField({ min, max }, id, scope, { head: head ?? false }),
       key: null,
     }
   }
@@ -208,6 +214,7 @@ export function clayLayer() {
         entry.field,
         settings,
         part.localNormals,
+        part.protect,
       )
       for (let i = 0; i < moved.length; i += 3) {
         Vector3.TransformCoordinatesFromFloatsToRef(
@@ -246,7 +253,8 @@ export function clayLayer() {
 
   return Object.freeze({
     /**
-     * `targets`: `[{ id, scope, root, meshes() }]`. `meshes()` lists the
+     * `targets`: `[{ id, scope, root, meshes(), head? }]`; `head` turns on
+     * the giraffe face rule for a character. `meshes()` lists the
      * meshes that belong to the target and is read once, when it first needs
      * clay. Pass `skip` (a set of scopes) to leave those targets as they are,
      * e.g. rooms while a slider is still moving.
@@ -267,4 +275,45 @@ export function clayLayer() {
       }
     },
   })
+}
+
+export function updateStudioClay(clay, world, cast, layout, moving = false) {
+  const owned = new Set(world.instances.values())
+  const characterRoots = (layout.characters ?? []).map((c) => cast?.root(c.id))
+  for (const root of characterRoots) if (root) owned.add(root)
+  // A room's own meshes: not furniture, characters, hidden template copies or
+  // editor helpers (which are not pickable).
+  const ownGeometry = (room) => () =>
+    room.getChildMeshes(false).filter((mesh) => {
+      if (!mesh.isEnabled() || !mesh.isPickable) return false
+      for (let n = mesh; n && n !== room; n = n.parent)
+        if (owned.has(n)) return false
+      return true
+    })
+  const subtree = (root) => () => root.getChildMeshes(false)
+  clay.update(
+    layout,
+    [
+      ...[...world.rooms].map(([id, root]) => ({
+        id,
+        root,
+        scope: 'world',
+        meshes: ownGeometry(root),
+      })),
+      ...[...world.instances].map(([id, root]) => ({
+        id,
+        root,
+        scope: 'objects',
+        meshes: subtree(root),
+      })),
+      ...(layout.characters ?? []).map((c, i) => ({
+        id: c.id,
+        root: characterRoots[i],
+        scope: 'characters',
+        head: cast?.head(c.id),
+        meshes: subtree(characterRoots[i] ?? world.scene),
+      })),
+    ],
+    { skip: moving ? new Set(['world']) : undefined },
+  )
 }

@@ -490,3 +490,48 @@ export function FileButton(props) {
   })
   return el('span', { class: 'ui-file-button' }, button, input)
 }
+
+/** File picker and drop target share the same single-file submission path. */
+export function FileDrop(props) {
+  const o = options('FileDrop', props, {
+    label: is.string().required,
+    description: is.string().required,
+    accept: is.string().required,
+    onFile: is.func().required,
+    onError: is.func().required,
+    disabled: is.boolean(),
+  })
+  const submit = (files) => {
+    if (o.disabled || !files.length) return
+    if (files.length !== 1) return o.onError('파일 하나를 선택하세요.')
+    o.onFile(files[0])
+  }
+  const input = el('input', {
+    type: 'file',
+    accept: o.accept,
+    class: 'sr-only',
+    disabled: o.disabled,
+  })
+  input.onchange = () => {
+    submit(input.files)
+    input.value = ''
+  }
+  return el(
+    'label',
+    {
+      class: 'ui-file-drop',
+      ondragover: (e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = o.disabled ? 'none' : 'copy'
+      },
+      ondrop: (e) => {
+        e.preventDefault()
+        submit(e.dataTransfer.files)
+      },
+    },
+    input,
+    el('span', { class: 'ui-file-drop__icon' }, Icon('upload', 'lg')),
+    el('strong', {}, o.label),
+    el('small', {}, o.description),
+  )
+}

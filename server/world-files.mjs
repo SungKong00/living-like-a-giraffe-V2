@@ -13,6 +13,8 @@ export function put(file, value) {
   fs.renameSync(tmp, file)
 }
 export const modelDir = (model) => path.join(root, 'models', model)
+export const versionFile = (revision) =>
+  path.join(root, 'versions', revision + '.json')
 export const buildDir = (key) => path.join(root, 'builds', key)
 export const catalog = (model) =>
   json(path.join(modelDir(model), 'catalog.json'))

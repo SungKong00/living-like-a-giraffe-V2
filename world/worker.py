@@ -52,9 +52,11 @@ def run(command, source, out, request=None):
     if command == "download":
         save(out / "world.blend")
         inventory(load(out / "world.blend"))
-    elif command == "publish":
+    elif command in {"publish", "publish-handoff"}:
         from bake import bake
 
+        if command == "publish-handoff":
+            save(out / "world.blend")
         wrap_mesh_anchors(scene)
         bake(scene, out)
         export_glb(scene, out / "raw.glb")
@@ -68,9 +70,9 @@ def run(command, source, out, request=None):
 
 
 if __name__ == "__main__":
-    import resource
-
-    resource.setrlimit(resource.RLIMIT_CPU, (900, 910))
+    if os.name != "nt":
+        import resource
+        resource.setrlimit(resource.RLIMIT_CPU, (900, 910))
     cmd, source, out, *extra = sys.argv[1:]
     run(cmd, Path(source), Path(out), Path(extra[0]) if extra else None)
     # bpy embeds native render threads. Exit only after all synchronous writes succeed.

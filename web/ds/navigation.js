@@ -146,6 +146,8 @@ export function Pin(props) {
   )
 }
 
+export const brandName = 'Living Like A Giraffe'
+
 /** The product wordmark. */
 export function Brand(props) {
   const o = options('Brand', props, {
@@ -154,7 +156,7 @@ export function Brand(props) {
   })
   return el(
     'a',
-    { class: 'ui-brand', href: o.href, 'aria-label': '리라지 홈' },
+    { class: 'ui-brand', href: o.href, 'aria-label': brandName + ' 홈' },
     el('img', {
       class: 'ui-brand__mark',
       src: '/brand/giraffe.png',
@@ -162,7 +164,7 @@ export function Brand(props) {
       width: '28',
       height: '28',
     }),
-    el('span', { class: 'ui-brand__name' }, '리라지'),
+    el('span', { class: 'ui-brand__name' }, brandName),
     o.product ? el('span', { class: 'ui-brand__product' }, o.product) : null,
   )
 }

@@ -208,8 +208,9 @@ export function Chip(props) {
 
 /**
  * Files kept in a library (a model, a motion): one row each with an icon,
- * the name, a detail line and an optional delete button. `empty` shows when
- * there are none.
+ * the name, a detail line and an optional delete button. A row with
+ * `onSelect` is a toggle button; `selected` marks the one whose settings are
+ * open. `empty` shows when there are none.
  */
 export function FileList(props) {
   const o = options('FileList', props, {
@@ -228,6 +229,8 @@ export function FileList(props) {
         detail: is.string(),
         removeLabel: is.string(),
         onRemove: is.func(),
+        onSelect: is.func(),
+        selected: is.boolean(),
         key: is.string(),
       })
       invariant(
@@ -235,18 +238,38 @@ export function FileList(props) {
         'FileList',
         'onRemove에는 removeLabel이 필요합니다.',
       )
+      const text = el(
+        'span',
+        { class: 'ui-file-list__text' },
+        el('span', { class: 'ui-file-list__name' }, i.name),
+        i.detail
+          ? el('span', { class: 'ui-file-list__detail' }, i.detail)
+          : null,
+      )
+      const body = i.onSelect
+        ? el(
+            'button',
+            {
+              type: 'button',
+              class: 'ui-file-list__select',
+              'aria-pressed': String(!!i.selected),
+              'data-key': i.key && i.key + '-select',
+              onclick: () => i.onSelect(),
+            },
+            Icon(i.icon, 'sm'),
+            text,
+          )
+        : [Icon(i.icon, 'sm'), text]
       return el(
         'li',
-        { class: 'ui-file-list__item' },
-        Icon(i.icon, 'sm'),
-        el(
-          'span',
-          { class: 'ui-file-list__text' },
-          el('span', { class: 'ui-file-list__name' }, i.name),
-          i.detail
-            ? el('span', { class: 'ui-file-list__detail' }, i.detail)
-            : null,
-        ),
+        {
+          class: cx(
+            'ui-file-list__item',
+            i.onSelect && 'ui-file-list__item--selectable',
+            i.selected && 'ui-file-list__item--selected',
+          ),
+        },
+        ...[body].flat(),
         i.onRemove
           ? IconButton({
               icon: 'delete',
@@ -265,26 +288,79 @@ export function ChipList(children) {
   return el('div', { class: 'ui-chip-list' }, ...children)
 }
 
-export function GlassHeading(props) {
-  const o = options('GlassHeading', props, {
-    text: is.string().required,
+export function SceneCaption(props) {
+  const o = options('SceneCaption', props, {
+    title: is.content().required,
+    description: is.content().required,
+    eyebrow: is.string(),
+    icon: is.string(),
     className: is.string(),
   })
   return el(
-    'h1',
-    { class: cx('ui-glass-heading', viewClass('GlassHeading', o.className)) },
-    o.text,
+    'header',
+    { class: cx('ui-scene-caption', viewClass('SceneCaption', o.className)) },
+    o.eyebrow
+      ? el(
+          'span',
+          { class: 'ui-scene-caption__eyebrow' },
+          o.icon ? Icon(o.icon, 'xs') : null,
+          o.eyebrow,
+        )
+      : null,
+    el('h1', { class: 'ui-scene-caption__title' }, o.title),
+    el('p', { class: 'ui-scene-caption__description' }, o.description),
   )
 }
 
 export function ObjectPreview(props) {
-  const o = options('ObjectPreview', props, { label: is.string().required })
-  return el('canvas', {
+  const o = options('ObjectPreview', props, {
+    label: is.string().required,
+    onOrbit: is.func(),
+  })
+  const hint = o.onOrbit && '드래그하거나 방향키를 눌러 모델을 돌려보세요.'
+  const canvas = el('canvas', {
     class: 'ui-object-preview',
     role: 'img',
     'aria-label': o.label,
+    'aria-description': hint,
+    title: hint,
+    tabindex: o.onOrbit ? 0 : null,
     width: 480,
     height: 248,
     hidden: true,
   })
+  if (!o.onOrbit) return canvas
+  let drag = null
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || drag) return
+    canvas.setPointerCapture(e.pointerId)
+    canvas.focus({ preventScroll: true })
+    drag = { id: e.pointerId, x: e.clientX, y: e.clientY }
+  })
+  canvas.addEventListener('pointermove', (e) => {
+    if (drag?.id !== e.pointerId) return
+    o.onOrbit(
+      ((e.clientX - drag.x) / canvas.clientWidth) * 2 * Math.PI,
+      (-(e.clientY - drag.y) / canvas.clientHeight) * Math.PI,
+    )
+    drag.x = e.clientX
+    drag.y = e.clientY
+  })
+  canvas.addEventListener('lostpointercapture', (e) => {
+    if (drag?.id === e.pointerId) drag = null
+  })
+  canvas.addEventListener('keydown', (e) => {
+    const step = Math.PI / 12
+    const delta = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    }[e.key]
+    if (!delta) return
+    e.preventDefault()
+    e.stopPropagation()
+    o.onOrbit(...delta)
+  })
+  return canvas
 }

@@ -36,7 +36,16 @@ async function openScene(
   view,
   state,
   mode,
-  { onRoom, onSpot, onSpotDown, onLight, onLightDown, onReady } = {},
+  {
+    onRoom,
+    onSpot,
+    onSpotDown,
+    onLight,
+    onLightDown,
+    onReady,
+    // Visitor taps on a registered owner (a character); true when handled.
+    onPick,
+  } = {},
 ) {
   const editing = mode === 'editor'
   const studioCamera = editing
@@ -442,6 +451,11 @@ async function openScene(
       if (multiTouch) return
       if (Math.hypot(e.clientX - previous.x, e.clientY - previous.y) > 6) return
       const mesh = scene.pick(scene.pointerX, scene.pointerY)?.pickedMesh
+      for (let n = mesh; n; n = n.parent)
+        if (pickOwners.has(n)) {
+          if (onPick?.(pickOwners.get(n))) return
+          break
+        }
       for (let n = mesh; n; n = n.parent) {
         if (extras(n).roomId && !focus) {
           selectRoom(extras(n).roomId)
@@ -583,6 +597,29 @@ async function openScene(
   const viewer = {
     selectRoom,
     zoom: magnify,
+    // What placed characters need, in the visitor scene too.
+    wake,
+    scene,
+    rooms,
+    // Other things in the scene (characters) register their nodes here as
+    // node → selection so a click on them selects or opens them.
+    owners: pickOwners,
+    includeClayGiraffe: motion.includeGiraffe,
+    // Clay motion over a whole mesh; marked vertices still keep their shape.
+    includeClay: (mesh) => motion.include(mesh),
+    /** Lights a material added by the studio like the room's furniture. */
+    // Each material is styled once; meshes of a model often share one.
+    styleMaterial(material) {
+      if (!material?.albedoColor || material.unlit || styledExtra.has(material))
+        return
+      styledExtra.add(material)
+      illumination?.style(material)
+    },
+    /** `fn()` returns true while something animates and needs frames. */
+    keepDrawing(fn) {
+      animating = fn
+      wake()
+    },
     dispose() {
       gestures.abort()
       redraw.disconnect()
@@ -591,7 +628,7 @@ async function openScene(
       engine.dispose()
     },
   }
-  if (!studioCamera) return viewer
+  if (!studioCamera && mode !== 'layout') return viewer
   const cameraView = {
     pose: () => ({
       target: camera.target.asArray(),
@@ -623,32 +660,15 @@ async function openScene(
   return {
     ...viewer,
     ...cameraView,
-    wake,
-    scene,
     camera,
-    rooms,
     roomBounds,
     overview: () => look(center, 1),
     instances,
-    // Other editable things in the scene (characters) register their nodes here
-    // as node → selection so a click on them selects them.
-    owners: pickOwners,
-    includeClayGiraffe: motion.includeGiraffe,
+    get claySurfaceFrame() {
+      return motion.surfaceFrame
+    },
     setClayMotion(settings) {
       motion.set(settings)
-      wake()
-    },
-    /** Lights a material added by the studio like the room's furniture. */
-    // Each material is styled once; meshes of a model often share one.
-    styleMaterial(material) {
-      if (!material?.albedoColor || material.unlit || styledExtra.has(material))
-        return
-      styledExtra.add(material)
-      illumination?.style(material)
-    },
-    /** `fn()` returns true while something animates and needs frames. */
-    keepDrawing(fn) {
-      animating = fn
       wake()
     },
     look,
@@ -731,7 +751,7 @@ async function openScene(
     chooseLight(id) {
       if (selectedLight === id) return
       selectedLight = id
-      guide(activeLight())
+      guide?.(activeLight())
       markers()
       wake()
     },
@@ -774,7 +794,7 @@ async function openScene(
       layout = next
       motion.set(next.defaults?.clayMotion)
       applyItems(next)
-      guide(activeLight())
+      guide?.(activeLight())
       markers()
     },
   }

@@ -19,6 +19,7 @@ import {
 import '@babylonjs/loaders/glTF/2.0'
 import '@babylonjs/loaders/glTF/glTFFileLoader'
 import { clayMotion } from './clay-motion.js'
+import { characterClayField } from './clay-field.js'
 import { clayDeformer } from './clay-geometry.js'
 
 function contactShadow(scene) {
@@ -50,10 +51,9 @@ function contactShadow(scene) {
 
 function compareMesh(
   original,
-  kind,
   deforms,
   wearable = null,
-  giraffeHeight,
+  characterField,
   sample = original.clone(original.name + ' 점토', original.parent, true),
 ) {
   original.layerMask = 1
@@ -68,7 +68,7 @@ function compareMesh(
         sample.getVerticesData(attribute).slice(),
         true,
       )
-    deform = clayDeformer(sample, kind, giraffeHeight)
+    deform = clayDeformer(sample, characterField)
   }
   return { original, sample, deform, wearable }
 }
@@ -115,10 +115,17 @@ async function loadComparison(scene) {
   }
   const original = Mesh.MergeMeshes(pieces, true, true, undefined, false, true)
   // The studio asset's skinned vertex buffers share one ground-based rest space.
-  const giraffeHeight = Math.max(
-    ...giraffe.meshes
-      .filter((mesh) => mesh.skeleton && mesh.getTotalVertices())
-      .map((mesh) => mesh.getBoundingInfo().boundingBox.maximum.y),
+  const min = new Vector3(Infinity, Infinity, Infinity)
+  const max = min.scale(-1)
+  for (const mesh of giraffe.meshes) {
+    if (!mesh.skeleton || !mesh.getTotalVertices()) continue
+    const box = mesh.getBoundingInfo().boundingBox
+    min.minimizeInPlace(box.minimum)
+    max.maximizeInPlace(box.maximum)
+  }
+  const characterField = characterClayField(
+    { min: min.asArray(), max: max.asArray() },
+    'riragi',
   )
   const parts = giraffe.meshes
     .filter((m) => m.getTotalVertices())
@@ -137,15 +144,14 @@ async function loadComparison(scene) {
       // The clip's geometry is local to a bone socket. Its attachment is rigid.
       return compareMesh(
         m,
-        'giraffe',
         wearable !== 'flower',
         wearable,
-        giraffeHeight,
+        characterField,
         nodes.get(m.name),
       )
     })
   return {
-    parts: { bench: [compareMesh(original, 'bench', true)], giraffe: parts },
+    parts: { bench: [compareMesh(original, true)], giraffe: parts },
     glance,
     proportions,
   }

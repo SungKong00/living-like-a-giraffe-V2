@@ -8,10 +8,8 @@ import {
   Chip,
   ChipList,
   Disclosure,
-  EmptyState,
   FileButton,
   FileList,
-  Icon,
   IconButton,
   NumberInput,
   PanelHeader,
@@ -23,6 +21,7 @@ import {
   SwatchPicker,
   TextArea,
   TextInput,
+  Toggle,
 } from './ds/index.js'
 import { giraffeProportionSection } from './giraffe-proportion-controls.js'
 import { clayMotionSection, hatchRow } from './clay-motion-controls.js'
@@ -72,7 +71,6 @@ export const inspectors = Object.freeze({
 /** Where the selection sits: each wider scope is one click away. */
 export function scopePath(editor) {
   const sel = editor.selection
-  if (!sel) return []
   const { entities } = editor
   const chain =
     sel.type === 'page'
@@ -97,41 +95,6 @@ export function scopePath(editor) {
   return chain.length > 1
     ? [Breadcrumbs({ label: '선택 범위', items: chain })]
     : []
-}
-
-export function emptyInspector() {
-  return [
-    EmptyState({
-      icon: 'pointer',
-      title: '편집할 대상을 선택하세요',
-      description:
-        '장면에서 가구나 안내 표시를 누르거나, 왼쪽 목록에서 고르세요. 모두에 적용되는 값은 목록 맨 위의 월드에서 바꿉니다.',
-      children: [
-        el(
-          'ul',
-          { class: 'studio-tips' },
-          el(
-            'li',
-            {},
-            Icon('world', 'sm'),
-            '월드 › 방 › 가구 순으로 넓은 범위의 값을 개체가 이어받고, 개체에서 바꾼 값이 우선합니다.',
-          ),
-          el(
-            'li',
-            {},
-            Icon('furniture', 'sm'),
-            '가구는 끌어서 옮기고 다른 방에 놓을 수 있습니다. Alt를 누른 채 끌면 복제합니다.',
-          ),
-          el(
-            'li',
-            {},
-            Icon('saved', 'sm'),
-            '변경은 초안에 자동 저장되고, 발행하기 전까지 방문자에게 보이지 않습니다.',
-          ),
-        ),
-      ],
-    }),
-  ]
 }
 
 export const labelInput = (label, value, commit) =>
@@ -178,7 +141,7 @@ const worldSections = [
   worldClay('objects'),
   worldClay('characters'),
   worldCharacters,
-  characterLibrarySection,
+  (editor) => (editor.libraryReadOnly ? null : characterLibrarySection(editor)),
   worldLighting,
 ]
 
@@ -1018,7 +981,98 @@ function motionOptions(editor, current, model) {
     })
   return options
 }
-const motionValue = (v) => (v === STILL ? null : v)
+const clipsOf = (motion) => (motion == null ? [] : [motion].flat())
+// One clip is stored as a string, several as a list, none as null (still).
+const motionOf = (list) =>
+  list.length === 0 ? null : list.length === 1 ? list[0] : list
+const clipLabel = (editor, value) => {
+  const [file, ...rest] = value.split('/')
+  const m = editor.characterLibrary.motions.find((x) => x.id === file)
+  return (m ? m.name + ' · ' : '맞지 않는 동작 · ') + rest.join('/')
+}
+const MOTION_LIMIT = 8
+
+/**
+ * Rows for a motion value and its play order: the first clip, the clips that
+ * follow it, a picker to add one, and 차례대로/무작위 when there are several.
+ * `override(key, subject)` gives a row's override badge; `prefix` names the
+ * controls ('기본' in the world panel, '캐릭터' in a character).
+ */
+function motionRows(editor, o) {
+  const list = clipsOf(o.motion)
+  const options = (current) => motionOptions(editor, current, o.model)
+  const rows = [
+    PropertyRow({
+      label: o.prefix === '기본' ? '기본 동작' : '동작',
+      override: o.override?.('motion', '동작'),
+      stack: list.length > 1,
+      children: [
+        Select({
+          label: o.prefix + ' 동작',
+          key: o.key + '-motion',
+          size: 'sm',
+          value: list[0] ?? STILL,
+          options: options(list[0]),
+          onChange: (v) =>
+            o.onMotion(v === STILL ? null : motionOf([v, ...list.slice(1)])),
+        }),
+        list.length > 1 &&
+          FileList({
+            label: o.prefix + ' 이어서 재생할 동작',
+            items: list.slice(1).map((value, i) => ({
+              icon: 'motion',
+              name: clipLabel(editor, value),
+              detail: i + 2 + '번째',
+              key: o.key + '-next-' + i,
+              removeLabel: clipLabel(editor, value) + ' 빼기',
+              onRemove: () =>
+                o.onMotion(motionOf(list.filter((_, k) => k !== i + 1))),
+            })),
+          }),
+      ].filter(Boolean),
+    }),
+  ]
+  if (list.length && list.length < MOTION_LIMIT)
+    rows.push(
+      PropertyRow({
+        label: '이어서',
+        children: [
+          Select({
+            label: o.prefix + ' 이어서 재생할 동작 추가',
+            key: o.key + '-add',
+            size: 'sm',
+            value: '',
+            options: [
+              { value: '', label: '동작 추가…' },
+              ...options().filter((x) => x.value !== STILL),
+            ],
+            onChange: (v) => v && o.onMotion([...list, v]),
+          }),
+        ],
+      }),
+    )
+  if (list.length > 1)
+    rows.push(
+      PropertyRow({
+        label: '순서',
+        override: o.override?.('order', '순서'),
+        children: [
+          Segmented({
+            label: o.prefix + ' 동작 순서',
+            key: o.key + '-order',
+            size: 'sm',
+            value: o.order,
+            options: [
+              { value: 'sequence', label: '차례대로' },
+              { value: 'random', label: '무작위' },
+            ],
+            onChange: o.onOrder,
+          }),
+        ],
+      }),
+    )
+  return rows
+}
 const fileSize = (bytes) =>
   bytes < 1048576
     ? Math.max(1, Math.round(bytes / 1024)) + 'KB'
@@ -1031,19 +1085,13 @@ function worldCharacters(editor) {
     title: '캐릭터',
     meta: count + '개',
     children: [
-      PropertyRow({
-        label: '기본 동작',
-        children: [
-          Select({
-            label: '기본 동작',
-            key: 'character-default-motion',
-            size: 'sm',
-            value: world.motion ?? STILL,
-            options: motionOptions(editor, world.motion),
-            onChange: (v) =>
-              editor.setCharacterDefault('motion', motionValue(v)),
-          }),
-        ],
+      ...motionRows(editor, {
+        prefix: '기본',
+        key: 'character-default',
+        motion: world.motion ?? null,
+        order: world.order ?? 'sequence',
+        onMotion: (v) => editor.setCharacterDefault('motion', v),
+        onOrder: (v) => editor.setCharacterDefault('order', v),
       }),
       PropertyRow({
         label: '기본 속도',
@@ -1062,7 +1110,7 @@ function worldCharacters(editor) {
         ],
       }),
       muted(
-        '모든 캐릭터가 따르는 값입니다. 기본 동작이 맞지 않는 모델은 멈춰 있습니다. 캐릭터 편집기에서 따로 정할 수 있습니다.',
+        '모든 캐릭터가 따르는 값입니다. 동작을 여러 개 고르면 하나씩 이어서 재생합니다. 기본 동작이 맞지 않는 모델은 멈춰 있습니다. 캐릭터 편집기에서 따로 정할 수 있습니다.',
       ),
     ],
   })
@@ -1070,10 +1118,8 @@ function worldCharacters(editor) {
 
 function characterLibrarySection(editor) {
   const { models, motions } = editor.characterLibrary
-  const characters = editor.layout.characters ?? []
-  const uses = (id) =>
-    characters.filter((c) => editor.characterModel(c) === id).length
   const names = new Map(models.map((m) => [m.id, m.name]))
+  const open = models.find((m) => m.id === editor.view.libraryModel)
   return PanelSection({
     title: '캐릭터 자료실',
     meta: '모델 ' + models.length + ' · 동작 ' + motions.length,
@@ -1085,25 +1131,32 @@ function characterLibrarySection(editor) {
           FileList({
             label: '캐릭터 모델',
             empty: '아직 모델이 없습니다.',
-            items: models.map((m) => ({
-              icon: 'character',
-              name: m.name,
-              detail: [
-                m.builtin ? '기본 모델' : null,
-                '관절 ' + m.joints + '개',
-                m.bytes ? fileSize(m.bytes) : null,
-                uses(m.id) ? uses(m.id) + '개 배치' : null,
-              ]
-                .filter(Boolean)
-                .join(' · '),
-              ...(m.builtin
-                ? {}
-                : {
-                    removeLabel: m.name + ' 모델 삭제',
-                    onRemove: () => editor.removeModel(m.id),
-                  }),
-            })),
+            items: models.map((m) => {
+              const uses = editor.fileUsers('models', m.id)
+              return {
+                icon: 'character',
+                name: m.name,
+                key: 'library-model-' + m.id,
+                selected: open?.id === m.id,
+                onSelect: () => editor.selectLibraryModel(m.id),
+                detail: [
+                  m.builtin ? '기본 모델' : null,
+                  '키 ' + meters(m.height),
+                  '관절 ' + m.joints + '개',
+                  uses ? uses + '개 배치' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
+              }
+            }),
           }),
+          open ? null : muted('모델을 누르면 이름·기본 키·파일을 바꿉니다.'),
+        ],
+      }),
+      ...(open ? librarySettings(editor, open) : []),
+      PropertyRow({
+        label: '새 모델',
+        children: [
           FileButton({
             label: '모델 올리기',
             accept: '.glb,model/gltf-binary',
@@ -1121,16 +1174,22 @@ function characterLibrarySection(editor) {
             empty: '아직 동작 파일이 없습니다.',
             items: motions.map((m) => {
               const fits = models.filter((model) => m.matched[model.id])
+              const uses = editor.fileUsers('motions', m.id)
               return {
                 icon: 'motion',
                 name: m.name,
-                detail:
-                  m.clips.map((c) => c.name).join(', ') +
-                  ' · ' +
-                  (fits.length
+                detail: [
+                  m.clips.map((c) => c.name).join(', '),
+                  fits.length
                     ? fits.map((model) => names.get(model.id)).join(', ')
-                    : '맞는 모델 없음'),
-                ...(m.builtin
+                    : '맞는 모델 없음',
+                  uses ? uses + '곳에서 사용' : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
+                // A model's own actions leave with the model; files in use
+                // stay until their characters change.
+                ...(m.builtin || m.model || uses
                   ? {}
                   : {
                       removeLabel: m.name + ' 동작 파일 삭제',
@@ -1148,11 +1207,120 @@ function characterLibrarySection(editor) {
         ],
       }),
       muted(
-        'Blender에서 아마추어와 스킨이 있는 모델, 같은 아마추어의 동작(액션)을 GLB로 내보내 올립니다. 동작은 뼈 이름이 맞는 모델에서만 고를 수 있습니다. ' +
-          notPublished,
+        'Blender에서 아마추어와 스킨이 있는 모델, 같은 아마추어의 동작(액션)을 GLB로 내보내 올립니다. 동작은 뼈 이름이 맞는 모델에서만 고를 수 있습니다. 쓰는 중인 모델과 동작은 지울 수 없습니다. 관람 화면은 공개할 때의 파일을 계속 씁니다.',
       ),
-    ],
+    ].filter(Boolean),
   })
+}
+
+const meters = (v) => (Math.round(v * 100) / 100).toString() + 'm'
+
+// Settings of one library model: name, default height, file and removal.
+function librarySettings(editor, m) {
+  const uses = editor.fileUsers('models', m.id)
+  const measured = Math.abs(m.height - m.measured) < 0.005
+  return [
+    PropertyRow({
+      label: '이름',
+      children: [
+        TextInput({
+          label: '모델 이름',
+          key: 'library-model-name',
+          size: 'sm',
+          value: m.name,
+          validate: (v) => (v.trim() ? null : '이름을 입력하세요.'),
+          onCommit: (name) => editor.updateModel(m.id, { name }),
+        }),
+      ],
+    }),
+    PropertyRow({
+      label: '기본 키',
+      override: !measured && {
+        from: '파일',
+        subject: '기본 키',
+        onReset: () => editor.updateModel(m.id, { height: m.measured }),
+      },
+      children: [
+        NumberInput({
+          label: '모델 기본 키',
+          prefix: 'm',
+          key: 'library-model-height',
+          step: 0.1,
+          min: 0.1,
+          max: 20,
+          value: m.height,
+          onCommit: (height) => editor.updateModel(m.id, { height }),
+        }),
+      ],
+    }),
+    muted(
+      '크기 100%인 캐릭터가 이 키로 보입니다. 파일 그대로는 ' +
+        meters(m.measured) +
+        '입니다.',
+    ),
+    PropertyRow({
+      label: '구성',
+      stack: true,
+      children: [
+        muted(
+          '착용물 ' +
+            (m.wearables.length
+              ? m.wearables.map((w) => w.label).join(', ')
+              : '없음') +
+            ' · 점토 얼굴 보호 ' +
+            (m.protect
+              ? '정점 그룹'
+              : '정점 그룹 없음(리라지 기린과 같은 골격이면 높이 기준)'),
+        ),
+      ],
+    }),
+    PropertyRow({
+      label: '파일',
+      stack: true,
+      children: m.builtin
+        ? [muted('기본 모델은 저장소의 원본 파일을 씁니다.')]
+        : [
+            FileButton({
+              label: '새 버전 올리기',
+              accept: '.glb,model/gltf-binary',
+              key: 'library-model-file',
+              onFile: (file) => editor.replaceModel(m.id, file),
+            }),
+            muted(
+              [
+                m.bytes ? fileSize(m.bytes) : null,
+                '배치한 캐릭터는 그대로 두고 파일만 바꿉니다.',
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            ),
+          ],
+    }),
+    m.builtin
+      ? null
+      : PropertyRow({
+          label: '삭제',
+          stack: true,
+          children: [
+            Button({
+              label: '자료실에서 빼기',
+              icon: 'delete',
+              size: 'sm',
+              variant: 'danger',
+              key: 'library-model-remove',
+              disabled: uses > 0,
+              onClick: () => editor.removeModel(m.id),
+            }),
+            muted(
+              uses
+                ? '캐릭터 ' +
+                    uses +
+                    '개가 쓰고 있어 뺄 수 없습니다. 먼저 그 캐릭터의 모델을 바꾸세요.'
+                : '같은 파일을 다시 올리면 돌아옵니다.',
+            ),
+          ],
+        }),
+  ]
 }
 
 const modelStates = {
@@ -1231,6 +1399,18 @@ function characterInspector(c, editor) {
             }),
           ],
         }),
+        state === 'ready' &&
+          PropertyRow({
+            label: '얼굴',
+            children: [
+              muted(
+                {
+                  vertices: '점토 보호 · 모델의 정점 그룹',
+                  giraffe: '점토 보호 · 기린 머리 높이 기준',
+                }[editor.clayProtection(c.id)] ?? '점토 보호 없음',
+              ),
+            ],
+          }),
         state === 'missing' &&
           Callout({
             tone: 'warning',
@@ -1333,7 +1513,11 @@ function characterInspector(c, editor) {
               max: 3,
               step: 0.05,
               value: c.scale,
-              format: (v) => '×' + v.toFixed(2),
+              // The model's default height is 100%.
+              format: (v) =>
+                Math.round(v * 100) +
+                '%' +
+                (model ? ' · ' + meters(v * model.height) : ''),
               onInput: (scale) => preview({ scale }),
               onCommit: (scale) => set({ scale }),
             }),
@@ -1358,26 +1542,39 @@ function characterInspector(c, editor) {
             ),
           ],
         }),
+    model?.wearables?.length
+      ? PanelSection({
+          title: '착용물',
+          meta: (c.wear?.length ?? 0) + '/' + model.wearables.length,
+          children: [
+            ...model.wearables.map((w) =>
+              Toggle({
+                label: w.label,
+                key: 'wear-' + w.id,
+                pressed: !!c.wear?.includes(w.id),
+                onChange: (on) => editor.setCharacterWear(c.id, w.id, on),
+              }),
+            ),
+            muted('체형을 바꾸면 착용물도 몸에 맞춰집니다.'),
+          ],
+        })
+      : null,
     PanelSection({
       title: '동작',
       meta:
-        c.motion === undefined && c.speed === undefined
+        c.motion === undefined && c.speed === undefined && c.order === undefined
           ? '월드 따름'
           : '이 캐릭터만 따로',
       children: [
-        PropertyRow({
-          label: '동작',
-          override: inherit('motion', '동작'),
-          children: [
-            Select({
-              label: '캐릭터 동작',
-              key: 'character-motion',
-              size: 'sm',
-              value: effective.motion ?? STILL,
-              options: motionOptions(editor, effective.motion, modelId),
-              onChange: (v) => set({ motion: motionValue(v) }),
-            }),
-          ],
+        ...motionRows(editor, {
+          prefix: '캐릭터',
+          key: 'character',
+          model: modelId,
+          motion: effective.motion,
+          order: effective.order,
+          override: inherit,
+          onMotion: (motion) => set({ motion }),
+          onOrder: (order) => set({ order }),
         }),
         PropertyRow({
           label: '속도',
@@ -1396,6 +1593,34 @@ function characterInspector(c, editor) {
             }),
           ],
         }),
+      ],
+    }),
+    PanelSection({
+      title: '관람',
+      meta: c.page ? '페이지 연결' : '연결 없음',
+      children: [
+        PropertyRow({
+          label: '누르면',
+          children: [
+            Select({
+              label: '누르면 열 행사 페이지',
+              key: 'character-page',
+              size: 'sm',
+              value: c.page ?? '',
+              options: [
+                { value: '', label: '열지 않음' },
+                ...editor.layout.pages.map((p) => ({
+                  value: p.id,
+                  label: p.title,
+                })),
+              ],
+              onChange: (page) => set({ page: page || undefined }),
+            }),
+          ],
+        }),
+        muted(
+          '공개하면 관람 화면에 보입니다. 방을 고르면 그 방의 캐릭터만 움직입니다.',
+        ),
       ],
     }),
     claySection(c.id, editor, 'characters'),

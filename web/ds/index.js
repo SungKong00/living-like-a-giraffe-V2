@@ -22,6 +22,7 @@ export {
   Field,
   RadioCards,
   FileButton,
+  FileDrop,
 } from './form.js'
 export {
   Badge,
@@ -42,10 +43,11 @@ export {
   Breadcrumbs,
   Pin,
   Brand,
+  brandName,
   NavLinks,
 } from './navigation.js'
 export {
-  GlassHeading,
+  SceneCaption,
   ObjectPreview,
   PanelHeader,
   PanelSection,

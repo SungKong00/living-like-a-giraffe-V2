@@ -1,11 +1,12 @@
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera'
 import { Camera } from '@babylonjs/core/Cameras/camera'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode'
 import { RenderTargetTexture } from '@babylonjs/core/Materials/Textures/renderTargetTexture'
 
-// A read-only projection of the live editor meshes. No model download, material
-// copy or second WebGL context. Render only when the selection or layout changes.
-export function selectionPreview(world, canvas) {
+// The portrait uses the live meshes and lights. Its private camera orbits in
+// model space so a placement edit cannot turn the model away from the viewer.
+export function selectionPreview(world, canvas, playing) {
   const { scene } = world
   const camera = new ArcRotateCamera(
     '선택 보기',
@@ -17,6 +18,8 @@ export function selectionPreview(world, canvas) {
   )
   camera.mode = Camera.ORTHOGRAPHIC_CAMERA
   camera.overrideCloneAlphaBetaRadius = true
+  const pivot = new TransformNode('선택 보기 기준', scene)
+  camera.parent = pivot
   camera.minZ = 0.01
   const target = new RenderTargetTexture(
     '선택 보기',
@@ -28,31 +31,59 @@ export function selectionPreview(world, canvas) {
   target.renderParticles = false
   target.renderSprites = false
   let selected,
+    selection,
     dirty = false,
+    measurePose = false,
     busy = false,
     version = 0,
+    lastFrame = 0,
+    surfaceFrame = -1,
     framing = 0
   const ctx = canvas.getContext('2d')
   const observer = scene.onAfterRenderObservable.add(async () => {
-    if (!dirty || busy || !selected) return
+    if (busy || !selected || selected.isDisposed()) return
+    const now = performance.now()
+    const animate = playing()
+    if (
+      !dirty &&
+      world.claySurfaceFrame === surfaceFrame &&
+      !(animate && now - lastFrame >= 100)
+    )
+      return
     const meshes = [selected, ...selected.getChildMeshes()].filter(
-      (m) => m.isEnabled() && m.getTotalVertices?.() > 0 && m.material,
+      (m) =>
+        m.isEnabled() &&
+        m.isVisible &&
+        m.getTotalVertices?.() > 0 &&
+        m.material,
     )
     if (!meshes.length) return
     target.renderList = meshes
     if (!target.isReadyForRendering()) return
     dirty = false
     busy = true
+    lastFrame = now
+    surfaceFrame = world.claySurfaceFrame
     const request = version
     try {
+      selected.computeWorldMatrix(true)
+      pivot.position.copyFrom(selected.absolutePosition)
+      pivot.rotationQuaternion = selected.absoluteRotationQuaternion.clone()
+      const toPivot = pivot.computeWorldMatrix(true).clone().invert()
       const min = new Vector3(Infinity, Infinity, Infinity),
         max = min.scale(-1)
       for (const mesh of meshes) {
         mesh.computeWorldMatrix(true)
+        if (mesh.skeleton && (measurePose || animate))
+          mesh.refreshBoundingInfo(true, true)
         const box = mesh.getBoundingInfo().boundingBox
-        min.minimizeInPlace(box.minimumWorld)
-        max.maximizeInPlace(box.maximumWorld)
+        for (const corner of box.vectorsWorld) {
+          const point = Vector3.TransformCoordinates(corner, toPivot)
+          min.minimizeInPlace(point)
+          max.maximizeInPlace(point)
+        }
       }
+      measurePose = false
       const radius = Math.max(0.1, Vector3.Distance(min, max) / 2)
       camera.setTarget(min.add(max).scale(0.5))
       camera.radius = radius * 3
@@ -101,27 +132,41 @@ export function selectionPreview(world, canvas) {
     scene.onAfterRenderObservable.remove(observer)
     target.dispose()
     camera.dispose()
+    pivot.dispose()
   })
   return Object.freeze({
-    select(selection) {
-      const node =
-        selection?.type === 'item'
-          ? world.instances.get(selection.id)
-          : selection?.type === 'room'
-            ? world.rooms.get(selection.id)
-            : null
+    select(node, next) {
       canvas.hidden = !node
-      if (node === selected) return
+      const changed =
+        next?.id !== selection?.id || next?.type !== selection?.type
+      if (!changed && node === selected) return
+      if (changed) {
+        camera.alpha = Math.PI / 4
+        camera.beta = 1.1
+      }
+      selection = next
       selected = node
       framing = 0
       version++
       target.renderList = []
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-      dirty = !!node
+      dirty = measurePose = !!node
+      if (node) world.wake()
+    },
+    orbit(yaw, pitch) {
+      if (!selected) return
+      camera.alpha += yaw
+      camera.beta = Math.max(
+        0.01,
+        Math.min(Math.PI - 0.01, camera.beta + pitch),
+      )
+      dirty = true
+      world.wake()
     },
     invalidate() {
       // Finish the in-flight thumbnail and draw the latest pose next frame.
-      dirty = !!selected
+      dirty = measurePose = !!selected
+      if (selected) world.wake()
     },
   })
 }

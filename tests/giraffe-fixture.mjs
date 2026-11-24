@@ -56,14 +56,25 @@ function animate(doc, buffer, name, node, axis) {
     )
 }
 
-export async function riggedGiraffe({ names } = {}) {
+/**
+ * `top` is the model's height; `clip` names its embedded action. `protect`
+ * adds a `_CLAY_PROTECT` attribute (head vertices 1); `wear` adds a cape node
+ * marked as a wearable.
+ */
+export async function riggedGiraffe({
+  names,
+  top = 4.5,
+  clip = 'Idle',
+  protect = false,
+  wear = false,
+} = {}) {
   const doc = new Document()
   const buffer = doc.createBuffer()
   const [root, neck, head] = chain(doc, names)
-  // A box from the floor to 4.5m; the top half follows the neck and head.
+  // A box from the floor to `top`; the top half follows the neck and head.
   const w = 0.5
   const box = []
-  for (const y of [0, 2, 4.5])
+  for (const y of [0, 2, top])
     for (const [x, z] of [
       [-w, -w],
       [w, -w],
@@ -120,13 +131,28 @@ export async function riggedGiraffe({ names } = {}) {
     .addJoint(head)
     .setSkeleton(root)
     .setInverseBindMatrices(accessor('MAT4', new Float32Array(inverse)))
+  if (protect)
+    primitive.setAttribute(
+      '_CLAY_PROTECT',
+      accessor(
+        'SCALAR',
+        new Float32Array(12).map((_, v) => (v >= 8 ? 1 : 0)),
+      ),
+    )
   const body = doc
     .createNode('GiraffeBody')
     .setMesh(doc.createMesh('기린').addPrimitive(primitive))
     .setSkin(skin)
   const armature = doc.createNode('Armature').addChild(root)
-  doc.createScene('기린').addChild(armature).addChild(body)
-  animate(doc, buffer, 'Idle', neck, 2)
+  const scene = doc.createScene('기린').addChild(armature).addChild(body)
+  if (wear)
+    scene.addChild(
+      doc
+        .createNode('Wear.Cape')
+        .setExtras({ wearable: 'cape' })
+        .setMesh(doc.createMesh('망토').addPrimitive(primitive)),
+    )
+  animate(doc, buffer, clip, neck, 2)
   return Buffer.from(await new NodeIO().writeBinary(doc))
 }
 

@@ -1,7 +1,7 @@
 // App-level helpers shared by the visitor site and the studio: the API
 // client, the page mount point and the 3D viewport host. Visual components
 // live in ./ds; import them from './ds/index.js'.
-import { el, IconButton, Spinner, Toolbar } from './ds/index.js'
+import { brandName, el, IconButton, Spinner, Toolbar } from './ds/index.js'
 
 export async function api(path, method = 'GET', data, signal) {
   const raw = data instanceof File
@@ -33,7 +33,10 @@ export const app = document.querySelector('#app')
 // scene.js fills `overlay` and hides `loading`; views add their own controls
 // to `host`.
 export function stage() {
-  const canvas = el('canvas', { 'aria-label': '리라지 3D 월드', tabindex: 0 })
+  const canvas = el('canvas', {
+    'aria-label': brandName + ' 3D 월드',
+    tabindex: 0,
+  })
   const overlay = el('div', { class: 'stage__markers' })
   const loading = el(
     'div',

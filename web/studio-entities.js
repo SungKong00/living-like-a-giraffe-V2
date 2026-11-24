@@ -26,6 +26,7 @@ export const entityTypes = Object.freeze({
     noun: '방',
     icon: () => 'room',
     find: (s, id) => s.rooms.find((r) => r.id === id),
+    modelRoot: (s, id) => s.world?.rooms.get(id),
     name: (r) => r.label,
     parent: () => WORLD,
   },
@@ -33,6 +34,7 @@ export const entityTypes = Object.freeze({
     noun: '가구',
     icon: () => 'furniture',
     find: (s, id) => s.layout.items.find((i) => i.id === id),
+    modelRoot: (s, id) => s.world?.instances.get(id),
     name: (i) => i.label,
     parent: (i) => ({ type: 'room', id: i.room }),
     removable: true,
@@ -41,6 +43,7 @@ export const entityTypes = Object.freeze({
     noun: '캐릭터',
     icon: () => 'character',
     find: (s, id) => (s.layout.characters ?? []).find((c) => c.id === id),
+    modelRoot: (s, id) => s.cast?.root(id),
     name: (g) => g.label,
     parent: (g) => ({ type: 'room', id: g.room }),
     removable: true,
@@ -90,6 +93,7 @@ export function entities(source) {
   const find = (sel) => (sel ? typeOf(sel).find(source, sel.id) : null)
   return Object.freeze({
     find,
+    modelRoot: (sel) => sel && typeOf(sel).modelRoot?.(source, sel.id),
     exists: (sel) => !!find(sel),
     name: (sel) => {
       const e = find(sel)

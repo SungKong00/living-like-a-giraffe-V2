@@ -52,7 +52,13 @@ export function outline(editor) {
     ),
     el(
       'div',
-      { class: 'studio-outline__list', role: 'list' },
+      {
+        class: 'studio-outline__list',
+        role: 'list',
+        onclick: (event) => {
+          if (event.target === event.currentTarget) editor.select(null)
+        },
+      },
       ...(view.tab === 'scene' ? sceneTree(editor) : pageList(editor)),
     ),
   ]
@@ -137,12 +143,16 @@ export function addMenu(editor) {
               icon: 'character',
               onSelect: () => editor.addCharacter(m.id, room),
             })),
-            {
-              label: '새 모델 올리기…',
-              hint: '리깅된 GLB',
-              icon: 'upload',
-              onSelect: () => editor.chooseModelFile(room),
-            },
+            ...(editor.libraryReadOnly
+              ? []
+              : [
+                  {
+                    label: '새 모델 올리기…',
+                    hint: '리깅된 GLB',
+                    icon: 'upload',
+                    onSelect: () => editor.chooseModelFile(room),
+                  },
+                ]),
           ],
         },
         {
@@ -345,8 +355,10 @@ function pageList(editor) {
 const charactersIn = (layout, room) =>
   (layout.characters ?? []).filter((c) => c.room === room).length
 
-// The clip a character plays, or 정지.
+// The clip a character plays (the first and how many follow), or 정지.
 function characterMeta(editor, c) {
-  const { motion } = editor.characterMotion(c)
-  return motion ? motion.split('/').slice(1).join('/') : '정지'
+  const clips = [editor.characterMotion(c).motion ?? []].flat()
+  if (!clips.length) return '정지'
+  const first = clips[0].split('/').slice(1).join('/')
+  return clips.length > 1 ? first + ' 외 ' + (clips.length - 1) : first
 }

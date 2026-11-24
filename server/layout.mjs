@@ -101,13 +101,15 @@ const clayDefaults = z.union([
 ])
 // A library file: an uploaded file's content hash or the bundled model.
 const fileId = '(?:[a-f0-9]{16}|riragi)'
-// `동작파일ID/클립이름`; null means "standing still" when it overrides.
-const motion = z
+// `동작파일ID/클립이름`; null means "standing still" when it overrides. A
+// list plays its clips one after another in `order`.
+const clip = z
   .string()
   .min(3)
   .max(200)
   .regex(new RegExp('^' + fileId + '\\/.+$', 's'))
-  .nullable()
+const motion = z.union([clip, z.array(clip).min(1).max(8)]).nullable()
+const order = z.enum(['sequence', 'random'])
 const speed = z.number().min(0.1).max(3)
 // Characters never round-trip through Blender, so their own motion and speed
 // overrides live on the character. A missing field follows
@@ -134,7 +136,12 @@ const character = z.strictObject({
     )
     .optional(),
   motion: motion.optional(),
+  order: order.optional(),
   speed: speed.optional(),
+  // A page opened when a visitor taps the character.
+  page: id.optional(),
+  // Wearables of the model switched on (IDs from the library).
+  wear: z.array(z.string().min(1).max(40)).max(20).optional(),
 })
 const layout = z.strictObject({
   // World-wide values every object follows unless it overrides them.
@@ -150,7 +157,11 @@ const layout = z.strictObject({
         })
         .optional(),
       character: z
-        .strictObject({ motion: motion.optional(), speed: speed.optional() })
+        .strictObject({
+          motion: motion.optional(),
+          order: order.optional(),
+          speed: speed.optional(),
+        })
         .optional(),
     })
     .optional(),
@@ -243,8 +254,11 @@ export function validate(input, catalog) {
     if (original && original.kind !== i.kind)
       throw Error(i.label + '의 모델 종류를 변경할 수 없습니다.')
   }
-  for (const g of data.characters ?? [])
+  for (const g of data.characters ?? []) {
     if (!rooms.includes(g.room)) throw Error(g.label + '의 방을 확인하세요.')
+    // A removed page leaves the character without a link.
+    if (g.page && !pages.includes(g.page)) delete g.page
+  }
   // An object removed here or by a Blender handoff takes its overrides along.
   if (data.overrides?.clay) {
     const owners = new Set([
