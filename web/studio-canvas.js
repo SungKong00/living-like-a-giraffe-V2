@@ -77,10 +77,16 @@ export function attachCanvas(world, view, hooks) {
   }
   const inverse = (m) => m.clone().invert()
 
+  // Hover and selection keys are `type:id`, so a character and furniture
+  // never share one.
+  const nodeOf = (key) => {
+    const [type, id] = key.split(/:(.*)/s)
+    return type === 'item' ? instances.get(id) : hooks.characterRoot(id)
+  }
   function paint() {
     glow.removeAllMeshes()
-    const add = (id, color) => {
-      const node = instances.get(id)
+    const add = (key, color) => {
+      const node = nodeOf(key)
       if (!node) return
       for (const mesh of [node, ...node.getChildMeshes()])
         if (mesh.getTotalVertices?.() > 0)
@@ -90,8 +96,10 @@ export function attachCanvas(world, view, hooks) {
             /* Instanced meshes cannot glow on their own. */
           }
     }
-    if (hover && hover !== selection?.id) add(hover, hoverColor)
-    if (selection?.type === 'item') add(selection.id, selectedColor)
+    const selected = selection && selection.type + ':' + selection.id
+    if (hover && hover !== selected) add(hover, hoverColor)
+    if (selection?.type === 'item' || selection?.type === 'character')
+      add(selected, selectedColor)
   }
 
   function roomAt(p, current) {
@@ -153,6 +161,41 @@ export function attachCanvas(world, view, hooks) {
       patch.scale = g.node.scaling.asArray().map((v) => round(v))
     }
     hooks.commitItem(g.id, patch, { copy: g.copy })
+  }
+
+  function beginCharacter(id, at) {
+    const character = hooks.character(id)
+    const node = hooks.characterRoot(id)
+    if (!character || !node) return null
+    return {
+      kind: 'character',
+      id,
+      character,
+      node,
+      positionAt: floorDrag(at, node.getAbsolutePosition().clone()),
+      room: character.room,
+    }
+  }
+  // Characters are not lit by a baked field, so they simply change parent.
+  function moveCharacter(g, at, e) {
+    const dropped = g.positionAt(at)
+    g.room = roomAt(dropped, g.room)
+    const room = rooms.get(g.room)
+    const local = Vector3.TransformCoordinates(
+      dropped,
+      inverse(room.computeWorldMatrix(true)),
+    )
+    const align = hooks.snapping() !== (e.metaKey || e.ctrlKey) ? snap : round
+    g.position = [align(local.x), g.character.position[1], align(local.z)]
+    g.node.parent = room
+    g.node.position.set(...g.position)
+    world.wake()
+  }
+  function dropCharacter(g) {
+    hooks.commitCharacter(g.id, {
+      position: g.position,
+      ...(g.room !== g.character.room ? { room: g.room } : {}),
+    })
   }
 
   function beginLight(id, at) {
@@ -241,6 +284,7 @@ export function attachCanvas(world, view, hooks) {
       hooks.dragging(true, gesture.kind)
     }
     if (gesture.kind === 'item') moveItem(gesture, at, e)
+    else if (gesture.kind === 'character') moveCharacter(gesture, at, e)
     else if (gesture.kind === 'light') moveLight(gesture, at, e)
     else if (gesture.kind === 'spot') moveSpot(gesture, at, e)
     else movePan(gesture, at)
@@ -264,14 +308,13 @@ export function attachCanvas(world, view, hooks) {
     const g = stop()
     if (!g) return
     if (g.kind === 'item' && g.moved) dropItem(g)
+    else if (g.kind === 'character' && g.moved) dropCharacter(g)
     else if (g.kind === 'light' && g.moved)
       hooks.commitLight(g.id, { position: g.position })
     else if (g.kind === 'spot' && g.moved)
       hooks.commitSpot(g.id, g.spot.position)
     else if (g.kind === 'pan' && !g.moved)
-      hooks.select(
-        g.hit?.type === 'room' || g.hit?.type === 'giraffe' ? g.hit : null,
-      )
+      hooks.select(g.hit?.type === 'room' ? g.hit : null)
   }
   // Escape or a lost pointer puts the dragged object back without an edit.
   function cancel() {
@@ -285,11 +328,15 @@ export function attachCanvas(world, view, hooks) {
     if (e.button !== 0 || handles.dragging || gesture) return
     canvas.focus({ preventScroll: true })
     const at = point(e)
+    if (hooks.placing()) return hooks.place(at)
     if (hooks.pickLightPoint(at)) return
     const hit = world.pick(at.x, at.y)
     if (hit?.type === 'item') {
       hooks.select(hit)
       start(beginItem(hit.id, at, e), e)
+    } else if (hit?.type === 'character') {
+      hooks.select(hit)
+      start(beginCharacter(hit.id, at), e)
     } else start(beginPan(at, hit), e)
   })
   canvas.addEventListener('contextmenu', (e) => e.preventDefault())
@@ -301,6 +348,7 @@ export function attachCanvas(world, view, hooks) {
   let pending = null
   canvas.addEventListener('pointermove', (e) => {
     if (gesture || e.buttons) return
+    if (hooks.placing()) return hooks.placeHover(point(e))
     pending = point(e)
   })
   canvas.addEventListener('pointerleave', () => {
@@ -337,7 +385,11 @@ export function attachCanvas(world, view, hooks) {
     if (pending && !gesture) {
       const hit = world.pick(pending.x, pending.y)
       pending = null
-      setHover(hit?.type === 'item' ? hit.id : null)
+      setHover(
+        hit?.type === 'item' || hit?.type === 'character'
+          ? hit.type + ':' + hit.id
+          : null,
+      )
     }
     const node = selection?.type === 'item' && instances.get(selection.id)
     toolbar.hidden = !node || !!gesture?.moved
@@ -374,6 +426,8 @@ export function attachCanvas(world, view, hooks) {
   function anchorPosition(sel) {
     const layout = hooks.layout()
     if (sel.type === 'item') return instances.get(sel.id)?.getAbsolutePosition()
+    if (sel.type === 'character')
+      return hooks.characterRoot(sel.id)?.getAbsolutePosition()
     if (sel.type === 'room') return rooms.get(sel.id)?.getAbsolutePosition()
     if (sel.type === 'light') {
       const light = hooks.light(sel.id)

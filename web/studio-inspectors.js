@@ -10,6 +10,7 @@ import {
   Disclosure,
   EmptyState,
   FileButton,
+  FileList,
   Icon,
   IconButton,
   NumberInput,
@@ -62,7 +63,7 @@ export const inspectors = Object.freeze({
   world: worldInspector,
   room: roomInspector,
   item: itemInspector,
-  giraffe: giraffeInspector,
+  character: characterInspector,
   light: lightEditor,
   spot: spotInspector,
   page: pageInspector,
@@ -162,7 +163,7 @@ const chips = (editor, sels, empty) =>
 // ---- 월드 ----
 // The widest scope. Values here apply to every room and object unless an
 // object's own editor overrides them. Each entry below is one category of
-// world-wide settings; defaults for objects, the background and giraffes join
+// world-wide settings; defaults for objects, the background and characters join
 // this list as they are built, and the objects' own editors mark overrides
 // with PropertyRow's `override`.
 const worldSections = [
@@ -175,8 +176,9 @@ const worldSections = [
     ),
   worldClay('world'),
   worldClay('objects'),
-  worldClay('giraffes'),
-  worldGiraffes,
+  worldClay('characters'),
+  worldCharacters,
+  characterLibrarySection,
   worldLighting,
 ]
 
@@ -939,7 +941,7 @@ function clayRows({ key, value, onPreview, onCommit, override, editor }) {
 }
 
 // One section per kind: the rooms' own geometry, movable furniture and
-// giraffes each have a world-wide default that their objects follow.
+// characters each have a world-wide default that their objects follow.
 function worldClay(scope) {
   return (editor) => {
     const value = clayDefaults(editor.layout)[scope] ?? clayPresets.original
@@ -971,7 +973,7 @@ const ownerScope = (editor, id) =>
     ? 'world'
     : editor.layout.items.some((i) => i.id === id)
       ? 'objects'
-      : 'giraffes'
+      : 'characters'
 
 function claySection(id, editor, scope) {
   const own = editor.layout.overrides?.clay?.[id]
@@ -996,104 +998,50 @@ function claySection(id, editor, scope) {
   })
 }
 
-// ---- 기린 ----
+// ---- 캐릭터 ----
 const STILL = '__still'
-function motionOptions(editor, current) {
+// Motions that move `model` (any model when omitted), plus 정지. A value no
+// longer in the library stays listed so the field never shows the wrong clip.
+function motionOptions(editor, current, model) {
   const options = [{ value: STILL, label: '정지' }]
-  for (const m of editor.giraffeLibrary.motions)
-    for (const clip of m.clips)
-      options.push({
-        value: m.id + '/' + clip.name,
-        label: m.name + ' · ' + clip.name,
-      })
+  for (const m of editor.characterLibrary.motions)
+    if (!model || m.matched[model])
+      for (const clip of m.clips)
+        options.push({
+          value: m.id + '/' + clip.name,
+          label: m.name + ' · ' + clip.name,
+        })
   if (current && !options.some((o) => o.value === current))
     options.push({
       value: current,
-      label: '없는 동작 · ' + current.split('/').slice(1).join('/'),
+      label: '맞지 않는 동작 · ' + current.split('/').slice(1).join('/'),
     })
   return options
 }
 const motionValue = (v) => (v === STILL ? null : v)
+const fileSize = (bytes) =>
+  bytes < 1048576
+    ? Math.max(1, Math.round(bytes / 1024)) + 'KB'
+    : (bytes / 1048576).toFixed(1) + 'MB'
 
-function worldGiraffes(editor) {
-  const library = editor.giraffeLibrary
-  const world = editor.layout.defaults?.giraffe ?? {}
-  const count = editor.layout.giraffes?.length ?? 0
+function worldCharacters(editor) {
+  const world = editor.layout.defaults?.character ?? {}
+  const count = editor.layout.characters?.length ?? 0
   return PanelSection({
-    title: '기린',
-    meta: count + '마리',
+    title: '캐릭터',
+    meta: count + '개',
     children: [
-      PropertyRow({
-        label: '모델',
-        stack: true,
-        children: [
-          muted(
-            library.model
-              ? library.model.name + ' · 관절 ' + library.model.joints + '개'
-              : '리라지 기본 점토 기린',
-          ),
-          FileButton({
-            label: library.model ? '모델 바꾸기' : '리깅 모델 올리기',
-            accept: '.glb,model/gltf-binary',
-            key: 'giraffe-model',
-            onFile: (file) => editor.uploadGiraffeModel(file),
-          }),
-        ],
-      }),
-      PropertyRow({
-        label: '동작 파일',
-        stack: true,
-        children: [
-          library.motions.length
-            ? el(
-                'ul',
-                { class: 'studio-files' },
-                ...library.motions.map((m) =>
-                  el(
-                    'li',
-                    { class: 'studio-files__item' },
-                    Icon('motion', 'sm'),
-                    el(
-                      'span',
-                      { class: 'studio-files__name' },
-                      m.name,
-                      el(
-                        'small',
-                        {},
-                        m.clips.map((c) => c.name).join(', ') +
-                          (library.model && m.matched < m.targets
-                            ? ' · 관절 ' + m.matched + '/' + m.targets + ' 일치'
-                            : ''),
-                      ),
-                    ),
-                    IconButton({
-                      icon: 'delete',
-                      label: m.name + ' 동작 파일 삭제',
-                      size: 'sm',
-                      onClick: () => editor.removeMotion(m.id),
-                    }),
-                  ),
-                ),
-              )
-            : muted('아직 동작 파일이 없습니다.'),
-          FileButton({
-            label: '동작 파일 올리기',
-            accept: '.glb,model/gltf-binary',
-            key: 'giraffe-motion',
-            onFile: (file) => editor.uploadMotion(file),
-          }),
-        ],
-      }),
       PropertyRow({
         label: '기본 동작',
         children: [
           Select({
             label: '기본 동작',
-            key: 'giraffe-default-motion',
+            key: 'character-default-motion',
             size: 'sm',
             value: world.motion ?? STILL,
             options: motionOptions(editor, world.motion),
-            onChange: (v) => editor.setGiraffeDefault('motion', motionValue(v)),
+            onChange: (v) =>
+              editor.setCharacterDefault('motion', motionValue(v)),
           }),
         ],
       }),
@@ -1102,48 +1050,158 @@ function worldGiraffes(editor) {
         children: [
           Slider({
             label: '기본 동작 속도',
-            key: 'giraffe-default-speed',
+            key: 'character-default-speed',
             min: 0.1,
             max: 3,
             step: 0.05,
             value: world.speed ?? 1,
             format: (v) => '×' + v.toFixed(2),
-            onInput: (v) => editor.setGiraffeDefault('speed', v, true),
-            onCommit: (v) => editor.setGiraffeDefault('speed', v),
+            onInput: (v) => editor.setCharacterDefault('speed', v, true),
+            onCommit: (v) => editor.setCharacterDefault('speed', v),
           }),
         ],
       }),
       muted(
-        'Blender에서 기린 아마추어의 동작(액션)을 GLB로 내보내 올립니다. 같은 뼈 이름을 쓰는 동작만 받습니다. ' +
+        '모든 캐릭터가 따르는 값입니다. 기본 동작이 맞지 않는 모델은 멈춰 있습니다. 캐릭터 편집기에서 따로 정할 수 있습니다.',
+      ),
+    ],
+  })
+}
+
+function characterLibrarySection(editor) {
+  const { models, motions } = editor.characterLibrary
+  const characters = editor.layout.characters ?? []
+  const uses = (id) =>
+    characters.filter((c) => editor.characterModel(c) === id).length
+  const names = new Map(models.map((m) => [m.id, m.name]))
+  return PanelSection({
+    title: '캐릭터 자료실',
+    meta: '모델 ' + models.length + ' · 동작 ' + motions.length,
+    children: [
+      PropertyRow({
+        label: '모델',
+        stack: true,
+        children: [
+          FileList({
+            label: '캐릭터 모델',
+            empty: '아직 모델이 없습니다.',
+            items: models.map((m) => ({
+              icon: 'character',
+              name: m.name,
+              detail: [
+                m.builtin ? '기본 모델' : null,
+                '관절 ' + m.joints + '개',
+                m.bytes ? fileSize(m.bytes) : null,
+                uses(m.id) ? uses(m.id) + '개 배치' : null,
+              ]
+                .filter(Boolean)
+                .join(' · '),
+              ...(m.builtin
+                ? {}
+                : {
+                    removeLabel: m.name + ' 모델 삭제',
+                    onRemove: () => editor.removeModel(m.id),
+                  }),
+            })),
+          }),
+          FileButton({
+            label: '모델 올리기',
+            accept: '.glb,model/gltf-binary',
+            key: 'character-model',
+            onFile: (file) => editor.uploadModel(file),
+          }),
+        ],
+      }),
+      PropertyRow({
+        label: '동작 파일',
+        stack: true,
+        children: [
+          FileList({
+            label: '동작 파일',
+            empty: '아직 동작 파일이 없습니다.',
+            items: motions.map((m) => {
+              const fits = models.filter((model) => m.matched[model.id])
+              return {
+                icon: 'motion',
+                name: m.name,
+                detail:
+                  m.clips.map((c) => c.name).join(', ') +
+                  ' · ' +
+                  (fits.length
+                    ? fits.map((model) => names.get(model.id)).join(', ')
+                    : '맞는 모델 없음'),
+                ...(m.builtin
+                  ? {}
+                  : {
+                      removeLabel: m.name + ' 동작 파일 삭제',
+                      onRemove: () => editor.removeMotion(m.id),
+                    }),
+              }
+            }),
+          }),
+          FileButton({
+            label: '동작 파일 올리기',
+            accept: '.glb,model/gltf-binary',
+            key: 'character-motion',
+            onFile: (file) => editor.uploadMotion(file),
+          }),
+        ],
+      }),
+      muted(
+        'Blender에서 아마추어와 스킨이 있는 모델, 같은 아마추어의 동작(액션)을 GLB로 내보내 올립니다. 동작은 뼈 이름이 맞는 모델에서만 고를 수 있습니다. ' +
           notPublished,
       ),
     ],
   })
 }
 
-function giraffeInspector(g, editor) {
-  const set = (values) => editor.patch('giraffes', g.id, values)
+const modelStates = {
+  ready: null,
+  loading: '여는 중',
+  missing: '모델 없음',
+}
+
+function characterInspector(c, editor) {
+  const set = (values) => editor.patch('characters', c.id, values)
   const preview = (values) =>
-    editor.preview((d) => Object.assign(ops.find(d, 'giraffes', g.id), values))
+    editor.preview((d) =>
+      Object.assign(ops.find(d, 'characters', c.id), values),
+    )
   const at = (n, v) =>
-    g.position.map((p, k) => (k === n ? ops.clampPosition(v) : p))
-  const effective = editor.giraffeMotion(g)
+    c.position.map((p, k) => (k === n ? ops.clampPosition(v) : p))
+  const library = editor.characterLibrary
+  const modelId = editor.characterModel(c)
+  const model = library.models.find((m) => m.id === modelId)
+  const state = editor.characterState(c)
+  const effective = editor.characterMotion(c)
   const inherit = (key, subject) =>
-    g[key] !== undefined && {
+    c[key] !== undefined && {
       from: WORLD_SCOPE,
       subject,
-      onReset: () => editor.inheritGiraffe(g.id, key),
+      onReset: () => editor.inheritCharacter(c.id, key),
     }
-  const picking = editor.view.giraffePick === g.id
+  const placing = editor.view.placing === c.id
+  const modelOptions = library.models.map((m) => ({
+    value: m.id,
+    label: m.name,
+  }))
+  if (!model) modelOptions.push({ value: modelId ?? '', label: '없는 모델' })
   return [
     PanelHeader({
-      eyebrow: '기린',
-      icon: 'giraffe',
-      title: labelInput('기린 이름', g.label, (label) => set({ label })),
+      eyebrow: '캐릭터',
+      icon: 'character',
+      title: labelInput('캐릭터 이름', c.label, (label) => set({ label })),
       actions: [
         IconButton({
+          icon: 'copy',
+          label: '캐릭터 복제',
+          shortcut: editor.cmd + 'D',
+          key: 'duplicate',
+          onClick: () => editor.duplicate(),
+        }),
+        IconButton({
           icon: 'delete',
-          label: '기린 삭제',
+          label: '캐릭터 삭제',
           variant: 'danger',
           shortcut: 'Delete',
           key: 'delete',
@@ -1151,28 +1209,64 @@ function giraffeInspector(g, editor) {
         }),
       ],
     }),
-    editor.supportsProportions(g.id)
-      ? giraffeProportionSection(
-          g.proportions,
-          (key, value) => editor.setGiraffeProportion(g.id, key, value),
-          (key, value) => editor.setGiraffeProportion(g.id, key, value, true),
-        )
-      : Callout({
-          message: editor.giraffeLibrary.model
-            ? '이 모델에서 체형을 조절하려면 리라지 기본 기린과 같은 관절 구성이 필요합니다.'
-            : '기본 기린을 여는 중입니다.',
+    placing &&
+      Callout({
+        message:
+          '캐릭터가 포인터를 따라갑니다. 놓을 방의 바닥을 클릭하세요. Esc를 누르면 지금 자리에 둡니다.',
+      }),
+    PanelSection({
+      title: '모델',
+      meta: modelStates[state] ?? (model ? '관절 ' + model.joints + '개' : ''),
+      children: [
+        PropertyRow({
+          label: '모델',
+          children: [
+            Select({
+              label: '캐릭터 모델',
+              key: 'character-model',
+              size: 'sm',
+              value: modelId ?? '',
+              options: modelOptions,
+              onChange: (v) => set({ model: v }),
+            }),
+          ],
         }),
+        state === 'missing' &&
+          Callout({
+            tone: 'warning',
+            message:
+              '이 모델을 열 수 없습니다. 자료실에서 지워졌거나 파일이 손상되었습니다. 다른 모델을 고르세요.',
+          }),
+      ].filter(Boolean),
+    }),
     PanelSection({
       title: '배치',
       children: [
         PropertyRow({
+          label: placing ? '바닥을 클릭 · Esc 취소' : '장면에서',
+          stack: true,
+          children: [
+            Button({
+              label: placing ? '놓기 취소' : '포인터로 놓기',
+              icon: 'pointer',
+              size: 'sm',
+              variant: placing ? 'primary' : 'secondary',
+              key: 'character-place',
+              onClick: () => editor.setPlacing(placing ? null : c.id),
+            }),
+            muted(
+              '장면에서 캐릭터를 끌어 옮깁니다. 방향키로 조금씩, Q·E로 돌립니다.',
+            ),
+          ],
+        }),
+        PropertyRow({
           label: '방',
           children: [
             Select({
-              label: '기린이 있는 방',
-              key: 'giraffe-room',
+              label: '캐릭터가 있는 방',
+              key: 'character-room',
               size: 'sm',
-              value: g.room,
+              value: c.room,
               options: editor.rooms.map((r) => ({
                 value: r.id,
                 label: r.label,
@@ -1185,17 +1279,17 @@ function giraffeInspector(g, editor) {
           label: '위치',
           children: [
             NumberInput({
-              label: '기린 위치 X',
+              label: '캐릭터 위치 X',
               prefix: 'X',
-              key: 'gx',
-              value: g.position[0],
+              key: 'cx',
+              value: c.position[0],
               onCommit: (v) => set({ position: at(0, v) }),
             }),
             NumberInput({
-              label: '기린 위치 Z',
+              label: '캐릭터 위치 Z',
               prefix: 'Z',
-              key: 'gz',
-              value: g.position[2],
+              key: 'cz',
+              value: c.position[2],
               onCommit: (v) => set({ position: at(2, v) }),
             }),
           ],
@@ -1204,11 +1298,11 @@ function giraffeInspector(g, editor) {
           label: '높이',
           children: [
             NumberInput({
-              label: '기린 높이',
+              label: '캐릭터 높이',
               prefix: 'Y',
-              key: 'gy',
+              key: 'cy',
               step: 0.05,
-              value: g.position[1],
+              value: c.position[1],
               onCommit: (v) => set({ position: at(1, v) }),
             }),
           ],
@@ -1217,12 +1311,12 @@ function giraffeInspector(g, editor) {
           label: '방향',
           children: [
             Slider({
-              label: '기린 방향',
-              key: 'gyaw',
+              label: '캐릭터 방향',
+              key: 'cyaw',
               min: -180,
               max: 180,
               step: 1,
-              value: ((((g.yaw + 180) % 360) + 360) % 360) - 180,
+              value: ((((c.yaw + 180) % 360) + 360) % 360) - 180,
               format: (v) => Math.round(v) + '°',
               onInput: (yaw) => preview({ yaw }),
               onCommit: (yaw) => set({ yaw }),
@@ -1233,51 +1327,54 @@ function giraffeInspector(g, editor) {
           label: '크기',
           children: [
             Slider({
-              label: '기린 크기',
-              key: 'gscale',
+              label: '캐릭터 크기',
+              key: 'cscale',
               min: 0.25,
               max: 3,
               step: 0.05,
-              value: g.scale,
+              value: c.scale,
               format: (v) => '×' + v.toFixed(2),
               onInput: (scale) => preview({ scale }),
               onCommit: (scale) => set({ scale }),
             }),
           ],
         }),
-        PropertyRow({
-          label: picking ? '방 바닥을 클릭 · Esc 취소' : '장면에서 지정',
-          stack: true,
-          children: [
-            Button({
-              label: picking ? '지정 취소' : '위치 지정',
-              icon: 'spot',
-              size: 'sm',
-              variant: picking ? 'primary' : 'secondary',
-              key: 'giraffe-pick',
-              onClick: () => editor.setGiraffePick(picking ? null : g.id),
-            }),
-          ],
-        }),
       ],
     }),
+    // Body proportions need the Riragi giraffe's joint layout.
+    editor.supportsProportions(c.id)
+      ? giraffeProportionSection(
+          c.proportions,
+          (key, value) => editor.setCharacterProportion(c.id, key, value),
+          (key, value) => editor.setCharacterProportion(c.id, key, value, true),
+        )
+      : state === 'ready' &&
+        PanelSection({
+          title: '체형',
+          meta: '이 모델은 지원 안 함',
+          children: [
+            muted(
+              '목·머리·다리·몸통 비율은 리라지 점토 기린과 같은 관절 구성에서 조절합니다.',
+            ),
+          ],
+        }),
     PanelSection({
       title: '동작',
       meta:
-        g.motion === undefined && g.speed === undefined
+        c.motion === undefined && c.speed === undefined
           ? '월드 따름'
-          : '이 기린만 따로',
+          : '이 캐릭터만 따로',
       children: [
         PropertyRow({
           label: '동작',
           override: inherit('motion', '동작'),
           children: [
             Select({
-              label: '기린 동작',
-              key: 'giraffe-motion',
+              label: '캐릭터 동작',
+              key: 'character-motion',
               size: 'sm',
               value: effective.motion ?? STILL,
-              options: motionOptions(editor, effective.motion),
+              options: motionOptions(editor, effective.motion, modelId),
               onChange: (v) => set({ motion: motionValue(v) }),
             }),
           ],
@@ -1287,8 +1384,8 @@ function giraffeInspector(g, editor) {
           override: inherit('speed', '속도'),
           children: [
             Slider({
-              label: '기린 동작 속도',
-              key: 'giraffe-speed',
+              label: '캐릭터 동작 속도',
+              key: 'character-speed',
               min: 0.1,
               max: 3,
               step: 0.05,
@@ -1301,6 +1398,6 @@ function giraffeInspector(g, editor) {
         }),
       ],
     }),
-    claySection(g.id, editor, 'giraffes'),
+    claySection(c.id, editor, 'characters'),
   ].filter(Boolean)
 }

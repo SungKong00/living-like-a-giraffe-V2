@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { validate } from '../server/layout.mjs'
-import { giraffeLibrary } from '../server/giraffes.mjs'
+import { characterLibrary } from '../server/characters.mjs'
 import {
   clayField,
   clayFor,
@@ -33,7 +33,7 @@ const bench = {
   color: 'original',
   finish: 'original',
 }
-const giraffe = {
+const character = {
   id: 'tall',
   room: 'sports',
   label: '기린 1',
@@ -82,13 +82,13 @@ test('기존 빗금은 정적 질감으로 열리고 새 움직임은 빗금과 
   }
 })
 
-test('월드·오브젝트·기린 점토 기본값과 개체 덮어쓰기를 저장한다', () => {
+test('월드·오브젝트·캐릭터 점토 기본값과 개체 덮어쓰기를 저장한다', () => {
   const medium = clayPresets.medium
   const data = validate(
     draft({
       defaults: {
         clay: { world: clayPresets.strong, objects: medium },
-        giraffe: { motion: '0123456789abcdef/Walk', speed: 1.2 },
+        character: { motion: '0123456789abcdef/Walk', speed: 1.2 },
       },
       overrides: {
         clay: {
@@ -97,23 +97,39 @@ test('월드·오브젝트·기린 점토 기본값과 개체 덮어쓰기를 �
           sauna: clayPresets.light,
         },
       },
-      giraffes: [{ ...giraffe, motion: null }],
+      characters: [{ ...character, model: 'riragi', motion: null }],
     }),
     catalog,
   )
   assert.deepEqual(data.defaults.clay.objects, medium)
-  assert.equal(data.giraffes[0].motion, null)
+  assert.equal(data.characters[0].motion, null)
+  assert.equal(data.characters[0].model, 'riragi')
   // An override wins; otherwise the object's own kind decides.
   assert.deepEqual(clayFor(data, 'bench', 'objects'), CLAY_ORIGINAL)
-  assert.deepEqual(clayFor(data, 'tall', 'giraffes'), clayPresets.strong)
+  assert.deepEqual(clayFor(data, 'tall', 'characters'), clayPresets.strong)
   assert.deepEqual(clayFor(data, 'sauna', 'world'), clayPresets.light)
   assert.deepEqual(clayFor(data, 'sports', 'world'), clayPresets.strong)
   assert.deepEqual(clayFor(data, 'other', 'objects'), medium)
-  assert.deepEqual(clayFor(data, 'other', 'giraffes'), CLAY_ORIGINAL)
+  assert.deepEqual(clayFor(data, 'other', 'characters'), CLAY_ORIGINAL)
   // A draft saved with one value for everything applies it to every kind.
   const old = validate(draft({ defaults: { clay: medium } }), catalog)
-  for (const scope of ['world', 'objects', 'giraffes'])
+  for (const scope of ['world', 'objects', 'characters'])
     assert.deepEqual(clayFor(old, 'x', scope), medium)
+  // Drafts saved while characters were called giraffes.
+  const named = validate(
+    draft({
+      defaults: {
+        clay: { giraffes: clayPresets.light },
+        giraffe: { speed: 2 },
+      },
+      giraffes: [character],
+    }),
+    catalog,
+  )
+  assert.equal(named.characters[0].id, 'tall')
+  assert.equal(named.defaults.character.speed, 2)
+  assert.deepEqual(clayFor(named, 'tall', 'characters'), clayPresets.light)
+  assert.equal('giraffes' in named, false)
   assert.equal(clayPresetOf(medium), 'medium')
   assert.equal(clayPresetOf({ ...medium, width: 51 }), 'custom')
 })
@@ -126,10 +142,11 @@ test('사라진 개체의 덮어쓰기는 남기지 않고 잘못된 값은 거�
   assert.equal(data.overrides, undefined)
   for (const bad of [
     { defaults: { clay: { strength: 120, depth: 0, width: 50 } } },
-    { giraffes: [{ ...giraffe, room: 'nowhere' }] },
-    { giraffes: [{ ...giraffe, id: 'bench' }] },
-    { giraffes: [{ ...giraffe, motion: 'walk' }] },
-    { giraffes: [{ ...giraffe, speed: 9 }] },
+    { characters: [{ ...character, room: 'nowhere' }] },
+    { characters: [{ ...character, id: 'bench' }] },
+    { characters: [{ ...character, motion: 'walk' }] },
+    { characters: [{ ...character, speed: 9 }] },
+    { characters: [{ ...character, model: '../library' }] },
   ])
     assert.throws(() => validate(draft(bad), catalog))
 })
@@ -167,26 +184,36 @@ test('방 표면 점토는 바닥을 평평하게 두고 벽은 면을 따라 �
   assert.deepEqual(clayPositions(wall, field, CLAY_ORIGINAL, side), wall)
 })
 
-test('기린 자료실은 리깅 모델과 맞는 동작만 받는다', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'giraffes-'))
-  const library = giraffeLibrary(dir)
+test('캐릭터 자료실은 여러 리깅 모델과 맞는 동작만 받는다', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'characters-'))
+  const library = characterLibrary(dir, { builtin: path.join(dir, 'none.glb') })
   await assert.rejects(
-    library.setModel(await giraffeMotion('Walk'), '뼈대 없음'),
+    library.addModel(await giraffeMotion('Walk'), '뼈대 없음'),
     /리깅된 모델이 아닙니다/,
   )
-  const model = await library.setModel(await riggedGiraffe(), '기린.glb')
-  assert.equal(model.model.joints, 3)
+  const first = await library.addModel(await riggedGiraffe(), '기린.glb')
+  const model = first.library.models[0]
+  assert.equal(model.id, first.id)
+  assert.equal(model.joints, 3)
+  assert.equal(first.library.fallback, model.id)
   // Actions exported with the model are listed as its first motion file.
-  assert.equal(model.motions[0].id, model.model.id)
-  assert.equal(model.motions[0].clips[0].name, 'Idle')
+  assert.equal(first.library.motions[0].id, model.id)
+  assert.equal(first.library.motions[0].clips[0].name, 'Idle')
+  // A second skeleton with other joint names is a model of its own.
+  const other = await library.addModel(
+    await riggedGiraffe({ names: ['A', 'B', 'C'] }),
+    '다른 캐릭터',
+  )
+  assert.equal(other.library.models.length, 2)
   const added = await library.addMotion(await giraffeMotion('Walk'), '걷기')
   const walk = added.motions.find((m) => m.name === '걷기')
   assert.equal(walk.clips[0].name, 'Walk')
-  assert.equal(walk.matched, 1)
+  assert.equal(walk.matched[model.id], 1)
+  assert.equal(walk.matched[other.id], 0)
   assert.ok(walk.clips[0].duration > 0.9)
   await assert.rejects(
     library.addMotion(
-      await giraffeMotion('Wrong', { names: ['A', 'B', 'C'] }),
+      await giraffeMotion('Wrong', { names: ['X', 'Y', 'Z'] }),
       '다른 뼈대',
     ),
     /관절 이름과 맞는 동작이 없습니다/,
@@ -197,10 +224,56 @@ test('기린 자료실은 리깅 모델과 맞는 동작만 받는다', async ()
   )
   assert.ok(fs.existsSync(library.file(walk.id)))
   assert.equal(library.file('../library'), null)
+  const removed = await library.removeMotion(walk.id)
   assert.deepEqual(
-    library.removeMotion(walk.id).motions.map((m) => m.name),
-    ['기린.glb'],
+    removed.motions.map((m) => m.name),
+    ['다른 캐릭터', '기린.glb'],
   )
+  // Removing a model takes its embedded actions along.
+  const left = await library.removeModel(model.id)
+  assert.deepEqual(
+    left.models.map((m) => m.name),
+    ['다른 캐릭터'],
+  )
+  assert.equal(left.fallback, other.id)
+  await assert.rejects(library.removeModel('riragi'), /지울 수 없습니다/)
+})
+
+test('기린이라 부르던 자료실과 하나뿐이던 모델을 그대로 읽는다', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'world-'))
+  const legacy = path.join(base, 'giraffes')
+  fs.mkdirSync(legacy)
+  const model = { id: '0123456789abcdef', name: '옛 기린', joints: ['Root'] }
+  fs.writeFileSync(
+    path.join(legacy, 'library.json'),
+    JSON.stringify({ model, motions: [] }),
+  )
+  const library = characterLibrary(path.join(base, 'characters'), {
+    builtin: path.join(base, 'none.glb'),
+  })
+  const view = await library.list()
+  assert.equal(fs.existsSync(legacy), false)
+  assert.deepEqual(
+    view.models.map((m) => m.name),
+    ['옛 기린'],
+  )
+  assert.equal(view.fallback, model.id)
+})
+
+test('기본 리라지 기린은 자료실의 첫 모델이고 자기 동작을 함께 준다', async (t) => {
+  if (
+    !fs.existsSync(
+      'assets-source/characters/riragi-clay/riragi-giraffe-base.glb',
+    )
+  )
+    return t.skip('기본 기린 원본이 없습니다.')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'characters-'))
+  const view = await characterLibrary(dir).list()
+  assert.equal(view.models[0].id, 'riragi')
+  assert.equal(view.models[0].builtin, true)
+  assert.equal(view.fallback, 'riragi')
+  assert.equal(view.motions[0].clips[0].name, 'LookAround')
+  assert.ok(view.motions[0].matched.riragi > 0)
 })
 
 test('긴 모서리만 나누고 공유 모서리는 같은 점에서 나눠 틈이 없다', () => {
@@ -242,14 +315,36 @@ test('긴 모서리만 나누고 공유 모서리는 같은 점에서 나눠 틈
   }
 })
 
-test('같은 방의 기린 둘에 서로 다른 비율과 배치를 저장한다', async () => {
-  const { addGiraffe } = await import('../web/edit-ops.js')
+test('같은 방의 캐릭터 둘에 서로 다른 비율과 배치를 저장한다', async () => {
+  const { addCharacter, duplicateCharacter } =
+    await import('../web/edit-ops.js')
   const input = draft({})
-  const first = addGiraffe(input, { id: 'one', room: 'sauna' })
-  const second = addGiraffe(input, { id: 'two', room: 'sauna' })
+  const first = addCharacter(input, {
+    id: 'one',
+    room: 'sauna',
+    model: 'riragi',
+    name: '리라지 점토 기린',
+  })
+  const second = addCharacter(input, { id: 'two', room: 'sauna' })
+  assert.equal(first.label, '리라지 점토 기린 1')
+  assert.equal(second.label, '캐릭터 1')
+  assert.equal(second.model, undefined)
   first.proportions = { neck: 1.4, head: 0.8, legs: 1.1, body: 0.85 }
   assert.notDeepEqual(first.position, second.position)
-  const saved = validate(input, catalog).giraffes
+  const copy = duplicateCharacter(input, 'one', 'three')
+  assert.equal(copy.label, '리라지 점토 기린 2')
+  assert.equal(copy.model, 'riragi')
+  assert.ok(
+    [first, second].every(
+      (c) =>
+        Math.hypot(
+          c.position[0] - copy.position[0],
+          c.position[2] - copy.position[2],
+        ) >= 1.5,
+    ),
+  )
+  input.characters.pop()
+  const saved = validate(input, catalog).characters
   assert.deepEqual(saved[0].proportions, first.proportions)
   assert.equal(saved[1].proportions, undefined)
   first.proportions.neck = 1.5

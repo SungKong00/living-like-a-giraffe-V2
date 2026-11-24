@@ -206,6 +206,61 @@ export function Chip(props) {
   )
 }
 
+/**
+ * Files kept in a library (a model, a motion): one row each with an icon,
+ * the name, a detail line and an optional delete button. `empty` shows when
+ * there are none.
+ */
+export function FileList(props) {
+  const o = options('FileList', props, {
+    label: is.string().required,
+    items: is.array().required,
+    empty: is.string('파일이 없습니다.'),
+  })
+  if (!o.items.length) return el('p', { class: 'ui-file-list__empty' }, o.empty)
+  return el(
+    'ul',
+    { class: 'ui-file-list', 'aria-label': o.label },
+    ...o.items.map((item) => {
+      const i = options('FileList.item', item, {
+        name: is.string().required,
+        icon: is.string().required,
+        detail: is.string(),
+        removeLabel: is.string(),
+        onRemove: is.func(),
+        key: is.string(),
+      })
+      invariant(
+        !i.onRemove || i.removeLabel,
+        'FileList',
+        'onRemove에는 removeLabel이 필요합니다.',
+      )
+      return el(
+        'li',
+        { class: 'ui-file-list__item' },
+        Icon(i.icon, 'sm'),
+        el(
+          'span',
+          { class: 'ui-file-list__text' },
+          el('span', { class: 'ui-file-list__name' }, i.name),
+          i.detail
+            ? el('span', { class: 'ui-file-list__detail' }, i.detail)
+            : null,
+        ),
+        i.onRemove
+          ? IconButton({
+              icon: 'delete',
+              label: i.removeLabel,
+              size: 'sm',
+              key: i.key,
+              onClick: i.onRemove,
+            })
+          : null,
+      )
+    }),
+  )
+}
+
 export function ChipList(children) {
   return el('div', { class: 'ui-chip-list' }, ...children)
 }

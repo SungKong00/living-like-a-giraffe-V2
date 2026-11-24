@@ -90,29 +90,36 @@ const clay = z.strictObject({
   width: percent,
 })
 // One default per kind of thing: the rooms' own geometry, movable furniture
-// and giraffes. Drafts saved before the split held a single value for all.
+// and characters. Drafts saved before the split held a single value for all.
 const clayDefaults = z.union([
-  clay.transform((v) => ({ world: v, objects: v, giraffes: v })),
+  clay.transform((v) => ({ world: v, objects: v, characters: v })),
   z.strictObject({
     world: clay.optional(),
     objects: clay.optional(),
-    giraffes: clay.optional(),
+    characters: clay.optional(),
   }),
 ])
+// A library file: an uploaded file's content hash or the bundled model.
+const fileId = '(?:[a-f0-9]{16}|riragi)'
 // `동작파일ID/클립이름`; null means "standing still" when it overrides.
 const motion = z
   .string()
   .min(3)
   .max(200)
-  .regex(/^[a-f0-9]{16}\/.+$/s)
+  .regex(new RegExp('^' + fileId + '\\/.+$', 's'))
   .nullable()
 const speed = z.number().min(0.1).max(3)
-// Giraffes never round-trip through Blender, so their own motion and speed
-// overrides live on the giraffe. A missing field follows defaults.giraffe.
-const giraffe = z.strictObject({
+// Characters never round-trip through Blender, so their own motion and speed
+// overrides live on the character. A missing field follows
+// defaults.character; a missing model shows the library's fallback model.
+const character = z.strictObject({
   id,
   room: id,
   label: title,
+  model: z
+    .string()
+    .regex(new RegExp('^' + fileId + '$'))
+    .optional(),
   position: vector,
   yaw: z.number().min(-360).max(360),
   scale: z.number().min(0.1).max(5),
@@ -142,7 +149,7 @@ const layout = z.strictObject({
           hatch: percent.optional(),
         })
         .optional(),
-      giraffe: z
+      character: z
         .strictObject({ motion: motion.optional(), speed: speed.optional() })
         .optional(),
     })
@@ -150,7 +157,7 @@ const layout = z.strictObject({
   // Per-object overrides kept apart from items: furniture fields are merged
   // key by key with Blender, and a separate map survives that untouched.
   overrides: z.strictObject({ clay: z.record(id, clay).optional() }).optional(),
-  giraffes: z.array(giraffe).max(50).optional(),
+  characters: z.array(character).max(50).optional(),
   sourceLights: z.array(sourceEdit).optional(),
   lights: studioLights.optional(),
   items: z.array(item).max(500),
@@ -158,8 +165,35 @@ const layout = z.strictObject({
   pages: z.array(page).max(500),
 })
 
+/**
+ * Reads drafts saved while characters were called giraffes: `giraffes`,
+ * `defaults.giraffe` and the `giraffes` clay default move to their new names.
+ * Returns a new layout; anything else is left as it is.
+ */
+export function migrate(input) {
+  if (!input || typeof input !== 'object') return input
+  const out = { ...input }
+  if ('giraffes' in out) {
+    out.characters ??= out.giraffes
+    delete out.giraffes
+  }
+  if (out.defaults && typeof out.defaults === 'object') {
+    const defaults = (out.defaults = { ...out.defaults })
+    if ('giraffe' in defaults) {
+      defaults.character ??= defaults.giraffe
+      delete defaults.giraffe
+    }
+    const clay = defaults.clay
+    if (clay && typeof clay === 'object' && 'giraffes' in clay) {
+      const { giraffes, ...rest } = clay
+      defaults.clay = { ...rest, characters: rest.characters ?? giraffes }
+    }
+  }
+  return out
+}
+
 export function validate(input, catalog) {
-  const data = layout.parse(input)
+  const data = layout.parse(migrate(input))
   if (data.sourceLights) {
     const originals = new Map(
       (catalog.sourceLights ?? []).map((l) => [l.id, l]),
@@ -178,10 +212,10 @@ export function validate(input, catalog) {
   const rooms = catalog.rooms.map((r) => r.id)
   const kinds = new Set(catalog.items.map((i) => i.kind))
   const ids = [...rooms, ...data.items.map((i) => i.id)]
-  const giraffeIds = (data.giraffes ?? []).map((g) => g.id)
+  const characterIds = (data.characters ?? []).map((g) => g.id)
   const pages = data.pages.map((p) => p.id)
   for (const keys of [
-    [...ids, ...giraffeIds],
+    [...ids, ...characterIds],
     pages,
     (data.lights ?? []).map((l) => l.id),
     data.spots.map((s) => s.id),
@@ -209,14 +243,14 @@ export function validate(input, catalog) {
     if (original && original.kind !== i.kind)
       throw Error(i.label + '의 모델 종류를 변경할 수 없습니다.')
   }
-  for (const g of data.giraffes ?? [])
+  for (const g of data.characters ?? [])
     if (!rooms.includes(g.room)) throw Error(g.label + '의 방을 확인하세요.')
   // An object removed here or by a Blender handoff takes its overrides along.
   if (data.overrides?.clay) {
     const owners = new Set([
       ...rooms,
       ...data.items.map((i) => i.id),
-      ...giraffeIds,
+      ...characterIds,
     ])
     for (const key of Object.keys(data.overrides.clay))
       if (!owners.has(key)) delete data.overrides.clay[key]
@@ -224,7 +258,7 @@ export function validate(input, catalog) {
   }
   if (data.overrides && !Object.keys(data.overrides).length)
     delete data.overrides
-  if (data.giraffes && !data.giraffes.length) delete data.giraffes
+  if (data.characters && !data.characters.length) delete data.characters
   for (const s of data.spots)
     if (
       !ids.includes(s.anchor) ||

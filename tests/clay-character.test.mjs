@@ -75,7 +75,7 @@ test('점토 강하게에서도 얼굴 부속은 제자리에 있고 몸통은 �
   const field = clayField(
     getBounds(root.listScenes()[0]),
     'studio-test',
-    'giraffes',
+    'characters',
   )
   const nodes = new Map(root.listNodes().map((node) => [node.getName(), node]))
   function displacement(name) {

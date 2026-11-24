@@ -122,48 +122,68 @@ export function setDefault(layout, scope, key, value) {
   if (!Object.keys(layout.defaults).length) delete layout.defaults
 }
 
-// ---- Giraffes ----
-export function addGiraffe(layout, { id, room, position }) {
-  // Place another giraffe beside its neighbours, keeping the first at the room origin.
-  if (!position) {
-    const neighbours = (layout.giraffes ?? []).filter((g) => g.room === room)
-    let slot = 0
-    do {
-      const column = slot % 7
-      const x = (column % 2 ? 1 : -1) * Math.ceil(column / 2) * 2
-      position = [x || 0, 0, 2 * Math.floor(slot / 7)]
-      slot++
-    } while (
-      neighbours.some(
-        (g) =>
-          Math.hypot(g.position[0] - position[0], g.position[2] - position[2]) <
+// ---- Characters ----
+/** A free spot beside the room's other characters; the first at the origin. */
+export function freeSpot(layout, room) {
+  const neighbours = (layout.characters ?? []).filter((c) => c.room === room)
+  for (let slot = 0; ; slot++) {
+    const column = slot % 7
+    const x = (column % 2 ? 1 : -1) * Math.ceil(column / 2) * 2
+    const position = [x || 0, 0, 2 * Math.floor(slot / 7)]
+    if (
+      !neighbours.some(
+        (c) =>
+          Math.hypot(c.position[0] - position[0], c.position[2] - position[2]) <
           1.5,
       )
     )
+      return position
   }
-  const taken = new Set((layout.giraffes ?? []).map((g) => g.label))
+}
+/** Next free `name N` label, e.g. 리라지 점토 기린 2. */
+function nextLabel(layout, name) {
+  const taken = new Set((layout.characters ?? []).map((c) => c.label))
   let n = 1
-  while (taken.has('기린 ' + n)) n++
-  const giraffe = {
+  while (taken.has(name + ' ' + n)) n++
+  return (name + ' ' + n).slice(0, 120)
+}
+export function addCharacter(
+  layout,
+  { id, room, model, name = '캐릭터', position = freeSpot(layout, room) },
+) {
+  const character = {
     id,
     room,
-    label: '기린 ' + n,
+    label: nextLabel(layout, name),
+    ...(model ? { model } : {}),
     position,
     yaw: 0,
     scale: 1,
   }
-  ;(layout.giraffes ??= []).push(giraffe)
-  return giraffe
+  ;(layout.characters ??= []).push(character)
+  return character
 }
-export function deleteGiraffe(layout, id) {
-  layout.giraffes = (layout.giraffes ?? []).filter((g) => g.id !== id)
-  if (!layout.giraffes.length) delete layout.giraffes
+/** A copy beside the original with its own clay override, if any. */
+export function duplicateCharacter(layout, id, next) {
+  const source = find(layout, 'characters', id)
+  const copy = structuredClone(source)
+  copy.id = next
+  copy.label = nextLabel(layout, source.label.replace(/ \d+$/, ''))
+  copy.position = freeSpot(layout, source.room)
+  layout.characters.push(copy)
+  const clay = layout.overrides?.clay?.[id]
+  if (clay) setClay(layout, next, clay)
+  return copy
+}
+export function deleteCharacter(layout, id) {
+  layout.characters = (layout.characters ?? []).filter((c) => c.id !== id)
+  if (!layout.characters.length) delete layout.characters
   setClay(layout, id, null)
 }
-/** Clears a giraffe's own value so it follows the world default again. */
-export function inheritGiraffe(layout, id, key) {
-  const g = find(layout, 'giraffes', id)
-  if (g) delete g[key]
+/** Clears a character's own value so it follows the world default again. */
+export function inheritCharacter(layout, id, key) {
+  const c = find(layout, 'characters', id)
+  if (c) delete c[key]
 }
 
 export function deleteSpot(layout, id) {

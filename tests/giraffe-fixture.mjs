@@ -56,10 +56,10 @@ function animate(doc, buffer, name, node, axis) {
     )
 }
 
-export async function riggedGiraffe() {
+export async function riggedGiraffe({ names } = {}) {
   const doc = new Document()
   const buffer = doc.createBuffer()
-  const [root, neck, head] = chain(doc)
+  const [root, neck, head] = chain(doc, names)
   // A box from the floor to 4.5m; the top half follows the neck and head.
   const w = 0.5
   const box = []

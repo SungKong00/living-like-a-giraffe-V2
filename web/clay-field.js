@@ -27,12 +27,12 @@ export function clayPresetOf(settings) {
 
 // Each kind of thing has its own world-wide default. 'world' is the rooms'
 // own geometry (floors, walls, fixed props), 'objects' the movable furniture,
-// 'giraffes' the characters. An object's override wins over its kind's
+// 'characters' the characters. An object's override wins over its kind's
 // default.
 export const clayScopes = Object.freeze({
   world: { label: '월드', hint: '방의 바닥·벽·고정 소품' },
   objects: { label: '오브젝트', hint: '옮길 수 있는 가구' },
-  giraffes: { label: '기린', hint: '기린 캐릭터' },
+  characters: { label: '캐릭터', hint: '배치한 캐릭터' },
 })
 
 /** Defaults per scope. Drafts saved before scopes existed held one value. */
@@ -40,7 +40,12 @@ export function clayDefaults(layout) {
   const stored = layout.defaults?.clay
   if (!stored) return {}
   if ('strength' in stored)
-    return { world: stored, objects: stored, giraffes: stored }
+    return { world: stored, objects: stored, characters: stored }
+  // Saved while characters were called giraffes.
+  if ('giraffes' in stored) {
+    const { giraffes, ...rest } = stored
+    return { ...rest, characters: rest.characters ?? giraffes }
+  }
   return stored
 }
 
@@ -156,7 +161,7 @@ export function clayField(bounds, seed, scope = 'objects') {
     // Keep the base on the floor: displacement grows away from the bottom.
     const lifted = Math.max(0, y - y0)
     const head =
-      scope === 'giraffes'
+      scope === 'characters'
         ? giraffeClayInfluence(lifted / Math.max(size[1], 0.01))
         : 1
     const grounded =

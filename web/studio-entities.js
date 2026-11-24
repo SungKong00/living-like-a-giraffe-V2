@@ -2,7 +2,7 @@
 // A type says how to find its row in the draft, what to call it, which
 // icon to show and which scope it belongs to. The outline, breadcrumbs,
 // selection checks and inspectors all read this table, so a new kind of object
-// (a giraffe, say) is one more entry here plus its inspector — no new `if`
+// (a character, say) is one more entry here plus its inspector — no new `if`
 // chains through the studio.
 //
 // Scopes nest: 월드 › 방 › 가구 › 클릭 영역. A value set on a wider scope is
@@ -37,10 +37,10 @@ export const entityTypes = Object.freeze({
     parent: (i) => ({ type: 'room', id: i.room }),
     removable: true,
   },
-  giraffe: {
-    noun: '기린',
-    icon: () => 'giraffe',
-    find: (s, id) => (s.layout.giraffes ?? []).find((g) => g.id === id),
+  character: {
+    noun: '캐릭터',
+    icon: () => 'character',
+    find: (s, id) => (s.layout.characters ?? []).find((c) => c.id === id),
     name: (g) => g.label,
     parent: (g) => ({ type: 'room', id: g.room }),
     removable: true,

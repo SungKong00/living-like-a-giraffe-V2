@@ -19,7 +19,7 @@
 | `web/views/site.css`    | 관람 화면 배치                                                               |
 | `web/views/studio.css`  | 스튜디오 배치. 스튜디오 청크에만 실린다                                      |
 | `web/style.css`         | CSS 층 순서와 진입점                                                         |
-| `web/public/brand/`     | `Brand`와 파비콘·홈 화면 아이콘에 쓰는 기린 로고 이미지                    |
+| `web/public/brand/`     | `Brand`와 파비콘·홈 화면 아이콘에 쓰는 기린 로고 이미지                      |
 
 CSS 층 순서는 `reset → tokens → base → components → views`다. 뒤 층이 선택자 우선순위와 상관없이 이기므로 `!important`를 쓰지 않는다.
 
@@ -51,9 +51,10 @@ CSS 층 순서는 `reset → tokens → base → components → views`다. 뒤 �
 | `ButtonGroup`                                                                                 | 관련 버튼 묶음                                                                                   | `label`, `attached`                                                                                                      |
 | `TextInput`, `TextArea`                                                                       | 글 입력. 나갈 때 저장, Enter·Esc 처리, 검증 오류 표시                                            | `label`, `value`, `validate`, `onCommit`, `appearance: 'title'`(제목처럼 보이는 입력)                                    |
 | `NumberInput`, `Slider`                                                                       | 숫자. 슬라이더는 끄는 동안 `onInput`, 놓을 때 `onCommit`                                         | `prefix`(X·Y·Z), `min`, `max`, `step`, `format`                                                                          |
-| `Select`, `Segmented`, `SwatchPicker`, `Toggle`, `RadioCards`                                 | 선택. 5개 이하 짧은 선택은 `Segmented`, 많으면 `Select`, 설명이 필요한 둘 중 하나는 `RadioCards` | `options: [{ value, label }]`, 작은 선택은 `Segmented.size: 'sm'`, 패널 재구성 뒤 스위치 포커스 유지는 `Toggle.key`                              |
+| `Select`, `Segmented`, `SwatchPicker`, `Toggle`, `RadioCards`                                 | 선택. 5개 이하 짧은 선택은 `Segmented`, 많으면 `Select`, 설명이 필요한 둘 중 하나는 `RadioCards` | `options: [{ value, label }]`, 작은 선택은 `Segmented.size: 'sm'`, 패널 재구성 뒤 스위치 포커스 유지는 `Toggle.key`      |
 | `Field`                                                                                       | 보이는 라벨이 필요한 글 입력(로그인 등)                                                          | `label`, `control`                                                                                                       |
 | `FileButton`                                                                                  | 파일 하나를 골라 올리는 버튼. 숨긴 파일 입력을 열고 고른 뒤 비운다                               | `label`, `accept`(필수), `onFile`, `variant`, `size`                                                                     |
+| `FileList`                                                                                    | 자료실에 올린 파일 목록. 행마다 아이콘·이름·설명 한 줄, 지울 수 있으면 삭제 버튼                 | `label`, `items: [{ name, icon, detail, removeLabel, onRemove }]`, `empty`                                               |
 | `Tabs`, `NavLinks`, `TreeItem`                                                                | 탐색                                                                                             |                                                                                                                          |
 | `Breadcrumbs`                                                                                 | 선택 대상이 속한 범위(월드 › 방 › 가구). 마지막 항목이 현재 대상이고, 앞 항목은 그 범위를 연다   | `label`, `items: [{ label, icon, onSelect }]`                                                                            |
 | `GlassHeading`, `ObjectPreview`                                                               | 장면 위 반투명 제목, 선택한 3D 대상의 읽기 전용 보기                                             | `text`, `label`                                                                                                          |

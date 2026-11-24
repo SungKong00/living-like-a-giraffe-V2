@@ -69,7 +69,7 @@ const glyphs = Object.freeze({
   external: ArrowUpRight,
   fit: Scan,
   furniture: Armchair,
-  giraffe: PawPrint,
+  character: PawPrint,
   handoff: ArrowLeftRight,
   info: Info,
   key: KeyRound,

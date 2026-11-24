@@ -5,10 +5,11 @@ import { timingSafeEqual, createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { WorldStore, conflict } from './store.mjs'
 import { buildDir, root, modelDir, catalog } from './world-files.mjs'
+import { migrate } from './layout.mjs'
 import { cachedLighting } from './baked-lighting.mjs'
 import { Jobs } from './jobs.mjs'
 import { StudioSessions, sessionLifetime } from './studio-sessions.mjs'
-import { giraffeLibrary } from './giraffes.mjs'
+import { characterLibrary } from './characters.mjs'
 // A second server must never race the first writer's atomic state-file swaps.
 if (!fs.existsSync(modelDir('initial')))
   throw Error('npm run prepare:world를 먼저 실행하세요.')
@@ -75,7 +76,7 @@ function editorView(snap) {
   const model = catalog(snap.model)
   return {
     id: snap.id,
-    layout: snap.layout,
+    layout: migrate(snap.layout),
     rooms: model.rooms,
     render: 'editor',
     options: model.options,
@@ -142,25 +143,34 @@ app.get('/api/admin/model/:id', async (req, res) => {
     dotfiles: 'allow',
   })
 })
-// ---- Giraffe library: one rigged model and motion files for its skeleton.
-const giraffes = giraffeLibrary()
+// ---- Character library: rigged models and motion files for their skeletons.
+const characters = characterLibrary()
 const glb = express.raw({ type: 'application/octet-stream', limit: '120mb' })
 const fileName = (req, fallback) =>
   String(req.query.name || fallback).replace(/\.glb$/i, '')
-app.get('/api/admin/giraffes', (req, res) => res.json(giraffes.list()))
-app.put('/api/admin/giraffes/model', glb, async (req, res) => {
-  if (!Buffer.isBuffer(req.body)) return res.sendStatus(415)
-  res.json(await giraffes.setModel(req.body, fileName(req, '기린 모델')))
-})
-app.post('/api/admin/giraffes/motions', glb, async (req, res) => {
-  if (!Buffer.isBuffer(req.body)) return res.sendStatus(415)
-  res.json(await giraffes.addMotion(req.body, fileName(req, '동작')))
-})
-app.delete('/api/admin/giraffes/motions/:id', (req, res) =>
-  res.json(giraffes.removeMotion(req.params.id)),
+const glbBody = (req, res) => {
+  if (Buffer.isBuffer(req.body)) return true
+  res.sendStatus(415)
+}
+app.get('/api/admin/characters', async (req, res) =>
+  res.json(await characters.list()),
 )
-app.get('/api/admin/giraffes/files/:file', (req, res) => {
-  const file = giraffes.file(req.params.file.replace(/\.glb$/, ''))
+app.post('/api/admin/characters/models', glb, async (req, res) => {
+  if (glbBody(req, res))
+    res.json(await characters.addModel(req.body, fileName(req, '캐릭터 모델')))
+})
+app.delete('/api/admin/characters/models/:id', async (req, res) =>
+  res.json(await characters.removeModel(req.params.id)),
+)
+app.post('/api/admin/characters/motions', glb, async (req, res) => {
+  if (glbBody(req, res))
+    res.json(await characters.addMotion(req.body, fileName(req, '동작')))
+})
+app.delete('/api/admin/characters/motions/:id', async (req, res) =>
+  res.json(await characters.removeMotion(req.params.id)),
+)
+app.get('/api/admin/characters/files/:file', (req, res) => {
+  const file = characters.file(req.params.file.replace(/\.glb$/, ''))
   if (!file) return res.sendStatus(404)
   res.type('model/gltf-binary').sendFile(file, { dotfiles: 'allow' })
 })

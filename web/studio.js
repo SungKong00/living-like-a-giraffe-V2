@@ -40,7 +40,11 @@ import { attachCanvas } from './studio-canvas.js'
 import { publishControl } from './studio-publish.js'
 import { openHandoff } from './studio-handoff.js'
 import * as ops from './edit-ops.js'
-import { giraffeLayer, giraffeMotion } from './studio-giraffes.js'
+import {
+  characterLayer,
+  characterModel,
+  characterMotion,
+} from './studio-characters.js'
 import { clayLayer } from './studio-clay-layer.js'
 import { clayDefaults } from './clay-field.js'
 
@@ -195,25 +199,25 @@ export async function studio() {
     addressing: null,
     lightPick: null,
     lightTool: 'move',
-    // Giraffe waiting for a floor click to set its position.
-    giraffePick: null,
+    // Character following the pointer until a floor click places it.
+    placing: null,
     // Which clay sections show their detail sliders, by section key.
     clayDetail: {},
   }
-  // Rigged model and motion files shared by every giraffe.
-  let giraffeLibrary = saved.giraffes ?? { model: null, motions: [] }
-  let herd = null
+  // Rigged models and motion files shared by every character.
+  let characterLibrary = { models: [], motions: [], fallback: null }
+  let cast = null
   const clay = clayLayer()
   // Scene parts drawn by the studio itself rather than by scene.js.
   // `moving`: a slider is still being dragged. Rooms are large, so their
   // clay waits for the release.
   function refreshScene({ moving = false } = {}) {
     if (!world) return
-    herd?.update(shown)
+    cast?.update(shown)
     const owned = new Set(world.instances.values())
-    const giraffeRoots = (shown.giraffes ?? []).map((g) => herd?.root(g.id))
-    for (const root of giraffeRoots) if (root) owned.add(root)
-    // A room's own meshes: not furniture, giraffes, hidden template copies or
+    const characterRoots = (shown.characters ?? []).map((c) => cast?.root(c.id))
+    for (const root of characterRoots) if (root) owned.add(root)
+    // A room's own meshes: not furniture, characters, hidden template copies or
     // editor helpers (which are not pickable).
     const ownGeometry = (room) => () =>
       room.getChildMeshes(false).filter((mesh) => {
@@ -238,11 +242,11 @@ export async function studio() {
           scope: 'objects',
           meshes: subtree(root),
         })),
-        ...(shown.giraffes ?? []).map((g, i) => ({
-          id: g.id,
-          root: giraffeRoots[i],
-          scope: 'giraffes',
-          meshes: subtree(giraffeRoots[i] ?? world.scene),
+        ...(shown.characters ?? []).map((c, i) => ({
+          id: c.id,
+          root: characterRoots[i],
+          scope: 'characters',
+          meshes: subtree(characterRoots[i] ?? world.scene),
         })),
       ],
       { skip: moving ? new Set(['world']) : undefined },
@@ -536,7 +540,7 @@ export async function studio() {
     if (selection && !entities.exists(selection)) {
       selection = null
       setLightPick(null)
-      ui.giraffePick = null
+      setPlacing(null)
     }
     render()
   }
@@ -570,7 +574,7 @@ export async function studio() {
   }
   function select(sel, { frame = false } = {}) {
     setLightPick(null)
-    setGiraffePick(null)
+    setPlacing(null)
     if (selection?.id !== sel?.id || selection?.type !== sel?.type) {
       canvas?.cancel()
       ui.lightTool = 'move'
@@ -580,8 +584,8 @@ export async function studio() {
     if (sel?.type === 'page') ui.tab = 'pages'
     else if (sel) ui.tab = 'scene'
     if (frame && sel?.type === 'world') world?.selectRoom(null)
-    else if (frame && sel?.type === 'giraffe') {
-      const at = herd?.root(sel.id)?.getAbsolutePosition()
+    else if (frame && sel?.type === 'character') {
+      const at = cast?.root(sel.id)?.getAbsolutePosition()
       if (at) world.look(at, Math.max(world.zoomLevel, 3))
     } else if (frame && sel) canvas?.frame(sel)
     render()
@@ -592,7 +596,18 @@ export async function studio() {
   const targetRoom = () => entities.roomOf(selection) || rooms[0].id
   const roomName = (id) => rooms.find((r) => r.id === id)?.label || id
 
+  const selectedCharacter = () =>
+    selection?.type === 'character' &&
+    ops.find(shown, 'characters', selection.id)
   function duplicate(id = selectedItem()?.id) {
+    const character = !id && selectedCharacter()
+    if (character) {
+      const copy = newId()
+      change((d) => ops.duplicateCharacter(d, character.id, copy))
+      select({ type: 'character', id: copy })
+      notify('복제했습니다. 끌어서 원하는 곳에 놓으세요.')
+      return
+    }
     if (!id) return
     const copy = newId()
     change((d) => ops.duplicateItem(d, id, copy))
@@ -618,14 +633,15 @@ export async function studio() {
     } else if (selection?.type === 'spot') {
       change((d) => ops.deleteSpot(d, selection.id))
       notify('클릭 영역을 삭제했습니다.', true)
-    } else if (selection?.type === 'giraffe') {
-      change((d) => ops.deleteGiraffe(d, selection.id))
-      notify('기린을 삭제했습니다.', true)
+    } else if (selection?.type === 'character') {
+      const label = selectedCharacter().label
+      change((d) => ops.deleteCharacter(d, selection.id))
+      notify(label + ' 삭제', true)
     } else if (selection?.type === 'page') removePage(selection.id)
   }
 
-  // ---- Clay and giraffes ----
-  // One default per scope: 'world' (rooms), 'objects', 'giraffes'.
+  // ---- Clay and characters ----
+  // One default per scope: 'world' (rooms), 'objects', 'characters'.
   function setWorldClay(scope, settings, temporary = false) {
     const edit = (d) => {
       // Older drafts kept one value for every scope; split it first.
@@ -639,74 +655,113 @@ export async function studio() {
     const edit = (d) => ops.setClay(d, id, settings)
     temporary ? preview(edit) : change(edit)
   }
-  function setGiraffeDefault(key, value, temporary = false) {
-    const edit = (d) => ops.setDefault(d, 'giraffe', key, value)
+  function setCharacterDefault(key, value, temporary = false) {
+    const edit = (d) => ops.setDefault(d, 'character', key, value)
     temporary ? preview(edit) : change(edit)
   }
-  function inheritGiraffe(id, key) {
-    change((d) => ops.inheritGiraffe(d, id, key))
+  function inheritCharacter(id, key) {
+    change((d) => ops.inheritCharacter(d, id, key))
   }
-  function addGiraffe(room = targetRoom()) {
+  const modelName = (id) =>
+    characterLibrary.models.find((m) => m.id === id)?.name
+  // Adds a character of `model` and lets it follow the pointer until a
+  // click on a floor places it. Escape leaves it on the free spot it got.
+  function addCharacter(
+    model = characterLibrary.fallback,
+    room = targetRoom(),
+  ) {
     const id = newId()
     ui.collapsed.delete('room:' + room)
-    change((d) => ops.addGiraffe(d, { id, room }))
-    select({ type: 'giraffe', id }, { frame: true })
-    if (herd && !herd.rigged())
-      useLibrary(giraffeLibrary).catch((error) =>
-        fail('기린 모델을 열 수 없습니다 · ' + error.message),
-      )
+    change((d) =>
+      ops.addCharacter(d, {
+        id,
+        room,
+        model: model ?? undefined,
+        name: modelName(model) ?? '캐릭터',
+      }),
+    )
+    select({ type: 'character', id }, { frame: true })
+    setPlacing(id)
   }
-  function setGiraffePick(id) {
-    if (ui.giraffePick === id) return
-    ui.giraffePick = id
+  function setPlacing(id) {
+    if (ui.placing === id) return
+    // Leaving placement puts a character moved by the pointer back.
+    if (ui.placing && !id) cast?.update(shown)
+    ui.placing = id
     view.host.classList.toggle('is-placing-light', !!id)
     render()
   }
-  async function useLibrary(next) {
-    giraffeLibrary = next
+  // The floor point under the pointer as `{ room, position }`, or null.
+  function floorAt(at, c) {
+    const hit = world.floorPoint(at.x, at.y, c.room)
+    if (!hit) return null
+    const [x, , z] = hit.point
+    return {
+      room: hit.room,
+      position: [ops.round(x), c.position[1], ops.round(z)],
+    }
+  }
+  function useLibrary(next) {
+    characterLibrary = next
+    cast?.setLibrary(next)
     outlineKey = inspectorKey = ''
-    render()
-    await herd?.useModel(next.model?.id ?? null)
     refreshScene()
-    inspectorKey = ''
     render()
     world?.wake()
   }
-  async function upload(path, method, file, done) {
+  async function upload(path, file, done) {
     try {
       const next = await api(
         path + '?name=' + encodeURIComponent(file.name),
-        method,
+        'POST',
         file,
       )
-      await useLibrary(next)
+      useLibrary(next.library ?? next)
       notify(done)
+      return next
     } catch (e) {
       fail(e.message)
     }
   }
-  const uploadGiraffeModel = (file) =>
-    upload('admin/giraffes/model', 'PUT', file, '기린 모델을 올렸습니다.')
-  const uploadMotion = (file) =>
-    upload(
-      'admin/giraffes/motions',
-      'POST',
+  // Uploads a model; `room` adds a character of it there afterwards.
+  async function uploadModel(file, { room } = {}) {
+    const next = await upload(
+      'admin/characters/models',
       file,
-      file.name + ' 동작을 올렸습니다.',
+      file.name + ' 모델을 올렸습니다.',
     )
-  async function removeMotion(id) {
-    const used = [shown.defaults?.giraffe, ...(shown.giraffes ?? [])].some(
-      (g) => g?.motion?.startsWith(id + '/'),
-    )
-    if (
-      used &&
-      !confirm(
-        '이 동작 파일을 쓰는 기린이 있습니다. 삭제하면 그 기린은 멈춥니다. 계속할까요?',
-      )
-    )
-      return
+    if (next && room) addCharacter(next.id, room)
+  }
+  // The add menu cannot hold a file input, so it opens a picker of its own.
+  function chooseModelFile(room) {
+    const input = el('input', {
+      type: 'file',
+      accept: '.glb,model/gltf-binary',
+    })
+    input.addEventListener('change', () => {
+      if (input.files[0]) uploadModel(input.files[0], { room })
+    })
+    input.click()
+  }
+  const uploadMotion = (file) =>
+    upload('admin/characters/motions', file, file.name + ' 동작을 올렸습니다.')
+  async function removeFile(kind, id) {
+    const characters = shown.characters ?? []
+    const users =
+      kind === 'models'
+        ? characters.filter((c) => characterModel(characterLibrary, c) === id)
+        : [shown.defaults?.character, ...characters].filter((c) =>
+            c?.motion?.startsWith(id + '/'),
+          )
+    const warning =
+      kind === 'models'
+        ? '이 모델을 쓰는 캐릭터 ' +
+          users.length +
+          '개는 자리 표시로 보입니다. 계속할까요?'
+        : '이 동작 파일을 쓰는 캐릭터가 있습니다. 삭제하면 그 캐릭터는 멈춥니다. 계속할까요?'
+    if (users.length && !confirm(warning)) return
     try {
-      await useLibrary(await api('admin/giraffes/motions/' + id, 'DELETE'))
+      useLibrary(await api('admin/characters/' + kind + '/' + id, 'DELETE'))
     } catch (e) {
       fail(e.message)
     }
@@ -729,6 +784,11 @@ export async function studio() {
     notify('페이지를 삭제했습니다.', true)
   }
   function rotate(deg, id = selectedItem()?.id) {
+    const character = !id && selectedCharacter()
+    if (character)
+      return patch('characters', character.id, {
+        yaw: ((((character.yaw + deg + 180) % 360) + 360) % 360) - 180,
+      })
     if (!id) return
     change((d) => {
       const i = ops.find(d, 'items', id)
@@ -736,11 +796,12 @@ export async function studio() {
     })
   }
   function nudge(key, step) {
-    const item = selectedItem()
+    const item = selectedItem() || selectedCharacter()
+    const list = selection.type === 'item' ? 'items' : 'characters'
     const axis = item && canvas?.screenAxis(item.room, key)
     if (!axis) return
     change((d) => {
-      const i = ops.find(d, 'items', item.id)
+      const i = ops.find(d, list, item.id)
       i.position = i.position.map((v, n) =>
         ops.clampPosition(v + axis[n] * step),
       )
@@ -893,11 +954,13 @@ export async function studio() {
     setLightPick,
     setLightTool,
     zoomRoom: (id) => world?.selectRoom(id),
-    get giraffeLibrary() {
-      return giraffeLibrary
+    get characterLibrary() {
+      return characterLibrary
     },
-    giraffeMotion: (g) => giraffeMotion(shown, g),
-    supportsProportions: (id) => herd?.supportsProportions(id),
+    characterMotion: (c) => characterMotion(shown, c),
+    characterModel: (c) => characterModel(characterLibrary, c),
+    characterState: (c) => cast?.state(shown, c) ?? 'loading',
+    supportsProportions: (id) => cast?.supportsProportions(id),
     setWorldClay,
     setClayMotion: (settings) =>
       change((d) => ops.setDefault(d, 'clayMotion', null, settings)),
@@ -906,21 +969,23 @@ export async function studio() {
       world?.setClayMotion(settings)
     },
     setClay,
-    setGiraffeDefault,
-    setGiraffeProportion(id, key, value, temporary = false) {
+    setCharacterDefault,
+    setCharacterProportion(id, key, value, temporary = false) {
       const edit = (layout) => {
-        const g = ops.find(layout, 'giraffes', id)
-        g.proportions ??= {}
-        g.proportions[key] = value
+        const c = ops.find(layout, 'characters', id)
+        c.proportions ??= {}
+        c.proportions[key] = value
       }
       temporary ? preview(edit) : change(edit)
     },
-    inheritGiraffe,
-    addGiraffe,
-    setGiraffePick,
-    uploadGiraffeModel,
+    inheritCharacter,
+    addCharacter,
+    setPlacing,
+    uploadModel,
+    chooseModelFile,
     uploadMotion,
-    removeMotion,
+    removeModel: (id) => removeFile('models', id),
+    removeMotion: (id) => removeFile('motions', id),
     renderOutline,
     renderInspector,
   })
@@ -950,7 +1015,7 @@ export async function studio() {
       ui.roomAddOpen,
       ui.addressing,
       ui.lightPick,
-      ui.giraffePick,
+      ui.placing,
       ui.clayDetail,
       ui.lightTool,
     ])
@@ -999,7 +1064,7 @@ export async function studio() {
       e.target.isContentEditable
     if (e.key === 'Escape') {
       if (ui.lightPick) return setLightPick(null)
-      if (ui.giraffePick) return setGiraffePick(null)
+      if (ui.placing) return setPlacing(null)
       if (canvas?.cancel()) return
       if (!typing) select(null)
       return
@@ -1031,7 +1096,10 @@ export async function studio() {
       if (selection) select(selection, { frame: true })
     } else if (e.key === '?') {
       help.toggle()
-    } else if (e.key.startsWith('Arrow') && selectedItem()) {
+    } else if (
+      e.key.startsWith('Arrow') &&
+      (selectedItem() || selectedCharacter())
+    ) {
       e.preventDefault()
       nudge(e.key, e.shiftKey ? 1 : ops.GRID)
     }
@@ -1065,20 +1133,37 @@ export async function studio() {
     snapping: () => snapping,
     select: (sel) => select(sel),
     toolbar: floating,
-    pickLightPoint(at) {
-      if (ui.giraffePick) {
-        const g = ops.find(shown, 'giraffes', ui.giraffePick)
-        const point = g && world.roomPoint(at.x, at.y, g.room)
-        if (!point) {
-          notify(roomName(g?.room) + '의 바닥을 클릭하세요.')
-          return true
-        }
-        setGiraffePick(null)
-        patch('giraffes', g.id, {
-          position: [ops.round(point[0]), g.position[1], ops.round(point[2])],
-        })
-        return true
+    // Placement: the character follows the pointer; a click drops it.
+    placing: () => ui.placing,
+    placeHover(at) {
+      const c = ops.find(shown, 'characters', ui.placing)
+      const spot = c && floorAt(at, c)
+      const root = c && cast?.root(c.id)
+      if (!spot || !root) return
+      root.parent = world.rooms.get(spot.room)
+      root.position.set(...spot.position)
+      world.wake()
+    },
+    place(at) {
+      const c = ops.find(shown, 'characters', ui.placing)
+      const spot = c && floorAt(at, c)
+      if (!spot) {
+        notify('방의 바닥을 클릭하세요.')
+        return
       }
+      setPlacing(null)
+      patch('characters', c.id, spot)
+      if (spot.room !== c.room)
+        notify(roomName(spot.room) + '(으)로 옮겼습니다.', true)
+    },
+    characterRoot: (id) => cast?.root(id),
+    character: (id) => ops.find(shown, 'characters', id),
+    commitCharacter(id, values) {
+      patch('characters', id, values)
+      if (values.room)
+        notify(roomName(values.room) + '(으)로 옮겼습니다.', true)
+    },
+    pickLightPoint(at) {
       if (!ui.lightPick) return false
       const light = selection?.type === 'light' && lightById(selection.id)
       if (!light) {
@@ -1158,14 +1243,20 @@ export async function studio() {
     throw e
   }
   world.update(shown)
-  herd = giraffeLayer(world)
-  // Load the library before the first frame so giraffes appear as models.
+  // A model that finishes loading replaces its stand-ins.
+  cast = characterLayer(world, {
+    onLoad() {
+      refreshScene()
+      inspectorKey = ''
+      render()
+      world.wake()
+    },
+  })
   try {
-    giraffeLibrary = await api('admin/giraffes')
-    if (shown.giraffes?.length || giraffeLibrary.model)
-      await herd.useModel(giraffeLibrary.model?.id ?? null)
+    characterLibrary = await api('admin/characters')
+    cast.setLibrary(characterLibrary)
   } catch (e) {
-    fail('기린 자료를 읽지 못했습니다 · ' + e.message)
+    fail('캐릭터 자료를 읽지 못했습니다 · ' + e.message)
   }
   refreshScene()
   projection = selectionPreview(world, portrait)

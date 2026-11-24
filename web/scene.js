@@ -630,7 +630,7 @@ async function openScene(
     roomBounds,
     overview: () => look(center, 1),
     instances,
-    // Other editable things in the scene (giraffes) register their nodes here
+    // Other editable things in the scene (characters) register their nodes here
     // as node → selection so a click on them selects them.
     owners: pickOwners,
     includeClayGiraffe: motion.includeGiraffe,
@@ -679,6 +679,8 @@ async function openScene(
           mesh.isPickable &&
           mesh.isEnabled() &&
           mesh.isVisible &&
+          // A character never stands on itself or on another character.
+          !pickOwners.has(mesh) &&
           (room
             ? mesh.isDescendantOf(room)
             : [...rooms.values()].some((r) => mesh.isDescendantOf(r))),
@@ -689,6 +691,42 @@ async function openScene(
         hit.pickedPoint,
         room.getWorldMatrix().clone().invert(),
       ).asArray()
+    },
+    /**
+     * Where the pointer's ray meets the floor plane of the room under it, as
+     * `{ room, point }` in that room's own coordinates, or null when the ray
+     * misses every room. Walls and props in front of the floor are ignored,
+     * so a character is placed where the operator sees the floor.
+     */
+    floorPoint(x, y, prefer) {
+      const ray = scene.createPickingRay(x, y, Matrix.Identity(), camera)
+      if (Math.abs(ray.direction.y) < 1e-6) return null
+      const at = (height) =>
+        ray.origin.add(
+          ray.direction.scale((height - ray.origin.y) / ray.direction.y),
+        )
+      const inside = (p, id) => {
+        const { min, max } = roomBounds.get(id)
+        return p.x >= min.x && p.x <= max.x && p.z >= min.z && p.z <= max.z
+      }
+      const ids = [...rooms.keys()]
+      const order = prefer
+        ? [prefer, ...ids.filter((id) => id !== prefer)]
+        : ids
+      for (const id of order) {
+        const room = rooms.get(id)
+        const matrix = room.computeWorldMatrix(true)
+        const p = at(matrix.getTranslation().y)
+        if (!inside(p, id)) continue
+        return {
+          room: id,
+          point: Vector3.TransformCoordinates(
+            p,
+            matrix.clone().invert(),
+          ).asArray(),
+        }
+      }
+      return null
     },
     chooseLight(id) {
       if (selectedLight === id) return

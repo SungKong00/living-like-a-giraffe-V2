@@ -13,7 +13,7 @@ import {
 import { WORLD } from './studio-entities.js'
 
 // The left panel. The 장면 tab lists the world as one scope tree —
-// 월드 › 방 › 가구 › 클릭 영역, with each light under the scope it lights —
+// 월드 › 방 › 가구·캐릭터 › 클릭 영역, with each light under the scope it lights —
 // and the 행사 페이지 tab lists pages. One 추가 menu creates every kind of
 // object in the selected scope, so new object kinds join that menu instead of
 // adding another button to the panel.
@@ -23,7 +23,7 @@ const filters = [
   { value: 'item', label: '가구' },
   { value: 'light', label: '조명' },
   { value: 'spot', label: '클릭 영역' },
-  { value: 'giraffe', label: '기린' },
+  { value: 'character', label: '캐릭터' },
 ]
 
 export function outline(editor) {
@@ -127,13 +127,21 @@ export function addMenu(editor) {
           })),
         },
         {
-          heading: '기린 · ' + roomName + '에 놓기',
+          // Each model is one entry; the new character then follows the
+          // pointer until a floor click places it.
+          heading: '캐릭터 · ' + roomName + '에 놓기',
           items: [
+            ...editor.characterLibrary.models.map((m) => ({
+              label: m.name,
+              hint: m.builtin ? '기본 모델' : '관절 ' + m.joints + '개',
+              icon: 'character',
+              onSelect: () => editor.addCharacter(m.id, room),
+            })),
             {
-              label: '기린',
-              hint: editor.giraffeLibrary.model ? '리깅 모델' : '자리 표시',
-              icon: 'giraffe',
-              onSelect: () => editor.addGiraffe(room),
+              label: '새 모델 올리기…',
+              hint: '리깅된 GLB',
+              icon: 'upload',
+              onSelect: () => editor.chooseModelFile(room),
             },
           ],
         },
@@ -266,14 +274,14 @@ function sceneTree(editor) {
         (s) => s.anchor === r.id && match(s.label),
       ))
         children.push(row({ type: 'spot', id: s.id }, s.label, { depth: 1 }))
-    if (show('giraffe'))
-      for (const g of (layout.giraffes ?? []).filter(
-        (g) => g.room === r.id && match(g.label),
+    if (show('character'))
+      for (const c of (layout.characters ?? []).filter(
+        (c) => c.room === r.id && match(c.label),
       ))
         children.push(
-          row({ type: 'giraffe', id: g.id }, g.label, {
+          row({ type: 'character', id: c.id }, c.label, {
             depth: 1,
-            meta: giraffeMeta(editor, g),
+            meta: characterMeta(editor, c),
           }),
         )
     children.push(...lightRows(r.id, 1))
@@ -282,7 +290,7 @@ function sceneTree(editor) {
       group(
         { type: 'room', id: r.id },
         r.label,
-        { meta: String(items.length + giraffesIn(layout, r.id)) },
+        { meta: String(items.length + charactersIn(layout, r.id)) },
         children,
       ),
     )
@@ -334,11 +342,11 @@ function pageList(editor) {
   })
 }
 
-const giraffesIn = (layout, room) =>
-  (layout.giraffes ?? []).filter((g) => g.room === room).length
+const charactersIn = (layout, room) =>
+  (layout.characters ?? []).filter((c) => c.room === room).length
 
-// The clip a giraffe plays, or 정지.
-function giraffeMeta(editor, g) {
-  const { motion } = editor.giraffeMotion(g)
+// The clip a character plays, or 정지.
+function characterMeta(editor, c) {
+  const { motion } = editor.characterMotion(c)
   return motion ? motion.split('/').slice(1).join('/') : '정지'
 }
