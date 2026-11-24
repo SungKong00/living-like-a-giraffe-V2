@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "riragi-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 4173
+    },
+    {
+      "name": "riragi-running",
+      "url": "http://127.0.0.1:4173"
+    }
+  ]
+}
