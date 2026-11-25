@@ -2,6 +2,8 @@
 
 ## 편집 원본
 
+운영 v12 월드는 제작자가 전달한 `riraji_web_v12.zip`의 `riraji_source_v12.blend`에서 준비했다. 운영 스튜디오에서 내려받는 파일은 웹 편집용 사본이다. 멘탈 사우나·운동회·후원자의 방·빈티지 숍·김장 옥상·행사 광장·건물과 계단을 구분하며, 서쪽 편백 벤치·운동회 영사기·방석 10개는 개별 가구로 편집한다. 원래 제작 파일은 ZIP에 보관한다.
+
 리라지 v06 원본 팩은 로컬 `assets-source/riragi-v06/`에 둔다. 전체 장면은 `full/riraji_full.blend`에서 열고, 각 방을 따로 볼 때는 `rooms/`를 사용한다. GLB 변형·미리보기·공유 벽에 관한 설명은 원본 팩의 `README_KO.md`를 따른다.
 
 원본 출처는 기존 `living like a giraffe`의 `assets-source/riragi-v06/`이다. 제작자는 NohSungBeen이며, 프로젝트 외부에 재배포하려면 제작자의 허가가 필요하다. 원본 팩은 Git 추적에서 제외한다.

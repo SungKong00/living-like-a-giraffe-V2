@@ -61,7 +61,7 @@ async function openScene(
   const scene = new Scene(engine)
   scene.useRightHandedSystem = true
   scene.clearColor = floorBackground
-  const center = new Vector3(34, 1, -24)
+  const center = Vector3.Zero()
   const alpha = Math.PI / 4
   const camera = new ArcRotateCamera(
     '관람',
@@ -125,6 +125,14 @@ async function openScene(
   const rooms = new Map(
     nodes.filter((n) => extras(n).roomId).map((n) => [extras(n).roomId, n]),
   )
+  // Frame the imported rooms before the studio floor expands the scene bounds.
+  const bounds = scene.getWorldExtends()
+  center.copyFrom(bounds.min.add(bounds.max).scale(0.5))
+  camera.setTarget(center.clone())
+  const worldSize = bounds.max.subtract(bounds.min)
+  const overviewWidth = 1.18 * Math.hypot(worldSize.x, worldSize.z)
+  const overviewHeight =
+    overviewWidth * Math.sin(0.62) + worldSize.y * Math.cos(0.62)
   try {
     const floor = await addStudioFloor(scene, rooms)
     if (studioCamera && floor)
@@ -346,8 +354,9 @@ async function openScene(
     engine.resize()
     const aspect =
       view.canvas.clientWidth / Math.max(1, view.canvas.clientHeight)
-    const width = focus ? 45 : 103
-    const half = Math.max(width / aspect, focus ? 33 : 65) / (2 * zoom)
+    const width = focus ? 45 : overviewWidth
+    const half =
+      Math.max(width / aspect, focus ? 33 : overviewHeight) / (2 * zoom)
     camera.orthoTop = half
     camera.orthoBottom = -half
     camera.orthoLeft = -half * aspect
