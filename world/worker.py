@@ -5,7 +5,7 @@ from pathlib import Path
 
 import bpy
 import source_lights
-from model import apply, apply_web_lights, bootstrap, export_glb, inventory, wrap_mesh_anchors
+from model import apply, apply_web_lights, bootstrap, export_glb, inventory
 
 
 def load(path):
@@ -52,17 +52,17 @@ def run(command, source, out, request=None):
     if command == "download":
         save(out / "world.blend")
         inventory(load(out / "world.blend"))
-    elif command in {"publish", "publish-handoff"}:
-        from bake import bake
+    elif command in {"studio", "publish", "publish-handoff"}:
+        from bake import bake, prepare_surfaces
 
         if command == "publish-handoff":
             save(out / "world.blend")
-        wrap_mesh_anchors(scene)
-        bake(scene, out)
-        export_glb(scene, out / "raw.glb")
-    elif command == "studio":
-        from studio_lighting import prepare
-        prepare(scene, out)
+        receivers = prepare_surfaces(scene)
+        if command == "studio":
+            from studio_lighting import prepare
+            prepare(scene, out, receivers)
+        else:
+            bake(scene, out, receivers)
         export_glb(scene, out / "raw.glb")
     else:
         manifest["handoff"] = scene.get("handoff", "")

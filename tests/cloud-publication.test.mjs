@@ -16,6 +16,7 @@ import {
   saveDraft,
   world,
 } from '../cloud/state.mjs'
+import { publisherVersion } from '../shared/helper-connection.mjs'
 import { validateResult } from '../cloud/glb.mjs'
 
 function store(state) {
@@ -89,6 +90,30 @@ test('stale helper cannot upload bytes or change a publication, review approves 
     { status: 409 },
   )
   assert.equal(saved.state.job.token, undefined)
+})
+
+test('only a helper with the current material converter can start or submit a render', async () => {
+  const draft = { id: 'edit', model: 'initial' }
+  const job = {
+    id: 'job', kind: 'review', revision: draft.id,
+    token: 'job-secret', deadline: Date.now() + 60000,
+  }
+  const db = store({ draft, published: draft, job })
+  db.prepare('INSERT INTO settings VALUES(?,?)')
+    .bind('catalog/initial', JSON.stringify({ rooms: [] }))
+    .run()
+  const send = (action, version) => onRequest({
+    env: { STUDIO: db },
+    params: { path: ['helper', job.id, action] },
+    request: new Request('https://studio.test/api/helper/job/' + action, {
+      method: action === 'start' ? 'POST' : 'PUT',
+      headers: { Authorization: 'Bearer ' + job.token, 'X-Publisher-Version': version },
+    }),
+  })
+  for (const action of ['start', 'result', 'blend'])
+    assert.equal((await send(action, '2')).status, 409)
+  assert.deepEqual((await world(db)).state.job, job)
+  assert.equal((await send('start', publisherVersion)).status, 200)
 })
 
 function glb(doc) {

@@ -4,7 +4,11 @@ import path from 'node:path'
 import { blender } from '../server/blender.mjs'
 import { renderEditor } from '../server/render-editor.mjs'
 import { renderVisitor } from '../server/render-visitor.mjs'
-import { studioOrigin, taskURL } from '../shared/helper-connection.mjs'
+import {
+  publisherVersion,
+  studioOrigin,
+  taskURL,
+} from '../shared/helper-connection.mjs'
 
 export async function publish(
   ticket,
@@ -19,7 +23,7 @@ export async function publish(
       : studioOrigin
   const url = taskURL(ticket, origin)
   const headers = {
-    'X-Publisher-Version': '2',
+    'X-Publisher-Version': publisherVersion,
     ...(claimWaiting ? { 'X-Publisher-Claim': 'waiting' } : {}),
     Authorization: 'Bearer ' + url.hash.slice(1),
   }

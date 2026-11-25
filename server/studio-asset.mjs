@@ -9,6 +9,7 @@ import { catalog, modelDir } from './world-files.mjs'
 const recipe = createHash('sha256')
 for (const input of [
   'bake.py',
+  'surfaces.py',
   'model.py',
   'source_lights.py',
   'worker.py',

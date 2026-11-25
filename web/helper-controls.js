@@ -1,5 +1,5 @@
 import { Button, ButtonGroup, Disclosure, el, StatusText } from './ds/index.js'
-import { bridgeOrigin } from '../shared/helper-connection.mjs'
+import { bridgeOrigin, publisherVersion } from '../shared/helper-connection.mjs'
 
 const pairing = 'giraffe.studio.helper'
 const fragment = /^#helper=([0-9a-f]{64})$/.exec(location.hash)
@@ -81,6 +81,7 @@ export function helperControls(kind, onError) {
       connected = true
       detail = status
       if (
+        status.publisherVersion !== publisherVersion ||
         !id ||
         id !== localStorage.getItem(owner(kind)) ||
         (!retry && (status.stage || !waiting))
@@ -112,7 +113,7 @@ export function helperControls(kind, onError) {
   function panel(ticket, refresh) {
     const installed = !!localStorage.getItem(pairing)
     const id = ticket && new URL(ticket).pathname.split('/').pop()
-    const needsUpdate = connected && !detail?.bakeProgress
+    const needsUpdate = connected && detail?.publisherVersion !== publisherVersion
     const windows = /Windows/i.test(navigator.userAgent)
     const downloads = [
       {
@@ -158,6 +159,7 @@ export function helperControls(kind, onError) {
       }),
       detail?.error && el('small', { role: 'alert' }, detail.error),
       connected &&
+        !needsUpdate &&
         ticket &&
         (detail?.error || !detail?.stage) &&
         Button({
@@ -184,7 +186,7 @@ export function helperControls(kind, onError) {
         el(
           'small',
           {},
-          '굽기 진행률을 보려면 최신 도우미를 설치하세요. 이전 도우미가 실행 중이면 설치 후 컴퓨터에 다시 로그인하세요.',
+          '월드 재질을 올바르게 변환하려면 최신 도우미를 설치하세요. 이전 도우미가 실행 중이면 설치 후 컴퓨터에 다시 로그인하세요.',
         ),
       connected
         ? Disclosure({

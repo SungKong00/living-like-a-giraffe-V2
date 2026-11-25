@@ -1,10 +1,81 @@
 """Bake opaque surfaces in the disposable publication scene. Keep glass live."""
 
-from tempfile import TemporaryDirectory
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
+import bmesh
 import bpy
-from model import select, tagged, parent_at
+from model import parent_at, select, tagged, wrap_mesh_anchors
+from surfaces import surface_kind
+
+
+def keep_faces(obj, kinds, keep):
+    mesh = obj.data
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        discard = [face for face in bm.faces if kinds[face.material_index] != keep]
+        bmesh.ops.delete(bm, geom=discard, context="FACES")
+        bm.to_mesh(mesh)
+    finally:
+        bm.free()
+    for i in reversed(range(len(kinds))):
+        if kinds[i] != keep:
+            mesh.materials.pop(index=i)
+    mesh.update()
+
+
+def prepare_surfaces(scene):
+    wrap_mesh_anchors(scene)
+    receivers = set()
+    policies = {}
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    objects = {
+        o for room in tagged(scene, "roomId").values() for o in room.children_recursive
+    }
+    for obj in sorted(objects, key=lambda o: o.name):
+        if obj.type not in {"MESH", "FONT", "CURVE"} or obj.hide_render:
+            continue
+        slots = obj.evaluated_get(depsgraph).material_slots
+        kinds = []
+        for slot in slots:
+            mat = slot.material
+            if mat not in policies:
+                policies[mat] = surface_kind(mat)
+            kinds.append(policies[mat])
+        if not kinds or set(kinds) == {"bake"}:
+            receivers.add(obj)
+            continue
+        if set(kinds) == {"live"}:
+            continue
+        # Split evaluated faces, not slots on the original mesh. Modifiers may
+        # produce geometry, and a joined room can contain all three policies.
+        select([obj])
+        bpy.ops.object.convert(target="MESH")
+        obj = bpy.context.object
+        obj.data = obj.data.copy()
+        # Studio color overrides live on the object. Bind them to the private
+        # mesh before compacting slots, so the kept faces retain their material.
+        for slot in obj.material_slots:
+            if slot.link == "OBJECT":
+                material = slot.material
+                slot.link = "DATA"
+                slot.material = material
+        used = {kinds[f.material_index] for f in obj.data.polygons}
+        if not used - {"volume"}:
+            keep_faces(obj, kinds, None)
+            continue
+        if {"live", "bake"} <= used:
+            glass = obj.copy()
+            glass.data = obj.data.copy()
+            scene.collection.objects.link(glass)
+            keep_faces(glass, kinds, "live")
+        if "bake" in used:
+            keep_faces(obj, kinds, "bake")
+            receivers.add(obj)
+        else:
+            keep_faces(obj, kinds, "live")
+    return receivers
 
 
 def render_meshes(objects, owner):
@@ -20,25 +91,6 @@ def render_meshes(objects, owner):
     mesh = bpy.context.object
     parent_at(mesh, owner)
     return mesh
-
-
-def live_surface(material):
-    if material is None or not material.use_nodes:
-        return False
-    for node in material.node_tree.nodes:
-        if node.type in {"BSDF_GLASS", "BSDF_TRANSPARENT"}:
-            return True
-        if node.type == "BSDF_PRINCIPLED":
-            transmission = node.inputs["Transmission Weight"]
-            alpha = node.inputs["Alpha"]
-            if (
-                transmission.is_linked
-                or transmission.default_value > 0
-                or alpha.is_linked
-                or alpha.default_value < 1
-            ):
-                return True
-    return False
 
 
 def display_texture(scene, linear_image, out):
@@ -62,7 +114,7 @@ def display_texture(scene, linear_image, out):
         return texture
 
 
-def bake(scene, out, *, fixed_only=False):
+def bake(scene, out, receivers, *, fixed_only=False):
     rooms = tagged(scene, "roomId")
     visible = {
         obj for room in rooms.values() for obj in [room, *room.children_recursive]
@@ -97,12 +149,7 @@ def bake(scene, out, *, fixed_only=False):
                     o for item in owners[1:] for o in [item, *item.children_recursive]
                 }
                 children = [o for o in children if o not in editable]
-            meshes = [
-                o
-                for o in children
-                if o.type in {"MESH", "FONT", "CURVE"}
-                and not any(live_surface(slot.material) for slot in o.material_slots)
-            ]
+            meshes = [o for o in children if o in receivers]
             if meshes:
                 groups.append((key, owner, meshes))
     # The parent creates this file only for jobs with a progress display.
