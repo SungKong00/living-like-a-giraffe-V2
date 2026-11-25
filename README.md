@@ -46,7 +46,7 @@
 
 ![스튜디오에서 사우나 나무 벤치 위치를 조정해 저장하고, 배치 미리보기에서 참조 방을 여는 화면](docs/portfolio-readme/assets/studio-arrangement.gif)
 
-왼쪽 장면 목록에서 가구를 고르면 오른쪽에서 위치·크기·표면을 조절할 수 있다. **나무 벤치 선택 → X 위치 변경 → 초안 자동 저장 → 배치 미리보기** 순서로 편집한 내용을 관람객 시점에서 확인한다. 이 단계에서는 공개 장면이 바뀌지 않는다. 행사 페이지를 만드는 편집자는 방이나 가구의 클릭 영역에 작성한 글을 연결할 수 있다.
+사우나 나무 벤치의 X 위치를 바꾸면 초안이 저장된다. ‘배치 미리보기’에서 사우나 방을 다시 열어 바뀐 배치를 확인한다. 공개 장면은 그대로다.
 
 [벤치 편집 화면](docs/portfolio-readme/assets/studio-draft.png) · [배치 미리보기](docs/portfolio-readme/assets/studio-preview.png)
 
@@ -116,7 +116,6 @@
 [3D 전시 열기](https://living-like-a-giraffe.pages.dev/)에서 공간과 행사 표식을 탐색할 수 있다. 글만 보고 싶다면 [행사 기록](https://living-like-a-giraffe.pages.dev/events)으로 바로 들어간다.
 
 [로컬 실행 및 구현 근거](docs/portfolio-readme/source/verification.md)
-
 
 <details>
 <summary>기존 설치·개발 안내</summary>
