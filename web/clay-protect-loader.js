@@ -1,5 +1,5 @@
-import { registerGLTFExtension } from '@babylonjs/loaders/glTF/2.0/glTFLoaderExtensionRegistry'
-import '@babylonjs/loaders/glTF/2.0'
+import { registerGLTFExtension } from '@babylonjs/loaders/glTF/2.0/glTFLoaderExtensionRegistry.js'
+import '@babylonjs/loaders/glTF/2.0/index.js'
 
 // Character models mark the parts clay must not press (eyes, mouth, fittings)
 // with a float vertex attribute `_CLAY_PROTECT` (0–1). Blender exports it

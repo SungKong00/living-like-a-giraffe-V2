@@ -3,6 +3,7 @@
 import os
 import sys
 import tempfile
+from array import array
 from collections import defaultdict
 from pathlib import Path
 
@@ -139,13 +140,39 @@ def export_motion(scene, rig, name, output):
     )
 
 
+def bake_wardrobe_fit(obj):
+    """Keep authoring controls in the .blend and export only the selected cut."""
+    if obj.data.shape_keys:
+        mixed = obj.shape_key_add(name="Export fit", from_mix=True)
+        coordinates = array("f", [0]) * (len(mixed.data) * 3)
+        mixed.data.foreach_get("co", coordinates)
+        obj.shape_key_clear()
+        obj.data.vertices.foreach_set("co", coordinates)
+        obj.data.update()
+    bpy.context.view_layer.objects.active = obj
+    for modifier in list(obj.modifiers):
+        if modifier.type == "MASK" and modifier.name.startswith("Trim."):
+            if modifier.show_render:
+                modifier.show_viewport = True
+                bpy.ops.object.modifier_apply(modifier=modifier.name)
+            else:
+                obj.modifiers.remove(modifier)
+    del obj["wardrobe_source"]
+
+
 def export(source, output, motion=None):
     if output.suffix.lower() != ".glb":
         raise ValueError("출력 파일 이름은 .glb로 끝나야 합니다.")
     bpy.ops.wm.open_mainfile(filepath=str(source.resolve()), use_scripts=False, load_ui=False)
     scene = bpy.context.scene
     rig = scene.objects["Riragi.Rig"]
-    objects = [obj for obj in scene.objects if obj.type == "MESH" and obj.find_armature() == rig]
+    # Wardrobe meshes already have their own web topology. Keep each named node
+    # intact so the studio can toggle it without affecting the body or its layers.
+    objects = [
+        obj for obj in scene.objects
+        if obj.type == "MESH" and obj.find_armature() == rig
+        and not (obj.get("wearable") or obj.name.startswith("Wear."))
+    ]
     body = scene.objects["Giraffe.Body"]
     # The studio applies the ratios after sampling the motion, once per character.
     ratios = {'["' + name + '"]' for name in ("body", "neck", "head", "legs", "ears", "muzzle")}
@@ -157,6 +184,9 @@ def export(source, output, motion=None):
     if motion is not None:
         export_motion(scene, rig, motion, output)
         return
+    for obj in scene.objects:
+        if obj.type == "MESH" and obj.get("wardrobe_source"):
+            bake_wardrobe_fit(obj)
     rig.animation_data.action = None
     # Standalone library clips are uploaded separately from the model.
     for action in list(bpy.data.actions):

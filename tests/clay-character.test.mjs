@@ -372,11 +372,7 @@ test('두발 기린은 골반 위에 선 몸통, 독립된 팔, 양발을 번갈
       assert.ok(vec3.distance(atPad(0), atPad(-1)) < 0.0001)
       // At the loop boundary both the heel and the toe continue moving.
       const velocity = (a, b) =>
-        vec3.scale(
-          [],
-          vec3.subtract([], atPad(b), atPad(a)),
-          1 / (keys.at(b) - keys.at(a)),
-        )
+        vec3.scale([], vec3.subtract([], atPad(b), atPad(a)), 1 / (keys.at(b) - keys.at(a)))
       assert.ok(vec3.distance(velocity(-2, -1), velocity(0, 1)) < 0.3)
     }
   }
@@ -384,6 +380,39 @@ test('두발 기린은 골반 위에 선 몸통, 독립된 팔, 양발을 번갈
   sample(1 / 24)
   assert.ok(at(left)[2] > at(right)[2] + 0.2)
   assert.ok(at('Arm.Hoof.R')[2] > at('Arm.Hoof.L')[2] + 0.1)
+})
+
+test('두발 기린의 팔 굵기는 체격을 부분적으로 따르고 전체 크기는 한 번만 적용된다', async () => {
+  const { NullEngine } = await import('@babylonjs/core/Engines/nullEngine.js')
+  const { Scene } = await import('@babylonjs/core/scene.js')
+  const { TransformNode } = await import('@babylonjs/core/Meshes/transformNode.js')
+  const { giraffeProportions } = await import('../web/giraffe-proportions.js')
+  const doc = await new NodeIO().read('assets-source/characters/riragi-clay/riragi-biped.glb')
+  const engine = new NullEngine()
+  const scene = new Scene(engine)
+  try {
+    const nodes = await poseNodes(doc.getRoot(), scene)
+    const placement = new TransformNode('캐릭터 배치', scene)
+    for (const node of nodes.values()) if (!node.parent) node.parent = placement
+    const shape = giraffeProportions(scene, nodes)
+    const axes = (side) => {
+      const matrix = nodes.get('Arm.Upper.' + side).computeWorldMatrix(true).m
+      return [0, 4, 8].map((i) => Math.hypot(...matrix.slice(i, i + 3)))
+    }
+    for (const [body, scale, width] of [[0.7, 1, 0.895], [1.4, 1.5, 1.14], [1, 0.8, 1]]) {
+      shape.set({ body })
+      placement.scaling.setAll(scale)
+      for (const side of ['L', 'R']) {
+        const [x, y, z] = axes(side)
+        for (const radial of [x, z]) assert.ok(Math.abs(radial - width * scale) < 1e-5)
+        assert.ok(Math.abs(y - scale) < 1e-5)
+      }
+    }
+    shape.dispose()
+  } finally {
+    scene.dispose()
+    engine.dispose()
+  }
 })
 
 test('두발 얼굴 체형은 귀 뿌리와 눈을 고정하고 걷기 프레임 사이에도 독립적으로 유지된다', async () => {

@@ -113,9 +113,13 @@ export function giraffeProportions(scene, nodes) {
       channel('Pelvis', 'position', 1, torsoOffset)
       channel('Pelvis', 'scaling', body)
       channel('Tail.01', 'scaling', 1 / body)
-      if (biped)
+      if (biped) {
+        // The arm's local Y runs from shoulder to elbow. Only its cross-section
+        // follows part of the torso change. Placement scale multiplies both.
+        const armWidth = 1 + (body - 1) * 0.35
         for (const side of ['L', 'R'])
-          channel('Arm.Upper.' + side, 'scaling', 1 / body)
+          channel('Arm.Upper.' + side, 'scaling', armWidth / body, zero, 1 / body)
+      }
       // Neck joints inherit the torso's radius. Compensate joint spacing so
       // the centerline and the head still follow their independent controls.
       for (const name of neck) channel(name, 'position', length / body)

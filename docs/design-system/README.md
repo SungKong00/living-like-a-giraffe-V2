@@ -87,7 +87,7 @@ CSS 층 순서는 `reset → tokens → base → components → views`다. 뒤 �
 | Flyweight                  | `ds/icon.js`                                           | 아이콘마다 SVG 원형을 한 번 만들고 복제한다. 등록되지 않은 이름은 거부한다                                                                         |
 | Singleton                  | `ds/feedback.js`의 `toast`                             | 페이지에 알림 영역이 하나만 있다                                                                                                                   |
 | Mediator                   | `ds/overlay.js`의 `overlays`                           | 열린 팝오버를 쌓아 두고 바깥 클릭·Esc를 한곳에서 닫는다                                                                                            |
-| Registry                   | `studio-entities.js`의 `entityTypes`                   | 편집할 수 있는 종류(월드·방·가구·조명·클릭 영역·페이지)마다 찾기·이름·아이콘·상위 범위를 한 번 선언한다. 목록·범위 경로·선택 확인이 이 표를 읽는다 |
+| Registry                   | `studio-entities.js`의 `entityTypes`                   | 목록·범위 경로·선택 확인에 쓰는 찾기·이름·아이콘·상위 범위를 개체 종류별로 선언한다. 점토 대상의 `clayScope`는 속성 패널과 3D 장면이 함께 읽는다 |
 | Strategy                   | `studio-inspectors.js`의 `inspectors`, `worldSections` | 선택 종류마다 속성 패널 구성 함수를 하나씩 둔다. 월드 설정은 분류마다 구역 함수를 하나씩 둔다. 종류를 더할 때 분기 대신 항목을 더한다              |
 | Facade                     | `studio.js`의 `editor`                                 | 목록·속성 패널은 고정된 `editor`로만 초안을 읽고 명령으로 바꾼다. 모든 변경이 편집 기록과 자동 저장을 거친다                                       |
 | State                      | `studio-publish.js`의 `states`·`classify()`            | 발행 상태마다 배지·안내·주 동작·단계를 표로 둔다                                                                                                   |

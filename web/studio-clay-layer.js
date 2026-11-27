@@ -1,8 +1,9 @@
-import { Vector3 } from '@babylonjs/core/Maths/math.vector'
-import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
-import { SubMesh } from '@babylonjs/core/Meshes/subMesh'
+import { Vector3 } from '@babylonjs/core/Maths/math.vector.js'
+import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData.js'
+import { SubMesh } from '@babylonjs/core/Meshes/subMesh.js'
 import { tessellate } from './clay-tessellate.js'
 import { CLAY_PROTECT_KIND } from './clay-protect-loader.js'
+import { entityTypes } from './studio-entities.js'
 import {
   clayField,
   clayFor,
@@ -107,6 +108,12 @@ function weldedNormals(positions, normals) {
   return out
 }
 
+function updatePositions(mesh, positions) {
+  mesh.updateVerticesData('position', positions, true)
+  // Babylon rebuilds bounds in local space. Reapply the mesh's placement for culling.
+  mesh.computeWorldMatrix(true)
+}
+
 export function clayLayer() {
   const shaped = new Map()
 
@@ -118,12 +125,14 @@ export function clayLayer() {
     const toRoot = root.getWorldMatrix().clone().invert()
     const min = [Infinity, Infinity, Infinity],
       max = [-Infinity, -Infinity, -Infinity]
-    const room = scope === 'world'
+    const room = scope === entityTypes.room.clayScope
     const parts = target
       .meshes()
       .filter((m) => m.getTotalVertices() && m.getVerticesData('position'))
       .map((mesh) => {
         mesh.makeGeometryUnique()
+        // The glTF accessor's fixed bounds only describe the original vertices.
+        mesh.geometry.useBoundingInfoFromGeometry = false
         const meshToRoot = mesh.computeWorldMatrix(true).multiply(toRoot)
         const rootToMesh = meshToRoot.clone().invert()
         // Long flat faces need vertices for dents and undulation to show.
@@ -205,7 +214,7 @@ export function clayLayer() {
     for (const part of entry.parts) {
       const { mesh, rest, normals, baseline, local, rootToMesh, indices } = part
       if (isOriginalClay(settings)) {
-        mesh.updateVerticesData('position', rest, true)
+        updatePositions(mesh, rest)
         if (normals) mesh.updateVerticesData('normal', normals)
         continue
       }
@@ -226,7 +235,7 @@ export function clayLayer() {
         )
         back.toArray(moved, i)
       }
-      mesh.updateVerticesData('position', moved, true)
+      updatePositions(mesh, moved)
       if (!normals) continue
       // Add only the change in surface direction to the original normals,
       // which keeps the model's bevel shading.
@@ -297,23 +306,23 @@ export function updateStudioClay(clay, world, cast, layout, moving = false) {
       ...[...world.rooms].map(([id, root]) => ({
         id,
         root,
-        scope: 'world',
+        scope: entityTypes.room.clayScope,
         meshes: ownGeometry(root),
       })),
       ...[...world.instances].map(([id, root]) => ({
         id,
         root,
-        scope: 'objects',
+        scope: entityTypes.item.clayScope,
         meshes: subtree(root),
       })),
       ...(layout.characters ?? []).map((c, i) => ({
         id: c.id,
         root: characterRoots[i],
-        scope: 'characters',
+        scope: entityTypes.character.clayScope,
         head: cast?.head(c.id),
         meshes: subtree(characterRoots[i] ?? world.scene),
       })),
     ],
-    { skip: moving ? new Set(['world']) : undefined },
+    { skip: moving ? new Set([entityTypes.room.clayScope]) : undefined },
   )
 }

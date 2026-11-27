@@ -27,6 +27,7 @@ import {
 import { giraffeProportionSection } from './giraffe-proportion-controls.js'
 import { clayMotionSection, hatchRow } from './clay-motion-controls.js'
 import { lightInspector } from './light-inspector.js'
+import { entityTypes } from './studio-entities.js'
 import * as ops from './edit-ops.js'
 import { routeDefaults, routeLimits } from '../shared/character-route.mjs'
 import {
@@ -139,9 +140,7 @@ const worldSections = [
       editor.setClayMotion,
       editor.previewClayMotion,
     ),
-  worldClay('world'),
-  worldClay('objects'),
-  worldClay('characters'),
+  ...Object.keys(clayScopes).map(worldClay),
   worldCharacters,
   characterLibrarySection,
   worldLighting,
@@ -343,7 +342,7 @@ function roomInspector(r, editor) {
         ),
       ],
     }),
-    claySection(r.id, editor, 'world'),
+    claySection(editor),
     spotSection(r.id, editor),
   ]
 }
@@ -572,7 +571,7 @@ function itemInspector(i, editor) {
         }),
       ],
     }),
-    claySection(i.id, editor, 'objects'),
+    claySection(editor),
     spotSection(i.id, editor),
   ]
 }
@@ -953,11 +952,14 @@ function clayRows({ key, value, onPreview, onCommit, override, editor }) {
 // One section per kind: the rooms' own geometry, movable furniture and
 // characters each have a world-wide default that their objects follow.
 function worldClay(scope) {
+  const ownerTypes = Object.keys(entityTypes).filter(
+    (type) => entityTypes[type].clayScope === scope,
+  )
   return (editor) => {
     const value = clayDefaults(editor.layout)[scope] ?? clayPresets.original
     const preset = clayPresetOf(value)
     const overridden = Object.keys(editor.layout.overrides?.clay ?? {}).filter(
-      (id) => ownerScope(editor, id) === scope,
+      (id) => ownerTypes.some((type) => editor.entities.exists({ type, id })),
     ).length
     return PanelSection({
       title: '점토 · ' + clayScopes[scope].label,
@@ -978,20 +980,16 @@ function worldClay(scope) {
     })
   }
 }
-const ownerScope = (editor, id) =>
-  editor.rooms.some((r) => r.id === id)
-    ? 'world'
-    : editor.layout.items.some((i) => i.id === id)
-      ? 'objects'
-      : 'characters'
 
-function claySection(id, editor, scope) {
+function claySection(editor) {
+  const { id, type } = editor.selection
+  const scope = entityTypes[type].clayScope
   const own = editor.layout.overrides?.clay?.[id]
   const from = clayScopes[scope].label + ' 기본'
   return PanelSection({
     title: '점토',
     meta: own
-      ? '이 ' + (scope === 'world' ? '방' : '개체') + '만 따로'
+      ? '이 ' + (type === 'room' ? '방' : '개체') + '만 따로'
       : from + ' 따름',
     children: clayRows({
       key: 'clay',
@@ -1268,6 +1266,8 @@ function characterLibrarySection(editor) {
 
 const meters = (v) => (Math.round(v * 100) / 100).toString() + 'm'
 
+// Ground one walk cycle covers at 100%: measured from the walk clip of a
+// character walking a route, until the operator sets it.
 // How many reduced levels a model carries, for its settings.
 function lodSummary(m) {
   const levels = new Set((m.lods ?? []).map((lod) => lod.level))
@@ -1275,8 +1275,6 @@ function lodSummary(m) {
     ? '축소 단계 ' + levels.size + '개(화면에 작게 보일 때 가벼운 메시로 그림)'
     : '축소 단계 없음(항상 원본으로 그림)'
 }
-// Ground one walk cycle covers at 100%: measured from the walk clip of a
-// character walking a route, until the operator sets it.
 function strideRows(editor, m) {
   const measured = editor.modelStride(m.id)
   const value = m.stride ?? measured
@@ -1372,6 +1370,8 @@ function librarySettings(editor, m) {
             ' · 점토 얼굴 보호 ' +
             (m.protect
               ? '정점 그룹'
+              : '정점 그룹 없음(리라지 기린과 같은 골격이면 높이 기준)'),
+        ),
         muted(lodSummary(m)),
         ...(m.lodOrphans?.length
           ? [
@@ -1382,8 +1382,6 @@ function librarySettings(editor, m) {
               ),
             ]
           : []),
-              : '정점 그룹 없음(리라지 기린과 같은 골격이면 높이 기준)'),
-        ),
       ],
     }),
     PropertyRow({
@@ -2097,6 +2095,6 @@ function characterInspector(c, editor) {
         ),
       ],
     }),
-    claySection(c.id, editor, 'characters'),
+    claySection(editor),
   ].filter(Boolean)
 }

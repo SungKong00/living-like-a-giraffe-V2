@@ -5,6 +5,7 @@
 | 작업 | 읽을 곳 |
 | --- | --- |
 | Blender 원본 수정·GLB 내보내기·월드 자산 공개 | [월드 자산](docs/world/README.md) |
+| 두발 기린 의상 생성·변형 | [의상 베이스](docs/world/README.md#두발-기린-의상-베이스)의 패턴과 예제 프리셋에서 시작한다. |
 | 행사 설명·프로젝트 페이지 작성 | [행사 자료](docs/events/README.md) |
 | 사용자 동작·매핑 계약·관리자 기능 변경 | [현재 명세](openspec/specs/) · [진행 중 변경](openspec/changes/) |
 | 화면·컴포넌트·스타일 작성 또는 수정 | [디자인 시스템](docs/design-system/README.md) · [웹 작업 지침](web/AGENTS.md) |

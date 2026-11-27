@@ -10,6 +10,8 @@
 
 ### 점토 기린
 
+새 두발 기린의 맨몸 비율과 클레이 표면을 잡거나 목·어깨 움직임과 옷의 핏을 설계할 때는 [첫 맨몸 3면도와 클레이 기린 모델링 가이드](biped-modeling.md)를 참고한다.
+
 [Blender 원본](../../assets-source/characters/riragi-clay/riragi-giraffe.blend)에서 만든 [기본 기린 GLB](../../assets-source/characters/riragi-clay/riragi-giraffe-base.glb)와 [착용 예시 포함 GLB](../../assets-source/characters/riragi-clay/riragi-giraffe.glb)는 같은 골격과 부착점을 쓴다. 발바닥을 원점 높이에 맞췄고, Blender에서 앞은 −Y, 위는 +Z다. 몸통보다 긴 다리와 가는 목의 비율로 옷과 부착점을 맞췄다. 점토 강도를 올리면 몸통과 목을 중심으로 변형되고, 턱에서 위로 갈수록 효과가 줄어 눈·코·입의 위치가 유지된다. 채색과 얕은 손자국 이미지는 원본에 내장되어 있다.
 
 - **포즈**는 `Riragi.Rig`의 포즈 모드에서 편집한다. `Root` 아래에 골반·척추·가슴, 세 마디 목·머리, 양쪽 귀, 네 다리와 두 마디 꼬리가 있다. `LookAround` 액션의 첫 프레임은 기본 자세다.
@@ -17,7 +19,9 @@
 - **장식**은 견고하게 고정할 위치에 맞춰 `Socket.Crown`, `Socket.Face`, `Socket.Neck`, `Socket.Chest`, `Socket.Back`, `Socket.Ear.L` 또는 `Socket.Ear.R`를 부모로 지정한다. `Wear.Flower`는 왼쪽 귀에 부착한 예시다.
 - **GLB 내보내기**에서는 스킨, 애니메이션, 접선(Tangents), 사용자 속성을 포함하고 아마추어 오브젝트 제거 옵션을 켠다. 스튜디오용 GLB에는 케이프와 꽃핀이 개별 메시로 포함된다. 몸만 내보낼 때는 착용 예시를 숨기고 보이는 오브젝트만 내보낸다.
 
-두발 기린의 Blender 작업 원본은 로컬 `assets-source/characters/riragi-clay/`에 두고, 배포용 GLB는 저장소에서 함께 관리한다. 운영 스튜디오는 등록한 모델·동작을 D1에서 읽고 다음 코드 배포에도 유지한다. 두발 점토 기린은 긴 목, 넓게 접힌 귀와 크림색 주둥이를 가진 옷 없는 기본 캐릭터다. 두발 기린 Blender 원본(`riragi-biped.blend`)을 열면 발굽을 바닥에 붙이고 두 발로 서 있다. `Riragi.Rig`의 **오브젝트 속성 → 사용자 정의 속성**에서 `neck`(목 길이), `body`(몸통 크기), `legs`(다리 길이), `head`(머리 크기), `ears`(귀 크기), `muzzle`(주둥이 길이)을 조절한다. 1.0이 기본값이다. 귀는 뿌리에서 커지고 주둥이는 눈 앞에서 길어진다. 포즈 모드에서 몸통·세 마디 목·팔다리·귀·꼬리를 돌린다. **도프시트 → 액션 에디터**에서 `두 발 걷기`를 선택해 기존 보행을 열거나 새 액션을 만든다. [스튜디오용 모델 GLB](../../assets-source/characters/riragi-clay/riragi-biped.glb)는 같은 골격과 걷기를 쓴다.
+두발 기린의 Blender 작업 원본은 로컬 `assets-source/characters/riragi-clay/`에 두고, 배포용 GLB는 저장소에서 함께 관리한다. 운영 스튜디오는 등록한 모델·동작을 D1에서 읽고 다음 코드 배포에도 유지한다. 두발 점토 기린은 긴 목, 넓게 접힌 귀와 크림색 주둥이를 가진 옷 없는 기본 캐릭터다. 목 뒤 윗부분에는 작고 둥근 갈기 15개가 턱 아래까지 이어진다. 두발 기린 Blender 원본(`riragi-biped.blend`)을 열면 발굽을 바닥에 붙이고 두 발로 서 있다. `Riragi.Rig`의 **오브젝트 속성 → 사용자 정의 속성**에서 `neck`(목 길이), `body`(몸통 크기), `legs`(다리 길이), `head`(머리 크기), `ears`(귀 크기), `muzzle`(주둥이 길이)을 조절한다. 1.0이 기본값이다. 귀는 뿌리에서 커지고 주둥이는 눈 앞에서 길어진다. 포즈 모드에서 몸통·세 마디 목·팔다리·귀·꼬리를 돌린다. **도프시트 → 액션 에디터**에서 `두 발 걷기`를 선택해 기존 보행을 열거나 새 액션을 만든다. [스튜디오용 모델 GLB](../../assets-source/characters/riragi-clay/riragi-biped.glb)는 같은 골격과 걷기를 쓴다.
+
+[맨몸 사방 기준도](../../assets-source/characters/riragi-clay/references/riragi-body-turnaround.png)의 정면에서 어깨·골반·허벅지 폭을, 옆면에서 가슴·배·무릎의 깊이를 잡았다. 목 밑동부터 어깨·팔과 골반·다리까지 한 메시로 이어진다. 어깨는 좁고 완만하게 내려오며, 허리와 골반의 폭 차이는 작고 허벅지는 무릎까지 서서히 가늘어진다. 손은 허벅지 옆으로 내려오며 팔꿈치에서 손목이 약간 앞으로 향한다. 옆면에서 목 중간은 거의 수직으로 서고 앞선은 가슴으로 부드럽게 퍼진다. 정면에서는 목 밑동에서 둥근 어깨 윗면을 거쳐 위팔이 아래로 떨어진다. 이 두 선을 편집할 때는 [컨셉과 모델의 정면·옆면 비교](../../assets-source/characters/riragi-clay/references/riragi-concept-model-front-side.jpg)와 [목·어깨 확대](../../assets-source/characters/riragi-clay/references/riragi-shoulder-study.jpg)를 기준으로 삼는다. [맨몸과 정장 사방 렌더](../../assets-source/characters/riragi-clay/references/riragi-biped-model-views.jpg)에서 같은 각도로 자세를 비교할 수 있다. 손과 발 끝에는 가운데가 갈라진 발굽이 붙는다. 몸통 크기를 140%로 올리면 위팔의 가로·앞뒤 굵기는 114%가 된다. 캐릭터의 전체 크기는 배치 단계에서 팔·소매·나머지 몸에 같은 비율로 적용한다.
 
 기본 걷기는 배치 위치에서 재생되며, 왼발과 오른발을 한 번씩 딛는 데 1.10초가 걸린다. [Kimodo-SOMA-RP-v1.2](https://huggingface.co/nvidia/Kimodo-SOMA-RP-v1.2)로 생성한 보행을 기린 골격에 직접 이식했다. 발굽이 뒤꿈치에서 발끝으로 구르며 골반과 반대쪽 팔이 보폭에 맞춰 움직인다. 같은 골격에 동작만 적용할 때는 [걷기 전용 GLB](../../assets-source/characters/riragi-clay/riragi-biped-walk.glb)를 사용한다.
 
@@ -27,8 +31,32 @@
 
 ```sh
 .venv/bin/python scripts/export-clay-biped.py assets-source/characters/riragi-clay/riragi-biped.blend assets-source/characters/riragi-clay/riragi-biped.glb
+.venv/bin/python scripts/export-clay-biped.py assets-source/characters/riragi-clay/riragi-biped-suit.blend assets-source/characters/riragi-clay/riragi-biped-suit.glb
 .venv/bin/python scripts/export-clay-biped.py assets-source/characters/riragi-clay/riragi-biped.blend assets-source/characters/riragi-clay/riragi-biped-idle.glb --motion "편안히 서기"
 ```
+
+### 두발 기린 의상 베이스
+
+[의상 베이스 겸 기준 정장](../../assets-source/characters/riragi-clay/riragi-biped-suit.blend)의 `03 · Suit | 개별 착용` 컬렉션에 아이보리 셔츠, 네이비 재킷, 슬랙스, 넥타이, 선글라스가 있다. [정장 포함 GLB](../../assets-source/characters/riragi-clay/riragi-biped-suit.glb)를 스튜디오에 등록하면 다섯 아이템을 따로 착용할 수 있다.
+
+**새 의상 요청을 받으면** 가장 가까운 셔츠·재킷·바지 패턴을 골라 [예제 프리셋](../../assets-source/characters/riragi-clay/presets/short-jacket.json)을 복사한다. 수정할 아이템만 적고 새 변형에는 고유한 `id`와 한국어 `label`을 준다. 아래 두 명령은 짧은 재킷과 긴 깃 셔츠가 든 편집본 및 스튜디오용 모델을 만든다.
+
+```sh
+.venv/bin/python scripts/make-wardrobe-variant.py assets-source/characters/riragi-clay/presets/short-jacket.json .world/short-jacket.blend
+.venv/bin/python scripts/export-clay-biped.py .world/short-jacket.blend .world/short-jacket.glb
+```
+
+| 베이스 ID | `fit`에서 조절할 모양 | `hide`로 숨길 디테일 |
+| --- | --- | --- |
+| `ivory-shirt` | 깃 길이 `collar_length`, 기장 `hem_length`, 소매 길이 `sleeve_length`, 품 `body_ease` | 뾰족한 깃 `collar_points`, 단추 `buttons` |
+| `navy-blazer` | 라펠 폭 `lapel_width`, 기장 `hem_length`, 소매 길이 `sleeve_length`, 품 `body_ease` | 라펠 `lapels`, 주머니 테두리 `pockets`, 단추 `buttons` |
+| `navy-slacks` | 바지 길이 `leg_length`, 바지통 `leg_width` | — |
+
+모든 조절값의 기본은 0이다. 길이와 폭은 −1에서 1까지이며, 양수일 때 길어지거나 넓어진다. `body_ease`는 0에서 1까지 품에 여유를 더한다. Blender에서 직접 다듬을 때는 의상 메시의 **데이터 속성 → 셰이프 키**를 조절한다. **모디파이어 → Trim.이름**의 화면·렌더 아이콘을 함께 켜면 해당 디테일이 숨겨진다. GLB에는 선택한 핏과 디테일만 굽고, 편집본에는 조절값과 리깅을 보존한다.
+
+후드나 지퍼처럼 새 모양이 필요하면 베이스 사본의 해당 부위만 모델링한다. [정장 사방 기준도](../../assets-source/characters/riragi-clay/references/riragi-navy-suit-turnaround.png)에 맞춰 셔츠·재킷·슬랙스는 각자 다른 폭과 길이로 재단했다. 셔츠는 허리띠 안으로 들어가고, 재킷은 골반 위로 곧게 떨어지며, 바지통은 무릎에서 발목으로 좁아진다. 슬랙스의 허리에서 양쪽 바짓단까지는 샅 솔기에서 만나는 한 몸판이다. 기준 정장은 셔츠와 재킷의 뒤목을 살짝 세우고, 목 옆에서 앞여밈까지 서서히 낮춘다. 넥타이 목띠와 매듭도 같은 경사를 따른다. 재킷은 앞판의 가장자리와 라펠 접힘선이 정점을 공유하고, 뒤목을 감싸는 윗깃이 양쪽 라펠의 홈 위에서 끝난다. 라펠 폭을 바꿀 때는 접힘선을 고정하고 윗깃과 만나는 V자 홈을 살린다. 어깨선은 소매산과 암홀을 함께 다듬고, 팔을 흔들 때 필요한 여유를 겨드랑이와 옆선에 나눠 준다.
+
+완성본은 같은 카메라에서 맨몸·단독 착용·겹쳐 입은 모습을 비교한다. 어깨에 밝은 점이 보이면 셔츠와 겉감을 단색으로 구분해 해당 픽셀에 보이는 면을 확인한다. 라펠의 접힌 가장자리는 사선 근접 렌더로 보고, 폭을 최대로 넓히거나 좁혔을 때 앞판을 통과하는지도 검사한다. 기본 및 극단 체형에서 걷기와 서기를 재생해 겨드랑이·허리띠·바짓단까지 확인한다.
 
 ## Blender 도구
 

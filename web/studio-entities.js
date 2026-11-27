@@ -24,6 +24,7 @@ export const entityTypes = Object.freeze({
   },
   room: {
     noun: '방',
+    clayScope: 'world',
     icon: () => 'room',
     find: (s, id) => s.rooms.find((r) => r.id === id),
     modelRoot: (s, id) => s.world?.rooms.get(id),
@@ -32,6 +33,7 @@ export const entityTypes = Object.freeze({
   },
   item: {
     noun: '가구',
+    clayScope: 'objects',
     icon: () => 'furniture',
     find: (s, id) => s.layout.items.find((i) => i.id === id),
     modelRoot: (s, id) => s.world?.instances.get(id),
@@ -41,6 +43,7 @@ export const entityTypes = Object.freeze({
   },
   character: {
     noun: '캐릭터',
+    clayScope: 'characters',
     icon: () => 'character',
     find: (s, id) => (s.layout.characters ?? []).find((c) => c.id === id),
     modelRoot: (s, id) => s.cast?.root(id),

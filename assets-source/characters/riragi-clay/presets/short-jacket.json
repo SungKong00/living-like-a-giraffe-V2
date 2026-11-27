@@ -1,0 +1,13 @@
+{
+  "navy-blazer": {
+    "id": "short-navy-jacket",
+    "label": "짧은 네이비 재킷",
+    "fit": { "hem_length": -0.85, "lapel_width": -0.7 },
+    "hide": ["pockets"]
+  },
+  "ivory-shirt": {
+    "id": "long-collar-shirt",
+    "label": "긴 깃 아이보리 셔츠",
+    "fit": { "collar_length": 0.7 }
+  }
+}

@@ -6,6 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { validate } from '../server/layout.mjs'
 import { characterLibrary } from '../server/characters.mjs'
+import { setClay, setDefault } from '../web/edit-ops.js'
+import { entityTypes } from '../web/studio-entities.js'
 import {
   clayField,
   clayFor,
@@ -104,13 +106,23 @@ test('월드·오브젝트·캐릭터 점토 기본값과 개체 덮어쓰기를
   assert.deepEqual(data.defaults.clay.objects, medium)
   assert.equal(data.characters[0].motion, null)
   assert.equal(data.characters[0].model, 'riragi')
-  // An override wins; otherwise the object's own kind decides.
-  assert.deepEqual(clayFor(data, 'bench', 'objects'), CLAY_ORIGINAL)
-  assert.deepEqual(clayFor(data, 'tall', 'characters'), clayPresets.strong)
-  assert.deepEqual(clayFor(data, 'sauna', 'world'), clayPresets.light)
   assert.deepEqual(clayFor(data, 'sports', 'world'), clayPresets.strong)
   assert.deepEqual(clayFor(data, 'other', 'objects'), medium)
   assert.deepEqual(clayFor(data, 'other', 'characters'), CLAY_ORIGINAL)
+  // An explicit original is also an override. Reset follows the latest default.
+  setDefault(data, 'clay', 'world', medium)
+  setDefault(data, 'clay', 'objects', clayPresets.strong)
+  setDefault(data, 'clay', 'characters', clayPresets.light)
+  for (const [type, id, own, inherited] of [
+    ['room', 'sauna', clayPresets.light, medium],
+    ['item', 'bench', CLAY_ORIGINAL, clayPresets.strong],
+    ['character', 'tall', clayPresets.strong, clayPresets.light],
+  ]) {
+    const { clayScope } = entityTypes[type]
+    assert.deepEqual(clayFor(data, id, clayScope), own)
+    setClay(data, id, null)
+    assert.deepEqual(clayFor(data, id, clayScope), inherited)
+  }
   // A draft saved with one value for everything applies it to every kind.
   const old = validate(draft({ defaults: { clay: medium } }), catalog)
   for (const scope of ['world', 'objects', 'characters'])
@@ -182,6 +194,79 @@ test('방 표면 점토는 바닥을 평평하게 두고 벽은 면을 따라 �
   for (let i = 0; i < moved.length; i++)
     assert.ok(Math.abs(moved[i] - wall[i]) < 0.2)
   assert.deepEqual(clayPositions(wall, field, CLAY_ORIGINAL, side), wall)
+})
+
+test('월드 점토 변경과 원본 복원은 GLB 벽과 그 정점 데이터를 재사용하는 메시의 경계를 갱신한다', async () => {
+  const { Document, NodeIO } = await import('@gltf-transform/core')
+  const { ImportMeshAsync } =
+    await import('@babylonjs/core/Loading/sceneLoader.js')
+  await import('@babylonjs/loaders/glTF/index.js')
+  const { NullEngine } = await import('@babylonjs/core/Engines/nullEngine.js')
+  const { Scene } = await import('@babylonjs/core/scene.js')
+  const { Mesh } = await import('@babylonjs/core/Meshes/mesh.js')
+  const { clayLayer, updateStudioClay } =
+    await import('../web/studio-clay-layer.js')
+  const doc = new Document()
+  const buffer = doc.createBuffer()
+  const attribute = (type, data) =>
+    doc.createAccessor().setType(type).setArray(data).setBuffer(buffer)
+  const triangle = doc
+    .createPrimitive()
+    .setAttribute(
+      'POSITION',
+      attribute('VEC3', new Float32Array([0, 1, 0, 1, 1, 0, 0, 2, 0])),
+    )
+    .setIndices(attribute('SCALAR', new Uint16Array([0, 1, 2])))
+  const model = doc
+    .createNode('wall')
+    .setMesh(doc.createMesh().addPrimitive(triangle))
+  doc
+    .createScene()
+    .addChild(
+      doc
+        .createNode('architecture')
+        .setTranslation([12, 2, -18])
+        .addChild(model),
+    )
+  const engine = new NullEngine()
+  try {
+    const scene = new Scene(engine)
+    scene.useRightHandedSystem = true
+    await ImportMeshAsync(await new NodeIO().writeBinary(doc), scene, {
+      pluginExtension: '.glb',
+    })
+    const wall = scene.getMeshByName('wall')
+    const room = wall.parent
+    assert.equal(wall.geometry.useBoundingInfoFromGeometry, true)
+    const world = { rooms: new Map([[room.name, room]]), instances: new Map() }
+    const layer = clayLayer()
+    for (const settings of [
+      clayPresets.strong,
+      clayPresets.medium,
+      CLAY_ORIGINAL,
+    ]) {
+      updateStudioClay(layer, world, null, {
+        defaults: { clay: { world: settings } },
+      })
+      const positions = wall.getVerticesData('position')
+      const box = wall.getBoundingInfo().boundingBox
+      const copy = new Mesh('wall at origin', scene)
+      wall.geometry.applyToMesh(copy)
+      const copyBox = copy.getBoundingInfo().boundingBox
+      for (const [index, axis] of ['x', 'y', 'z'].entries()) {
+        const values = positions.filter((_, i) => i % 3 === index)
+        const min = Math.min(...values),
+          max = Math.max(...values)
+        assert.equal(box.minimumWorld[axis], room.position[axis] + min)
+        assert.equal(box.maximumWorld[axis], room.position[axis] + max)
+        assert.equal(copyBox.minimumWorld[axis], min)
+        assert.equal(copyBox.maximumWorld[axis], max)
+      }
+      copy.dispose()
+    }
+  } finally {
+    engine.dispose()
+  }
 })
 
 test('캐릭터 자료실은 여러 리깅 모델과 맞는 동작만 받는다', async () => {
