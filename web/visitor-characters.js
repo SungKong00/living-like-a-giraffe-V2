@@ -44,6 +44,8 @@ export function visitorCharacters(world, state, { onPage } = {}) {
       apply()
       world.wake()
     },
+    /** Character counts for the `?perf` readout. */
+    stats: () => layer.stats(),
     /** Opens a tapped character's page; false when it has none. */
     pick(owner) {
       if (owner?.type !== 'character') return false

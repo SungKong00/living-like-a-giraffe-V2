@@ -331,6 +331,11 @@ async function visit(data) {
             open({ label: c.label, action: { type: 'page', page } }),
         },
       )
+    // `?perf` shows frame time and draw counts for the performance budget.
+    if (new URLSearchParams(location.search).has('perf'))
+      (await import('./perf-readout.js')).perfReadout(view.host, world, {
+        characters: () => cast?.stats(),
+      })
   } catch (e) {
     view.loading.replaceChildren(
       Icon('alert', 'sm'),

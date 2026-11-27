@@ -50,6 +50,20 @@
   .stage__markers {
     pointer-events: none;
   }
+  /* `?perf` readout for the performance budget; never shown to visitors. */
+  .perf-readout {
+    position: absolute;
+    right: var(--space-2);
+    top: var(--space-2);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-scene-caption);
+    color: var(--color-text-inverse);
+    font: var(--text-mono);
+    font-variant-numeric: tabular-nums;
+    white-space: pre;
+    pointer-events: none;
+  }
   .stage__loading {
     position: absolute;
     left: 50%;

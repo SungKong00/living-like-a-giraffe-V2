@@ -645,6 +645,13 @@ export function characterLayer(
     protection: (id) => cast.get(id)?.protection ?? null,
     /** True when clay keeps the character's face by the giraffe rule. */
     head: (id) => !!cast.get(id)?.head,
+    /** How many characters there are and how many compute a pose each frame. */
+    stats() {
+      let posed = 0
+      for (const entry of cast.values())
+        if (entry.group?.isPlaying || walking(entry)) posed++
+      return { total: cast.size, posed }
+    },
     /** True while the character is playing a clip (for tests and the inspector). */
     playing(id) {
       const entry = cast.get(id)

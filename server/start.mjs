@@ -323,6 +323,9 @@ if (process.argv.includes('--production')) {
   })
   app.use(vite.middlewares)
 }
-server.listen(Number(process.env.PORT || 4173), '127.0.0.1', () =>
-  console.log('리라지 월드 http://127.0.0.1:' + server.address().port),
+// Only the character bench opens the server to the local network, for phones.
+server.listen(
+  Number(process.env.PORT || 4173),
+  process.env.RIRAGI_HOST || '127.0.0.1',
+  () => console.log('리라지 월드 http://127.0.0.1:' + server.address().port),
 )

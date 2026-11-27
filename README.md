@@ -156,9 +156,11 @@ npm run dev
 
 관람은 http://127.0.0.1:4173, PC 편집은 `/studio`에서 연다. 기존 두 행사 페이지는 `/events`에서 3D 초기화와 별도로 열린다. 첫 시작 시 관리자 키가 로컬 `.world/admin-key`에 생성된다. 운영자가 별도로 지정할 때는 `RIRAGI_ADMIN_KEY`를 사용한다. `.world`에는 비공개 전체 원본·초안·인계 기준·공개 버전이 포함되므로 이 디렉터리 전체를 함께 백업한다.
 
-`npm run build && npm start`로 빌드 결과를 확인한다. `npm test`는 배치 검증·병합·되돌리기를 검사한다. `npm run test:world`는 준비한 원본을 임시 저장소에 복사해 실제 Blender 다운로드·재업로드·베이크·복원을 검사한다. 서버는 루프백 주소에 바인딩한다.
+`npm run build && npm start`로 빌드 결과를 확인한다. `npm test`는 배치 검증·병합·되돌리기를 검사한다. `npm run test:world`는 준비한 원본을 임시 저장소에 복사해 실제 Blender 다운로드·재업로드·베이크·복원을 검사한다. 서버는 루프백 주소에 바인딩한다. 캐릭터 기준 장면만 `RIRAGI_HOST`로 같은 네트워크에 연다.
 
 브라우저 흐름은 로컬 Chrome이 설치된 환경에서 `npm run build && npm run test:browser`로 검증한다. 모바일 기기 설정을 적용한 Chrome 테스트와 실제 iOS Safari·Android 기기의 화질·성능 측정은 구분한다.
+
+캐릭터 성능은 `npm run bench:characters`로 잰다. 배포 사이트가 공개한 월드를 배경으로 기본 기린 50마리를 놓은 기준 장면을 임시 데이터 폴더에서 띄우고, 같은 네트워크의 휴대폰이 열 주소를 알려 준다. 주소 끝의 `?perf`가 화면 구석에 프레임 시간의 95백분위, 드로우 횟수, 삼각형 수, 움직이는 캐릭터 수를 보여 준다. `npm run bench:characters -- --measure`는 이 컴퓨터의 Chrome에서 같은 값을 읽어 출력한다. 컴퓨터의 프레임 시간은 같은 컴퓨터에서 전후를 비교할 때만 쓴다. 예산과 기준값은 [캐릭터 성능 설계](openspec/changes/scale-character-performance/design.md)에 있다.
 
 `.venv/bin/python tests/asset-contract.py`는 회전한 방과 같은 재질의 바닥·가구를 검사한다. 로컬 사이트가 실행 중일 때 `node tests/render-batches.mjs`는 서로 호환되는 가구 두 개와 다른 가구 한 개를 그려 실제 WebGL 호출 횟수와 개별 클릭 연결을 확인한다.
 
