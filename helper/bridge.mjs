@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   bridgePort,
+  publisherVersion,
   studioOrigin,
   taskURL,
 } from '../shared/helper-connection.mjs'
@@ -60,6 +61,7 @@ export function bridge({
             .digest('hex')
           return send(200, {
             proof,
+            publisherVersion,
             bakeProgress: true,
             stage: jobs.get(data.job)?.stage,
             bakePercent: jobs.get(data.job)?.bakePercent,

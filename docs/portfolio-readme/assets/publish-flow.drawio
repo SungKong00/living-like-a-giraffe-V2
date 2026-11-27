@@ -1,0 +1,158 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" version="32.7.4">
+  <diagram id="리라지 V2  /  워크플로우  ·  편집에서 발행까지" name="리라지 V2  /  워크플로우  ·  편집에서 발행까지">
+    <mxGraphModel page="1" pageWidth="760" pageHeight="658" grid="1" gridSize="10" connect="1" arrows="1" fold="1" background="#FFFFFF">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="bounds" value="" style="shape=rectangle;fillColor=#FFFFFF;strokeColor=none;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="760" height="658" as="geometry" />
+        </mxCell>
+        <mxCell id="decor1" value="리라지 V2  /  워크플로우  ·  편집에서 발행까지" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=13;fontColor=#14679D;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="24" y="17" width="712" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="decor2" value="승인된 개정만 관람객에게 보인다" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=27;fontColor=#172D44;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="24" y="41" width="712" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="hidden" value="" style="rounded=1;arcSize=6;strokeWidth=1.4;strokeColor=#A7C4D7;fillColor=#F2F8FC;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="23" y="100" width="348" height="522" as="geometry" />
+        </mxCell>
+        <mxCell id="decor3" value="비공개 · 편집과 검토" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=18;fontColor=#14679D;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="35" y="107" width="324" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="visible" value="" style="rounded=1;arcSize=6;strokeWidth=1.4;strokeColor=#9CBFB3;fillColor=#F1F9F5;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="394" y="100" width="343" height="522" as="geometry" />
+        </mxCell>
+        <mxCell id="decor4" value="공개 · 승인 결과만" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=18;fontColor=#087D68;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="406" y="107" width="319" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="edit" value="" style="rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#D4DFE7;strokeWidth=1.1;" vertex="1" parent="1">
+          <mxGeometry x="48" y="150" width="293" height="68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor5" value="" style="ellipse;fillColor=#E4F0F8;strokeColor=none;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="162.5" width="43" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="decor6" value="" style="shape=image;imageAspect=1;aspect=fixed;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%2314679D%22%20stroke-width%3D%222.8%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%2012h30M9%2024h30M9%2036h30m-20-28v8m12%204v8m-8%204v8%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="63.16" y="167.66" width="32.68" height="32.68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor7" value="웹 스튜디오" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=17;fontColor=#172D44;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="159" width="227" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor8" value="배치·재질 편집" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=14;fontColor=#50657B;fontStyle=0;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="184" width="227" height="31" as="geometry" />
+        </mxCell>
+        <mxCell id="decor9" value="1" style="ellipse;fillColor=#14679D;strokeColor=none;align=center;verticalAlign=middle;spacing=0;fontFamily=Arial;fontColor=#FFFFFF;fontSize=15;fontStyle=1;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="36" y="141" width="25" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="draft" value="" style="rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#D4DFE7;strokeWidth=1.1;" vertex="1" parent="1">
+          <mxGeometry x="48" y="260" width="293" height="68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor10" value="" style="ellipse;fillColor=#E4F0F8;strokeColor=none;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="272.5" width="43" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="decor11" value="" style="shape=image;imageAspect=1;aspect=fixed;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%2314679D%22%20stroke-width%3D%222.8%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cellipse%20cx%3D%2224%22%20cy%3D%2211%22%20rx%3D%2215%22%20ry%3D%226%22%2F%3E%3Cpath%20d%3D%22M9%2011v24c0%208%2030%208%2030%200V11M9%2023c0%208%2030%208%2030%200%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="63.16" y="277.66" width="32.68" height="32.68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor12" value="초안 개정 저장" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=17;fontColor=#172D44;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="269" width="227" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor13" value="D1이 편집 개정을 관리" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=14;fontColor=#50657B;fontStyle=0;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="294" width="227" height="31" as="geometry" />
+        </mxCell>
+        <mxCell id="decor14" value="2" style="ellipse;fillColor=#14679D;strokeColor=none;align=center;verticalAlign=middle;spacing=0;fontFamily=Arial;fontColor=#FFFFFF;fontSize=15;fontStyle=1;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="36" y="251" width="25" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor15" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;strokeColor=#14679D;strokeWidth=2;endArrow=block;endFill=1;endSize=8;dashed=0;dashPattern=5 5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitPerimeter=0;entryPerimeter=0;" edge="1" parent="1" source="edit" target="draft">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="bake" value="" style="rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#D4DFE7;strokeWidth=1.1;" vertex="1" parent="1">
+          <mxGeometry x="48" y="370" width="293" height="68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor16" value="" style="ellipse;fillColor=#E4F0F8;strokeColor=none;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="382.5" width="43" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="decor17" value="" style="shape=image;imageAspect=1;aspect=fixed;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%2314679D%22%20stroke-width%3D%222.8%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m8%2015%2016-8%2016%208v18l-16%208-16-8zM8%2015l16%208%2016-8M24%2023v18m-8-30%2016%208%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="63.16" y="387.66" width="32.68" height="32.68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor18" value="로컬 Blender 베이크" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=17;fontColor=#172D44;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="379" width="227" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor19" value="편집 원본을 보존하고 GLB 생성" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=14;fontColor=#50657B;fontStyle=0;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="404" width="227" height="31" as="geometry" />
+        </mxCell>
+        <mxCell id="decor20" value="3" style="ellipse;fillColor=#14679D;strokeColor=none;align=center;verticalAlign=middle;spacing=0;fontFamily=Arial;fontColor=#FFFFFF;fontSize=15;fontStyle=1;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="36" y="361" width="25" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor21" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;strokeColor=#14679D;strokeWidth=2;endArrow=block;endFill=1;endSize=8;dashed=0;dashPattern=5 5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitPerimeter=0;entryPerimeter=0;" edge="1" parent="1" source="draft" target="bake">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="review" value="" style="rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#D4DFE7;strokeWidth=1.1;" vertex="1" parent="1">
+          <mxGeometry x="48" y="480" width="293" height="68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor22" value="" style="ellipse;fillColor=#E4F0F8;strokeColor=none;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="58" y="492.5" width="43" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="decor23" value="" style="shape=image;imageAspect=1;aspect=fixed;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%2314679D%22%20stroke-width%3D%222.8%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2220%22%20r%3D%2212%22%2F%3E%3Cpath%20d%3D%22m29%2029%2010%2010%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="63.16" y="497.66" width="32.68" height="32.68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor24" value="비공개 베이크 결과" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=17;fontColor=#172D44;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="489" width="227" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor25" value="조명과 GLB를 검토" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=14;fontColor=#50657B;fontStyle=0;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="110" y="514" width="227" height="31" as="geometry" />
+        </mxCell>
+        <mxCell id="decor26" value="4" style="ellipse;fillColor=#14679D;strokeColor=none;align=center;verticalAlign=middle;spacing=0;fontFamily=Arial;fontColor=#FFFFFF;fontSize=15;fontStyle=1;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="36" y="471" width="25" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor27" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;strokeColor=#14679D;strokeWidth=2;endArrow=block;endFill=1;endSize=8;dashed=0;dashPattern=5 5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitPerimeter=0;entryPerimeter=0;" edge="1" parent="1" source="bake" target="review">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rev" value="" style="rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#D4DFE7;strokeWidth=1.1;" vertex="1" parent="1">
+          <mxGeometry x="422" y="480" width="293" height="68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor28" value="" style="ellipse;fillColor=#E0F2EB;strokeColor=none;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="432" y="492.5" width="43" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="decor29" value="" style="shape=image;imageAspect=1;aspect=fixed;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23087D68%22%20stroke-width%3D%222.8%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2224%22%20cy%3D%2224%22%20r%3D%2217%22%2F%3E%3Cpath%20d%3D%22m17%2024%205%205%209-10M6%2024h4m28%200h4%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="437.16" y="497.66" width="32.68" height="32.68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor30" value="공개 버전" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=17;fontColor=#172D44;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="484" y="489" width="227" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor31" value="개정이 같고 승인된 결과만 발행" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=14;fontColor=#50657B;fontStyle=0;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="484" y="514" width="227" height="31" as="geometry" />
+        </mxCell>
+        <mxCell id="visitor" value="" style="rounded=1;arcSize=8;fillColor=#FFFFFF;strokeColor=#D4DFE7;strokeWidth=1.1;" vertex="1" parent="1">
+          <mxGeometry x="422" y="562" width="293" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="decor32" value="" style="ellipse;fillColor=#E0F2EB;strokeColor=none;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="432" y="568.0" width="43" height="43" as="geometry" />
+        </mxCell>
+        <mxCell id="decor33" value="" style="shape=image;imageAspect=1;aspect=fixed;image=data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2048%2048%22%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%23087D68%22%20stroke-width%3D%222.8%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%225%22%20y%3D%228%22%20width%3D%2238%22%20height%3D%2230%22%20rx%3D%224%22%2F%3E%3Cpath%20d%3D%22M5%2017h38m-30-4h1m4%200h1m4%200h1%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="437.16" y="573.16" width="32.68" height="32.68" as="geometry" />
+        </mxCell>
+        <mxCell id="decor34" value="관람 브라우저" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=17;fontColor=#172D44;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="484" y="571" width="227" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor35" value="Babylon.js가 공개 GLB를 렌더링" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=14;fontColor=#50657B;fontStyle=0;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="484" y="596" width="227" height="18" as="geometry" />
+        </mxCell>
+        <mxCell id="decor36" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;strokeColor=#087D68;strokeWidth=2;endArrow=block;endFill=1;endSize=8;dashed=0;dashPattern=5 5;exitX=1;exitY=0.5;entryX=0;entryY=0.5;exitPerimeter=0;entryPerimeter=0;" edge="1" parent="1" source="review" target="rev">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="decor37" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=0;strokeColor=#087D68;strokeWidth=2;endArrow=block;endFill=1;endSize=8;dashed=0;dashPattern=5 5;exitX=0.5;exitY=1;entryX=0.5;entryY=0;exitPerimeter=0;entryPerimeter=0;" edge="1" parent="1" source="rev" target="visitor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="decor38" value="5" style="ellipse;fillColor=#087D68;strokeColor=none;align=center;verticalAlign=middle;spacing=0;fontFamily=Arial;fontColor=#FFFFFF;fontSize=15;fontStyle=1;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="408" y="472" width="25" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor39" value="6" style="ellipse;fillColor=#087D68;strokeColor=none;align=center;verticalAlign=middle;spacing=0;fontFamily=Arial;fontColor=#FFFFFF;fontSize=15;fontStyle=1;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="410" y="552" width="25" height="25" as="geometry" />
+        </mxCell>
+        <mxCell id="decor40" value="검토 전에는 이전 공개 버전 유지" style="text;html=0;align=left;verticalAlign=middle;spacing=0;fontFamily=Apple SD Gothic Neo;fontSize=19;fontColor=#087D68;fontStyle=1;fillColor=none;strokeColor=none;whiteSpace=wrap;overflow=visible;connectable=0;" vertex="1" parent="1">
+          <mxGeometry x="431" y="177" width="280" height="62" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

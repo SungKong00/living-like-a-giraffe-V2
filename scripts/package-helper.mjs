@@ -2,11 +2,17 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'giraffe-package-'))
 const dir = path.join(temp, 'payload'),
   lib = path.join(dir, 'lib')
-const downloads = path.resolve(process.argv[2] || 'dist', 'downloads')
+const project = fileURLToPath(new URL('../', import.meta.url))
+const downloads = path.resolve(
+  process.argv[2] || path.join(project, 'dist'),
+  'downloads',
+)
+process.chdir(project)
 const dest = path.join(downloads, 'giraffe-publisher-mac.zip')
 try {
   for (const folder of ['server', 'world', 'shared', 'helper'])

@@ -15,22 +15,33 @@ const setting = (db, key) =>
 // Retired library entries can still be referenced by a saved version. Only
 // expose those specific entries while previewing or restoring that layout.
 export async function characterListing(db, layout) {
-  const active = JSON.parse((await setting(db, 'characters')) ?? null) ??
-    {models: [], motions: [], fallback: null}
+  const active = JSON.parse((await setting(db, 'characters')) ?? null) ?? {
+    models: [],
+    motions: [],
+    fallback: null,
+  }
   const characters = layout?.characters ?? layout?.giraffes ?? []
-  const models = new Set(characters.map(c => c.model).filter(Boolean))
-  const clips = [layout?.defaults?.character ?? layout?.defaults?.giraffe, ...characters]
-    .flatMap(c => [c?.motion ?? []].flat())
-  const motions = new Set(clips.map(clip => clip.split('/')[0]))
+  const models = new Set(characters.map((c) => c.model).filter(Boolean))
+  const clips = [
+    layout?.defaults?.character ?? layout?.defaults?.giraffe,
+    ...characters,
+  ].flatMap((c) => [c?.motion ?? []].flat())
+  const motions = new Set(clips.map((clip) => clip.split('/')[0]))
   for (const m of active.models) models.delete(m.id)
   for (const m of active.motions) motions.delete(m.id)
   if (!models.size && !motions.size) return active
-  const archive = JSON.parse((await setting(db,'character-archive')) ?? null)
+  const archive = JSON.parse((await setting(db, 'character-archive')) ?? null)
   if (!archive) return active
   return {
     ...active,
-    models: [...active.models, ...archive.models.filter(m => models.has(m.id))],
-    motions: [...active.motions, ...archive.motions.filter(m => motions.has(m.id))],
+    models: [
+      ...active.models,
+      ...archive.models.filter((m) => models.has(m.id)),
+    ],
+    motions: [
+      ...active.motions,
+      ...archive.motions.filter((m) => motions.has(m.id)),
+    ],
   }
 }
 async function parse(bytes) {

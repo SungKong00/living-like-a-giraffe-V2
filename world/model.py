@@ -5,6 +5,7 @@ import re
 
 import bpy
 from mathutils import Matrix, Vector, Quaternion
+from surfaces import surface_kind
 
 AXIS = Matrix.Rotation(-math.pi / 2, 4, "X")
 ID = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
@@ -253,6 +254,8 @@ def appearance(obj, item, cache):
             if not current:
                 continue
             base = bpy.data.materials.get(current.get("riragiBase", "")) or current
+            if surface_kind(base) == "volume":
+                continue
             key = (base.name, color, finish)
             if key not in cache:
                 material = base
@@ -348,7 +351,7 @@ def select(objects):
 def export_glb(scene, path):
     rooms = tagged(scene, "roomId")
     objects = [o for r in rooms.values() for o in [r, *r.children_recursive]]
-    select([o for o in objects if not (o.type == "LIGHT" and o.hide_render)])
+    select([o for o in objects if not o.hide_render or o.type == "EMPTY"])
     bpy.ops.export_scene.gltf(
         filepath=str(path),
         use_selection=True,

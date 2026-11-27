@@ -9,6 +9,7 @@ import { catalog, modelDir } from './world-files.mjs'
 const recipe = createHash('sha256')
 for (const input of [
   'bake.py',
+  'surfaces.py',
   'model.py',
   'source_lights.py',
   'worker.py',
@@ -16,6 +17,7 @@ for (const input of [
   'light_field.py',
   'optimize.mjs',
   'requirements.txt',
+  '../server/blender.mjs',
   '../package-lock.json',
 ]) {
   recipe.update(fs.readFileSync(new URL('../world/' + input, import.meta.url)))

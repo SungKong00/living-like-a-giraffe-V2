@@ -3,6 +3,7 @@ import path from 'node:path'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+execFileSync('.venv/bin/python', ['tests/blender-surfaces.py'], { stdio: 'inherit' })
 // Use a separate store, including publication pointers and handoff baselines.
 const dir = fs.mkdtempSync(path.resolve('.world/integration-'))
 process.env.RIRAGI_DATA = dir

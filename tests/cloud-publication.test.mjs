@@ -18,6 +18,7 @@ import {
   saveDraft,
   world,
 } from '../cloud/state.mjs'
+import { publisherVersion } from '../shared/helper-connection.mjs'
 import { validateResult } from '../cloud/glb.mjs'
 
 function store(state) {
@@ -91,6 +92,37 @@ test('stale helper cannot upload bytes or change a publication, review approves 
     { status: 409 },
   )
   assert.equal(saved.state.job.token, undefined)
+})
+
+test('only a helper with the current material converter can start or submit a render', async () => {
+  const draft = { id: 'edit', model: 'initial' }
+  const job = {
+    id: 'job',
+    kind: 'review',
+    revision: draft.id,
+    token: 'job-secret',
+    deadline: Date.now() + 60000,
+  }
+  const db = store({ draft, published: draft, job })
+  db.prepare('INSERT INTO settings VALUES(?,?)')
+    .bind('catalog/initial', JSON.stringify({ rooms: [] }))
+    .run()
+  const send = (action, version) =>
+    onRequest({
+      env: { STUDIO: db },
+      params: { path: ['helper', job.id, action] },
+      request: new Request('https://studio.test/api/helper/job/' + action, {
+        method: action === 'start' ? 'POST' : 'PUT',
+        headers: {
+          Authorization: 'Bearer ' + job.token,
+          'X-Publisher-Version': version,
+        },
+      }),
+    })
+  for (const action of ['start', 'result', 'blend'])
+    assert.equal((await send(action, '3')).status, 409)
+  assert.deepEqual((await world(db)).state.job, job)
+  assert.equal((await send('start', publisherVersion)).status, 200)
 })
 
 function glb(doc) {
@@ -331,7 +363,8 @@ test('운영 자료실에서 별도 모델과 동작을 등록하고 공개 승�
         body,
       }),
     })
-  const model = Buffer.from(await riggedGiraffe()), walk = Buffer.from(await giraffeMotion('Walk'))
+  const model = Buffer.from(await riggedGiraffe()),
+    walk = Buffer.from(await giraffeMotion('Walk'))
   const models = 'admin/characters/models',
     motions = 'admin/characters/motions'
   assert.equal((await request(models, 'POST', model, false)).status, 401)
@@ -386,14 +419,35 @@ test('운영 자료실에서 별도 모델과 동작을 등록하고 공개 승�
 })
 
 test('퇴역한 원격 자료는 이전 배치가 참조할 때만 자료 목록에 복구한다', async () => {
-  const db = store({draft: {}, published: {}})
-  const active = {models:[{id:'biped'}], motions:[{id:'walk'}], fallback:'biped'}
-  const archive = {models:[{id:'riragi'}], motions:[{id:'riragi'},{id:'old-walk'}]}
-  for (const [key,value] of [['characters',active],['character-archive',archive]]) {
-    db.prepare('INSERT INTO settings VALUES(?,?)').bind(key,JSON.stringify(value)).run()
+  const db = store({ draft: {}, published: {} })
+  const active = {
+    models: [{ id: 'biped' }],
+    motions: [{ id: 'walk' }],
+    fallback: 'biped',
   }
-  assert.deepEqual(await characterListing(db),active)
-  const restored=await characterListing(db,{characters:[{model:'riragi'}],defaults:{character:{motion:'riragi/LookAround'}}})
-  assert.deepEqual(restored.models.map(m=>m.id),['biped','riragi'])
-  assert.deepEqual(restored.motions.map(m=>m.id),['walk','riragi'])
+  const archive = {
+    models: [{ id: 'riragi' }],
+    motions: [{ id: 'riragi' }, { id: 'old-walk' }],
+  }
+  for (const [key, value] of [
+    ['characters', active],
+    ['character-archive', archive],
+  ]) {
+    db.prepare('INSERT INTO settings VALUES(?,?)')
+      .bind(key, JSON.stringify(value))
+      .run()
+  }
+  assert.deepEqual(await characterListing(db), active)
+  const restored = await characterListing(db, {
+    characters: [{ model: 'riragi' }],
+    defaults: { character: { motion: 'riragi/LookAround' } },
+  })
+  assert.deepEqual(
+    restored.models.map((m) => m.id),
+    ['biped', 'riragi'],
+  )
+  assert.deepEqual(
+    restored.motions.map((m) => m.id),
+    ['walk', 'riragi'],
+  )
 })

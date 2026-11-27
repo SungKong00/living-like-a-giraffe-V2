@@ -6,6 +6,7 @@ import {
   inspectResult,
   checkBlend,
 } from '../../cloud/handoff.mjs'
+import { publisherVersion } from '../../shared/helper-connection.mjs'
 import { Buffer } from 'node:buffer'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { validate } from '../../server/layout.mjs'
@@ -107,9 +108,12 @@ async function helper(db, req, route, current) {
   const model = await catalog(db, state.draft.model)
   if (action === 'source' && req.method === 'GET')
     return asset(db, 'source/' + (inspecting ? id : state.draft.model))
+  if (
+    ['start', 'blend', 'result'].includes(action) &&
+    req.headers.get('X-Publisher-Version') !== publisherVersion
+  )
+    reject(409, '스튜디오에서 최신 발행 도우미를 다시 내려받으세요.')
   if (action === 'start' && req.method === 'POST') {
-    if (req.headers.get('X-Publisher-Version') !== '2')
-      reject(409, '스튜디오에서 최신 발행 도우미를 다시 내려받으세요.')
     if (j.attempt && req.headers.get('X-Publisher-Claim') === 'waiting')
       reject(
         409,
@@ -334,8 +338,11 @@ async function handle({ request: req, env, params, waitUntil, next }) {
       .first()
     if (!stored) {
       const modelId = await setting(db, 'clay/biped-model')
-      const sampleModel = modelId && (await characterListing(db)).models.find(m => m.id === modelId)
-      if (sampleModel) return asset(db, 'character/' + sampleModel.file + '.glb')
+      const sampleModel =
+        modelId &&
+        (await characterListing(db)).models.find((m) => m.id === modelId)
+      if (sampleModel)
+        return asset(db, 'character/' + sampleModel.file + '.glb')
       const sample = await next()
       return new Response(sample.body, {
         status: sample.status,
@@ -380,7 +387,10 @@ async function handle({ request: req, env, params, waitUntil, next }) {
       id: crypto.randomUUID(),
       revision,
       kind,
-      cast: characterSheet(draft.layout, await characterListing(db, draft.layout)),
+      cast: characterSheet(
+        draft.layout,
+        await characterListing(db, draft.layout),
+      ),
       status: '대기',
       token: secret(),
       deadline: Date.now() + 2 * 3600000,

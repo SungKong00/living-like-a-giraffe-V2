@@ -6,7 +6,7 @@ import bpy
 import numpy as np
 
 from bake import bake
-from model import AXIS, appearance, tagged, values, wrap_mesh_anchors, apply_web_lights
+from model import AXIS, appearance, tagged, values, apply_web_lights
 
 
 def display_lut(scene, out):
@@ -40,8 +40,7 @@ def panel(obj):
                 energy=data.energy, color=values(data.color), source=obj.get("sourceLightId"))
 
 
-def prepare(scene, out):
-    wrap_mesh_anchors(scene)
+def prepare(scene, out, receivers):
     apply_web_lights(scene, [])
     items = tagged(scene, "itemId").values()
     hidden = {}
@@ -51,7 +50,7 @@ def prepare(scene, out):
         for obj in [item, *item.children_recursive]:
             hidden[obj] = obj.hide_render
             obj.hide_render = True
-    field = bake(scene, out, fixed_only=True)
+    field = bake(scene, out, receivers, fixed_only=True)
     for obj, previous in hidden.items():
         obj.hide_render = previous
     profile = {

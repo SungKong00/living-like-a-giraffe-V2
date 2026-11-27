@@ -7,7 +7,10 @@ export default defineConfig({
     {
       name: 'studio-biped-sample',
       generateBundle() {
-        const model = new URL('./assets-source/characters/riragi-clay/riragi-biped.glb', import.meta.url)
+        const model = new URL(
+          './assets-source/characters/riragi-clay/riragi-biped.glb',
+          import.meta.url,
+        )
         if (!existsSync(model)) return
         this.emitFile({
           type: 'asset',

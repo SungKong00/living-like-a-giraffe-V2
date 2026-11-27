@@ -1876,6 +1876,42 @@ function characterInspector(c, editor) {
         }),
     routeSection(c, editor, modelId),
     PanelSection({
+      title: '동작',
+      meta:
+        c.motion === undefined && c.speed === undefined && c.order === undefined
+          ? '월드 따름'
+          : '이 캐릭터만 따로',
+      children: [
+        ...motionRows(editor, {
+          prefix: '캐릭터',
+          key: 'character',
+          model: modelId,
+          motion: effective.motion,
+          order: effective.order,
+          override: inherit,
+          onMotion: (motion) => set({ motion }),
+          onOrder: (order) => set({ order }),
+        }),
+        PropertyRow({
+          label: '속도',
+          override: inherit('speed', '속도'),
+          children: [
+            Slider({
+              label: '캐릭터 동작 속도',
+              key: 'character-speed',
+              min: 0.1,
+              max: 3,
+              step: 0.05,
+              value: effective.speed,
+              format: (v) => '×' + v.toFixed(2),
+              onInput: (speed) => preview({ speed }),
+              onCommit: (speed) => set({ speed }),
+            }),
+          ],
+        }),
+      ],
+    }),
+    PanelSection({
       title: '배치',
       children: [
         PropertyRow({

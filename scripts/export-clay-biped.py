@@ -115,7 +115,31 @@ def combine_clay_colors(objects):
                 mesh.materials[index] = replacements[material]
 
 
-def export(source, output):
+def export_motion(scene, rig, name, output):
+    action = bpy.data.actions.get(name)
+    if action is None:
+        raise ValueError(f"액션을 찾을 수 없습니다: {name}")
+    # The exporter otherwise merges actions or NLA strips on this skeleton.
+    for track in list(rig.animation_data.nla_tracks):
+        rig.animation_data.nla_tracks.remove(track)
+    for other in list(bpy.data.actions):
+        if other != action:
+            bpy.data.actions.remove(other)
+    rig.animation_data.action = action
+    scene.frame_start, scene.frame_end = map(int, action.frame_range)
+    scene.frame_set(scene.frame_start)
+    bpy.ops.object.select_all(action="DESELECT")
+    rig.select_set(True)
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.export_scene.gltf(
+        filepath=str(output.resolve()), use_selection=True,
+        export_armature_object_remove=True, export_animation_mode="ACTIONS",
+        export_frame_step=action.get("studioFrameStep", 1), export_frame_range=True,
+        export_rest_position_armature=True, export_extras=False,
+    )
+
+
+def export(source, output, motion=None):
     if output.suffix.lower() != ".glb":
         raise ValueError("출력 파일 이름은 .glb로 끝나야 합니다.")
     bpy.ops.wm.open_mainfile(filepath=str(source.resolve()), use_scripts=False, load_ui=False)
@@ -130,7 +154,14 @@ def export(source, output):
             rig.driver_remove(curve.data_path, curve.array_index)
     for bone in rig.pose.bones:
         bone.matrix_basis = Matrix.Identity(4)
+    if motion is not None:
+        export_motion(scene, rig, motion, output)
+        return
     rig.animation_data.action = None
+    # Standalone library clips are uploaded separately from the model.
+    for action in list(bpy.data.actions):
+        if action.get("studioStandalone"):
+            bpy.data.actions.remove(action)
     scene.frame_set(1)
     for obj in objects:
         reduce_surface(obj)
@@ -174,7 +205,12 @@ def export(source, output):
 
 if __name__ == "__main__":
     args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else sys.argv[1:]
-    source, output = map(Path, args)
-    export(source, output)
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("source", type=Path)
+    parser.add_argument("output", type=Path)
+    parser.add_argument("--motion", help="이름이 일치하는 액션만 모션 GLB로 내보냅니다.")
+    opts = parser.parse_args(args)
+    export(opts.source, opts.output, opts.motion)
     sys.stdout.flush()
     os._exit(0)

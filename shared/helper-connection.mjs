@@ -1,6 +1,7 @@
-export const studioOrigin = "https://living-like-a-giraffe.pages.dev";
-export const bridgePort = 49731;
-export const bridgeOrigin = "http://127.0.0.1:" + bridgePort;
+export const publisherVersion = '4'
+export const studioOrigin = 'https://living-like-a-giraffe.pages.dev'
+export const bridgePort = 49731
+export const bridgeOrigin = 'http://127.0.0.1:' + bridgePort
 
 export function taskURL(ticket, origin = studioOrigin) {
   if (typeof ticket !== "string" || !URL.canParse(ticket))

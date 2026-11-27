@@ -3,10 +3,13 @@ import path from 'node:path'
 import os from 'node:os'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 
 const exec = promisify(execFile)
-const python = path.resolve('.venv/bin/python')
-const worker = path.resolve('world/worker.py')
+const runtime = fileURLToPath(new URL('../', import.meta.url))
+const venv = path.join(runtime, '.venv')
+const python = path.join(venv, 'bin', 'python')
+const worker = path.join(runtime, 'world', 'worker.py')
 const quote = (value) => JSON.stringify(fs.realpathSync(value))
 const maxTime = 15 * 60 * 1000
 export async function blender(mode, source, dir, input, signal, onBakePercent) {
@@ -50,14 +53,14 @@ export async function blender(mode, source, dir, input, signal, onBakePercent) {
 async function runBlender(mode, source, dir, input, signal) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'riragi-job-'))
   try {
-    const args = [worker, mode, source, dir]
-    if (input) args.push(input)
+    const args = [worker, mode, path.resolve(source), path.resolve(dir)]
+    if (input) args.push(path.resolve(input))
     if (process.platform === 'win32') {
       await exec(
-        path.resolve('Giraffe Studio.exe'),
-        ['--worker', dir, ...args],
+        path.join(runtime, 'Giraffe Studio.exe'),
+        ['--worker', path.resolve(dir), ...args],
         {
-          cwd: process.cwd(),
+          cwd: runtime,
           windowsHide: true,
           signal,
           timeout: maxTime,
@@ -69,7 +72,7 @@ async function runBlender(mode, source, dir, input, signal) {
       throw Error('이 운영체제에는 사용할 수 있는 Blender 도우미가 없습니다.')
     const prefix = path.dirname(path.dirname(fs.realpathSync(python)))
     const reads = [
-      path.resolve('.venv'),
+      venv,
       prefix,
       path.dirname(worker),
       source,
