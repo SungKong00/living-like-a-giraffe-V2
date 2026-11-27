@@ -17,15 +17,14 @@ import path from 'node:path'
 // them. The world is the one a site has published (`from`, the deployed
 // background) or, offline, the prepared world the browser tests use. The
 // characters are the giraffes bundled with the studio. The mix is fixed so
-// two runs measure the same scene: 35 bipeds (routes, walking in place,
-// standing) and 15 four-legged giraffes (looking around, some wearing
-// everything their model has).
+// two runs measure the same scene: fifty biped giraffes, of which fifteen
+// walk routes, ten walk in place and twenty-five stand, a few of those
+// wearing everything their model has.
 // See openspec/changes/scale-character-performance/design.md.
 
 export const benchCount = 50
 const idleFile = 'assets-source/characters/riragi-clay/riragi-biped-idle.glb'
 const BIPED = 'riragi-biped'
-const QUADRUPED = 'riragi'
 const walk = BIPED + '/두 발 걷기'
 
 /**
@@ -109,9 +108,6 @@ export function benchLayout(layout, floors, library, idle = null) {
   const spots = rooms.map((id, index) => places(floors.get(id), share(index)))
   const wearables = (id) =>
     (library.models.find((m) => m.id === id)?.wearables ?? []).map((w) => w.id)
-  const look = library.motions
-    .find((m) => m.id === QUADRUPED)
-    ?.clips.map((clip) => QUADRUPED + '/' + clip.name)[0]
   const characters = []
   for (let i = 0; i < benchCount; i++) {
     const position = spots[i % rooms.length][Math.floor(i / rooms.length)]
@@ -146,15 +142,13 @@ export function benchLayout(layout, floors, library, idle = null) {
         },
       })
     else if (kind < 5) characters.push({ ...base, model: BIPED, motion: walk })
-    else if (kind < 7)
-      characters.push({ ...base, model: BIPED, motion: idle ?? walk })
     else
       characters.push({
         ...base,
-        model: QUADRUPED,
-        motion: look ?? null,
-        // Every third one is dressed, which adds its wearables' draws.
-        ...(kind === 9 ? { wear: wearables(QUADRUPED) } : {}),
+        model: BIPED,
+        motion: idle ?? walk,
+        // One in ten is dressed, which adds its wearables' draws.
+        ...(kind === 9 ? { wear: wearables(BIPED) } : {}),
       })
   }
   return { ...layout, characters }
