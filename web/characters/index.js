@@ -9,6 +9,7 @@ import { STAND_IN_HEIGHT, characterView } from './view.js'
 // and `policy` says which of them are worth a pose. Code outside this folder imports this file only.
 
 export { characterModel, characterMotion, motionList } from './cast.js'
+export { screenPolicy } from './policy.js'
 
 const adminFile = (id) => '/api/admin/characters/files/' + id + '.glb'
 
@@ -35,6 +36,17 @@ export function characterLayer(
   const view = characterView(world, { standIn, shadows })
   const cast = characterCast(world, assets, policy, { onRoute })
   world.keepDrawing(cast.animating)
+  // One reduced level for the whole scene, chosen again when the zoom moves.
+  let level = policy.level(0)
+  const leveled = world.scene.onBeforeRenderObservable.add(() => {
+    const next = policy.level(level)
+    if (next === level) return
+    level = next
+    for (const entry of cast.entries()) view.setLevel(entry, level)
+  })
+  world.scene.onDisposeObservable.addOnce(() =>
+    world.scene.onBeforeRenderObservable.remove(leveled),
+  )
   function release(entry) {
     cast.remove(entry)
     view.release(entry)
@@ -57,7 +69,10 @@ export function characterLayer(
           release(entry)
           entry = null
         }
-        entry ??= cast.add(c.id, view.spawn(c, slot?.file, container, m))
+        if (!entry) {
+          entry = cast.add(c.id, view.spawn(c, slot?.file, container, m))
+          view.setLevel(entry, level)
+        }
         view.place(entry, c, m)
         cast.perform(
           entry,

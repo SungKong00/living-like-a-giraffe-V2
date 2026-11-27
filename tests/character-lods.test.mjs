@@ -82,3 +82,43 @@ test('축소 단계가 없는 모델은 그대로 읽히고 공개 목록은 단
   assert.deepEqual(sheet.models.m.lods, lods)
   assert.deepEqual(sheet.models.old.lods, [])
 })
+
+test('화면 크기 하나로 단계를 정하고 경계의 10% 안에서는 지금 단계를 유지한다', async () => {
+  const { levelFor, screenPolicy } = await import('../web/characters/policy.js')
+  // Phone overview, phone room and a close look, from the design's table.
+  assert.equal(levelFor(6.4), 2)
+  assert.equal(levelFor(26, 2), 1)
+  assert.equal(levelFor(40, 1), 0)
+  // Zooming out from the original: level 1 only below 27, level 2 below 7.2.
+  assert.equal(levelFor(29, 0), 0)
+  assert.equal(levelFor(26.9, 0), 1)
+  assert.equal(levelFor(7.5, 1), 1)
+  assert.equal(levelFor(7.1, 1), 2)
+  // Zooming back in: finer only above 8.8 and above 33.
+  assert.equal(levelFor(8.5, 2), 2)
+  assert.equal(levelFor(8.9, 2), 1)
+  assert.equal(levelFor(32, 1), 1)
+  assert.equal(levelFor(33.1, 1), 0)
+  // A jump across both boundaries lands on the right level at once.
+  assert.equal(levelFor(100, 2), 0)
+  assert.equal(levelFor(1, 0), 2)
+
+  const world = { onScreen: () => true, pixelsPerMetre: () => 5 }
+  assert.equal(screenPolicy(world, { lods: true }).level(0), 2)
+  // The studio always draws the original.
+  assert.equal(screenPolicy(world).level(0), 0)
+})
+
+test('부위마다 그 단계의 메시를, 없으면 더 자세한 단계나 원본을 그린다', async () => {
+  const { levelNode } = await import('../web/characters/view.js')
+  const both = new Map([
+    [1, 'lod1'],
+    [2, 'lod2'],
+  ])
+  assert.equal(levelNode('body', both, 0), 'body')
+  assert.equal(levelNode('body', both, 1), 'lod1')
+  assert.equal(levelNode('body', both, 2), 'lod2')
+  assert.equal(levelNode('cape', new Map([[1, 'cape1']]), 2), 'cape1')
+  assert.equal(levelNode('eye', new Map([[2, 'eye2']]), 1), 'eye')
+  assert.equal(levelNode('flower', new Map(), 2), 'flower')
+})

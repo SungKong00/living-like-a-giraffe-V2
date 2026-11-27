@@ -725,6 +725,9 @@ async function openScene(
       styledExtra.add(material)
       illumination?.style(material)
     },
+    /** How many CSS pixels a metre of the world covers on screen. */
+    pixelsPerMetre: () =>
+      view.canvas.clientHeight / Math.max(1e-6, 2 * camera.orthoTop),
     /**
      * Keeps `mesh` out of what glass refracts: for things that move every
      * frame (characters), which would redraw that texture all the time.

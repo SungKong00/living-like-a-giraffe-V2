@@ -1,4 +1,4 @@
-import { characterLayer } from './characters/index.js'
+import { characterLayer, screenPolicy } from './characters/index.js'
 
 // Characters of the published world in the visitor scene. Their files come
 // from the list fixed at publication (`state.characters`). Every character on
@@ -13,6 +13,8 @@ export function visitorCharacters(world, state, { onPage } = {}) {
     fileUrl: (id) => sheet.base + id + '.glb',
     standIn: false,
     shadows: true,
+    // Small on screen, a character is drawn at a reduced level.
+    policy: screenPolicy(world, { lods: true }),
     onLoad() {
       layer.update(state.layout)
       world.wake()
