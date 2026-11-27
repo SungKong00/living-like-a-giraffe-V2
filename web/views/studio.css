@@ -6,6 +6,8 @@
   body[data-surface='studio'] {
     overflow: hidden;
     background: var(--color-bg);
+    /* Keep toasts above the scene's view toolbar, level with the hint. */
+    --toast-offset: calc(var(--control-xl) + var(--space-6));
   }
   .studio {
     display: grid;
@@ -234,6 +236,14 @@
   .studio-muted {
     font: var(--text-caption);
     color: var(--color-text-tertiary);
+  }
+  /* One route point's heading above its rows. */
+  .studio-route-point {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border-subtle);
+    font: var(--text-label);
+    color: var(--color-text-secondary);
   }
 
   /* ---------- Publish popover ---------- */

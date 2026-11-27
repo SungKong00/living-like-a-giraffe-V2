@@ -1,6 +1,7 @@
 import { giraffeDimensions } from '../shared/giraffe-proportions.mjs'
 import { sourceDifference, sourceValues } from '../shared/source-lights.mjs'
 import { lightLimit, lightWithDefaults } from '../shared/studio-lights.mjs'
+import { routeLimits } from '../shared/character-route.mjs'
 import { z } from 'zod'
 import { isDeepStrictEqual as equal } from 'node:util'
 
@@ -100,7 +101,7 @@ const clayDefaults = z.union([
   }),
 ])
 // A library file: an uploaded file's content hash or the bundled model.
-const fileId = '(?:[a-f0-9]{16}|riragi)'
+const fileId = '(?:[a-f0-9]{16}|riragi(?:-biped)?)'
 // `동작파일ID/클립이름`; null means "standing still" when it overrides. A
 // list plays its clips one after another in `order`.
 const clip = z
@@ -111,6 +112,46 @@ const clip = z
 const motion = z.union([clip, z.array(clip).min(1).max(8)]).nullable()
 const order = z.enum(['sequence', 'random'])
 const speed = z.number().min(0.1).max(3)
+// A walk through floor points of the character's room. `at` is x·z from
+// where the character stands, so the first point is [0, 0] and the route
+// moves with the character. A point is passed, or it is a stop: face, play
+// `motion` `repeat` times, wait, leave.
+const routePoint = z.strictObject({
+  at: z.tuple([number, number]),
+  stop: z
+    .strictObject({
+      face: z
+        .union([z.literal('next'), z.number().min(-360).max(360)])
+        .optional(),
+      motion: motion.optional(),
+      repeat: z
+        .number()
+        .int()
+        .min(routeLimits.repeat.min)
+        .max(routeLimits.repeat.max)
+        .optional(),
+      wait: z
+        .number()
+        .min(routeLimits.wait.min)
+        .max(routeLimits.wait.max)
+        .optional(),
+    })
+    .optional(),
+})
+const route = z.strictObject({
+  points: z
+    .array(routePoint)
+    .min(routeLimits.points.min)
+    .max(routeLimits.points.max),
+  mode: z.enum(['loop', 'pingpong']).optional(),
+  speed: z
+    .number()
+    .min(routeLimits.speed.min)
+    .max(routeLimits.speed.max)
+    .optional(),
+  walk: clip,
+  idle: clip.nullable().optional(),
+})
 // Characters never round-trip through Blender, so their own motion and speed
 // overrides live on the character. A missing field follows
 // defaults.character; a missing model shows the library's fallback model.
@@ -138,6 +179,8 @@ const character = z.strictObject({
   motion: motion.optional(),
   order: order.optional(),
   speed: speed.optional(),
+  // Walks this route instead of playing `motion` where it stands.
+  route: route.optional(),
   // A page opened when a visitor taps the character.
   page: id.optional(),
   // Wearables of the model switched on (IDs from the library).
@@ -258,6 +301,8 @@ export function validate(input, catalog) {
     if (!rooms.includes(g.room)) throw Error(g.label + '의 방을 확인하세요.')
     // A removed page leaves the character without a link.
     if (g.page && !pages.includes(g.page)) delete g.page
+    // A route starts where the character stands.
+    if (g.route) g.route.points[0].at = [0, 0]
   }
   // An object removed here or by a Blender handoff takes its overrides along.
   if (data.overrides?.clay) {

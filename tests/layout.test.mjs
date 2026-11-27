@@ -61,6 +61,16 @@ test('편집 이력은 반환값의 외부 변경과 취소 후 분기에서 보
   h.redo()
   assert.equal(h.value.x, 3)
 })
+test('되돌리기는 편집 전 선택을, 다시 실행은 되돌릴 때의 선택을 돌려준다', () => {
+  const h = new EditHistory({ items: ['bench'] })
+  h.change((d) => d.items.push('copy'), 'bench')
+  assert.equal(h.undo('copy'), 'bench')
+  assert.deepEqual(h.value.items, ['bench'])
+  assert.equal(h.redo('bench'), 'copy')
+  assert.deepEqual(h.value.items, ['bench', 'copy'])
+  h.change((d) => d.items.push('copy'), 'other')
+  assert.equal(h.redo('x'), undefined)
+})
 test('가구 종류의 허용 옵션을 서버에서 검사한다', () => {
   const d = seed(catalog)
   const limited = {

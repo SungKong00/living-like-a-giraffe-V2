@@ -12,7 +12,6 @@ import {
 } from '../server/world-files.mjs'
 import { buildStudioAsset } from '../server/studio-asset.mjs'
 import { characterLibrary } from '../server/characters.mjs'
-import { claySamples } from '../server/clay-samples.mjs'
 const {
   draft,
   published,
@@ -77,11 +76,6 @@ for (const id of new Set(
   ].filter(Boolean),
 ))
   file('character/' + id + '.glb', fs.readFileSync(library.file(id)))
-file(
-  'clay/giraffe',
-  fs.readFileSync('assets-source/characters/riragi-clay/riragi-giraffe.glb'),
-)
-file('clay/samples', await claySamples())
 // Preserve local ordering when several checkpoints share a timestamp.
 for (const entry of versions.toReversed()) {
   const { id, kind, title, createdAt, revision, model } = entry

@@ -189,6 +189,7 @@ export function attachCanvas(world, view, hooks) {
     g.position = [align(local.x), g.character.position[1], align(local.z)]
     g.node.parent = room
     g.node.position.set(...g.position)
+    hooks.characterMoving(g.room, g.position)
     world.wake()
   }
   function dropCharacter(g) {
@@ -287,6 +288,8 @@ export function attachCanvas(world, view, hooks) {
     else if (gesture.kind === 'character') moveCharacter(gesture, at, e)
     else if (gesture.kind === 'light') moveLight(gesture, at, e)
     else if (gesture.kind === 'spot') moveSpot(gesture, at, e)
+    else if (gesture.kind === 'routePoint')
+      hooks.routePointMove(gesture.index, at, e)
     else movePan(gesture, at)
   }
   function stop() {
@@ -313,6 +316,7 @@ export function attachCanvas(world, view, hooks) {
       hooks.commitLight(g.id, { position: g.position })
     else if (g.kind === 'spot' && g.moved)
       hooks.commitSpot(g.id, g.spot.position)
+    else if (g.kind === 'routePoint' && g.moved) hooks.routePointDrop()
     else if (g.kind === 'pan' && !g.moved)
       hooks.select(g.hit?.type === 'room' ? g.hit : null)
   }
@@ -328,8 +332,12 @@ export function attachCanvas(world, view, hooks) {
     if (e.button !== 0 || handles.dragging || gesture) return
     canvas.focus({ preventScroll: true })
     const at = point(e)
-    if (hooks.placing()) return hooks.place(at)
+    if (hooks.routing()) return hooks.routeClick(at, e)
+    if (hooks.placing()) return hooks.place(at, e)
     if (hooks.pickLightPoint(at)) return
+    // A route point's mark is grabbed before whatever lies behind it.
+    const index = hooks.routePointAt(at)
+    if (index >= 0) return start({ kind: 'routePoint', index }, e)
     const hit = world.pick(at.x, at.y)
     if (hit?.type === 'item') {
       hooks.select(hit)
@@ -348,7 +356,8 @@ export function attachCanvas(world, view, hooks) {
   let pending = null
   canvas.addEventListener('pointermove', (e) => {
     if (gesture || e.buttons) return
-    if (hooks.placing()) return hooks.placeHover(point(e))
+    if (hooks.routing()) return hooks.routeHover(point(e), e)
+    if (hooks.placing()) return hooks.placeHover(point(e), e)
     pending = point(e)
   })
   canvas.addEventListener('pointerleave', () => {
@@ -383,18 +392,21 @@ export function attachCanvas(world, view, hooks) {
   view.host.append(toolbar)
   scene.onAfterRenderObservable.add(() => {
     if (pending && !gesture) {
-      const hit = world.pick(pending.x, pending.y)
+      const onPoint = hooks.routePointAt(pending) >= 0
+      const hit = onPoint ? null : world.pick(pending.x, pending.y)
       pending = null
       setHover(
         hit?.type === 'item' || hit?.type === 'character'
           ? hit.type + ':' + hit.id
           : null,
       )
+      canvas.style.cursor = onPoint || hover ? 'grab' : ''
     }
     const node =
       (selection?.type === 'item' || selection?.type === 'character') &&
       hooks.modelRoot(selection)
-    toolbar.hidden = !node || !!gesture?.moved || !!hooks.placing()
+    toolbar.hidden =
+      !node || !!gesture?.moved || !!hooks.placing() || hooks.routing()
     if (toolbar.hidden) return
     // Sit above the furniture's whole on-screen footprint so the toolbar
     // never covers the part the operator wants to grab.

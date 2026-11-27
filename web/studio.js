@@ -47,6 +47,8 @@ import {
   motionList,
 } from './studio-characters.js'
 import { clayLayer, updateStudioClay } from './studio-clay-layer.js'
+import { routeGuide } from './route-guide.js'
+import { characterClips, routeLimits } from '../shared/character-route.mjs'
 import { openVersions } from './studio-versions.js'
 import { clayDefaults } from './clay-field.js'
 
@@ -155,8 +157,6 @@ export async function studio() {
     throw e
   }
   document.body.dataset.surface = 'studio'
-  if (new URLSearchParams(location.search).get('tool') === 'clay')
-    return (await import('./studio-clay.js')).studioClay()
   const history = new EditHistory(saved.layout)
   const sourceCatalog = saved.sourceLights ?? []
   const sourceMap = new Map(sourceCatalog.map((l) => [l.id, l]))
@@ -204,14 +204,21 @@ export async function studio() {
     lightTool: 'move',
     // Character following the pointer until a floor click places it.
     placing: null,
+    // Route being drawn: `{ id, base, added }`, the points clicked so far.
+    routing: null,
+    // The selected character walks its route from the start as a preview.
+    routePlay: false,
     // Library model whose settings are open in the world panel.
     libraryModel: null,
     // Which clay sections show their detail sliders, by section key.
     clayDetail: {},
+    // Inspector field (by data-key) to focus after the next render.
+    focus: null,
   }
   // Rigged models and motion files shared by every character.
   let characterLibrary = { models: [], motions: [], fallback: null }
   let cast = null
+  let guide = null
   const clay = clayLayer()
   // Scene parts drawn by the studio itself rather than by scene.js.
   // `moving`: a slider is still being dragged. Rooms are large, so their
@@ -219,8 +226,19 @@ export async function studio() {
   function refreshScene({ moving = false } = {}) {
     if (!world) return
     cast?.update(shown)
+    syncRoute()
     updateStudioClay(clay, world, cast, shown, moving)
     projection?.invalidate()
+  }
+  // The selected character's route shows its path and stands at the first
+  // point until the editor plays it; the others keep walking.
+  function syncRoute() {
+    const c =
+      selection?.type === 'character' &&
+      ops.find(shown, 'characters', selection.id)
+    const route = c && c.route ? c : null
+    guide?.show(route)
+    cast?.rehearse(route ? c.id : null, ui.routePlay && !ui.routing)
   }
   const entities = entityQueries({
     get layout() {
@@ -315,12 +333,6 @@ export async function studio() {
     el(
       'div',
       { class: 'studio-bar__end' },
-      Button({
-        label: '점토 시안',
-        href: '/studio?tool=clay',
-        external: true,
-        variant: 'ghost',
-      }),
       Button({
         label: '미리보기',
         icon: 'preview',
@@ -499,7 +511,7 @@ export async function studio() {
       )
     } else {
       const [label, onClick] = {
-        conflict: ['다른 창에서 변경됨 · 다시 열기', () => location.reload()],
+        conflict: ['다른 창에서 변경됨 · 다시 열기', reopen],
         unauthorized: ['다시 로그인하고 저장', resumeSave],
         error: ['저장 실패 · 다시 시도', () => flush().catch(() => {})],
       }[s]
@@ -514,6 +526,16 @@ export async function studio() {
       )
     }
     if (s === 'error') fail('저장하지 못했습니다 · ' + autosave.error)
+    if (s === 'conflict')
+      fail(
+        '다른 창에서 먼저 저장해 이 창의 편집은 더 저장되지 않습니다. 다시 열어 이어서 편집하세요.',
+      )
+  }
+  // Reopening after a conflict drops this window's unsaved edits on purpose.
+  let reopening = false
+  function reopen() {
+    reopening = true
+    location.reload()
   }
 
   // Native color/range controls can finish at their starting value without a
@@ -529,17 +551,19 @@ export async function studio() {
     properties.addEventListener(event, finishTransient, true)
 
   // ---- Edits ----
-  function apply() {
+  // `restore`: the selection undo or redo brings back, when it still exists.
+  function apply(restore) {
     transient = false
     shown = history.value
     world?.update(shown)
     refreshScene()
+    if (restore && entities.exists(restore)) return select(restore)
     if (!entities.exists(selection)) return select(null)
     render()
   }
   function change(edit) {
     let result
-    history.change((d) => (result = edit(d)))
+    history.change((d) => (result = edit(d)), selection)
     autosave.schedule()
     apply()
     return result
@@ -552,25 +576,31 @@ export async function studio() {
     world?.update(shown)
     refreshScene({ moving: true })
   }
+  // Undo shows what it changed: the selection made before that edit returns.
   function undo() {
-    if (canvas?.cancel()) return
-    history.undo()
+    if (ui.routing) return cancelRoute()
+    if (canvas?.cancel() || !history.canUndo) return
+    const restore = history.undo(selection)
     autosave.schedule()
-    apply()
+    apply(restore)
   }
   function redo() {
-    if (canvas?.cancel()) return
-    history.redo()
+    if (canvas?.cancel() || !history.canRedo) return
+    const restore = history.redo(selection)
     autosave.schedule()
-    apply()
+    apply(restore)
   }
   function select(target, { frame = false } = {}) {
     const sel = target ?? WORLD
     setLightPick(null)
     setPlacing(null)
+    endRouting()
     if (selection.id !== sel.id || selection.type !== sel.type) {
+      ui.routePlay = false
       canvas?.cancel()
       ui.lightTool = 'move'
+      // An address left unfinished keeps the spot's existing link.
+      ui.addressing = null
       inspector.scrollTop = 0
     }
     selection = sel
@@ -661,14 +691,16 @@ export async function studio() {
   ) {
     const id = newId()
     ui.collapsed.delete('room:' + room)
-    change((d) =>
-      ops.addCharacter(d, {
+    const info = characterLibrary.models.find((m) => m.id === model)
+    change((d) => {
+      const added = ops.addCharacter(d, {
         id,
         room,
         model: model ?? undefined,
-        name: modelName(model) ?? '캐릭터',
-      }),
-    )
+        name: info?.name ?? '캐릭터',
+      })
+      if (info) ops.selectCharacterModel(d, added, model, characterLibrary)
+    })
     select({ type: 'character', id }, { frame: true })
     setPlacing(id)
   }
@@ -680,14 +712,109 @@ export async function studio() {
     view.host.classList.toggle('is-placing-light', !!id)
     render()
   }
+  // ---- Routes ----
+  // The walk clip a new route starts with: a clip named for walking that
+  // moves the model, else the motion the character plays, else any clip.
+  function walkClip(c) {
+    const model = characterModel(characterLibrary, c)
+    const clips = characterLibrary.motions
+      .filter((m) => m.matched[model])
+      .flatMap((m) => m.clips.map((clip) => m.id + '/' + clip.name))
+    const own = motionList(characterMotion(shown, c).motion)
+    return (
+      clips.find((clip) =>
+        /걷|walk/i.test(clip.split('/').slice(1).join('/')),
+      ) ??
+      own.find((clip) => clips.includes(clip)) ??
+      clips[0] ??
+      null
+    )
+  }
+  const drafted = (r, hover) => ({
+    ...r.base,
+    points: [
+      ...r.base.points,
+      ...[...r.added, ...(hover ? [hover] : [])].map((at) => ({ at })),
+    ],
+  })
+  function showRouting(hover) {
+    const r = ui.routing
+    preview((d) => ops.setRoute(d, r.id, drafted(r, hover)))
+  }
+  // Floor clicks add points to character `id`'s route until it is finished.
+  function startRoute(id) {
+    const c = ops.find(history.value, 'characters', id)
+    if (!c) return
+    const walk = c.route?.walk ?? walkClip(c)
+    if (!walk)
+      return fail(
+        '이 모델을 움직이는 동작이 자료실에 없습니다. 걷기 동작 파일을 먼저 올리세요.',
+      )
+    if (c.route?.points.length >= routeLimits.points.max)
+      return notify(
+        '지점은 ' + routeLimits.points.max + '개까지 둘 수 있습니다.',
+      )
+    setPlacing(null)
+    ui.routePlay = false
+    ui.routing = {
+      id,
+      base: c.route ?? { points: [{ at: [0, 0] }], walk },
+      added: [],
+    }
+    view.host.classList.add('is-placing-light')
+    syncRoute()
+    render()
+  }
+  // Leaves drawing without touching the selection; the preview goes away.
+  function endRouting() {
+    if (!ui.routing) return
+    ui.routing = null
+    view.host.classList.toggle('is-placing-light', !!ui.placing)
+    transient = false
+    shown = history.value
+    world?.update(shown)
+    refreshScene()
+  }
+  function cancelRoute() {
+    endRouting()
+    render()
+  }
+  function finishRoute() {
+    const r = ui.routing
+    if (!r) return
+    endRouting()
+    if (r.added.length) {
+      change((d) => ops.setRoute(d, r.id, drafted(r)))
+      notify('경로에 지점 ' + r.added.length + '개를 더했습니다.', true)
+    } else render()
+  }
+  // The pointer's floor point as an offset from character `c`, or null when
+  // it is not over the floor of the character's own room.
+  function routeOffset(at, c, e) {
+    const spot = floorAt(at, c, e)
+    if (!spot || spot.room !== c.room) return null
+    return [
+      ops.round(spot.position[0] - c.position[0]),
+      ops.round(spot.position[2] - c.position[2]),
+    ]
+  }
+  let routeDrag = null
+  function fitsRoom(c, room, position) {
+    return !c.route || !guide || guide.fits(c.route, room, position)
+  }
+  const routeLeaves = () =>
+    notify('경로가 방 바닥을 벗어나 옮기지 않았습니다. 지점을 먼저 옮기세요.')
   // The floor point under the pointer as `{ room, position }`, or null.
-  function floorAt(at, c) {
+  // It follows the grid like a drag; ⌘/Ctrl turns snapping off for a moment.
+  function floorAt(at, c, e) {
     const hit = world.floorPoint(at.x, at.y, c.room)
     if (!hit) return null
     const [x, , z] = hit.point
+    const align =
+      snapping !== !!(e?.metaKey || e?.ctrlKey) ? ops.snap : ops.round
     return {
       room: hit.room,
-      position: [ops.round(x), c.position[1], ops.round(z)],
+      position: [align(x), c.position[1], align(z)],
     }
   }
   function useLibrary(next) {
@@ -740,7 +867,7 @@ export async function studio() {
     return kind === 'models'
       ? characters.filter((c) => characterModel(characterLibrary, c) === id)
       : [shown.defaults?.character, ...characters].filter((c) =>
-          motionList(c?.motion).some((clip) => clip.startsWith(id + '/')),
+          characterClips(c).some((clip) => clip.startsWith(id + '/')),
         )
   }
   // Files in use stay; their characters are changed first.
@@ -831,17 +958,34 @@ export async function studio() {
     select({ type: 'item', id }, { frame: true })
     notify(roomName(room) + '에 ' + (def?.label || kind) + '을(를) 놓았습니다.')
   }
-  function addClickArea(anchor) {
+  // `pageId`: the page the new area opens; the first page otherwise.
+  function addClickArea(anchor, pageId) {
     const id = newId()
     change((d) => {
-      const page = d.pages[0] || ops.addPage(d, { id: newId() })
+      const page =
+        (pageId && ops.find(d, 'pages', pageId)) ||
+        d.pages[0] ||
+        ops.addPage(d, { id: newId() })
       ops.addSpot(d, { id, anchor, page })
     })
     select({ type: 'spot', id }, { frame: true })
+    if (pageId)
+      notify('클릭 영역을 만들어 연결했습니다. 장면에서 끌어 위치를 맞추세요.')
+  }
+  // The public /events route shows the published world; `?draft` reads the
+  // saved draft instead. The tab opens first so the click is not blocked.
+  async function openPage(id) {
+    const tab = window.open('about:blank', '_blank')
+    if (!tab) return fail('브라우저가 새 창을 막았습니다. 팝업을 허용하세요.')
+    tab.opener = null
+    await flush().catch(() => {})
+    tab.location.href = '/events/' + encodeURIComponent(id) + '?draft'
   }
   function addPage() {
     const id = newId()
     change((d) => ops.addPage(d, { id }))
+    // A new page starts with a placeholder title, ready to be typed over.
+    ui.focus = 'label'
     select({ type: 'page', id })
   }
   function patch(list, id, values) {
@@ -963,6 +1107,7 @@ export async function studio() {
     addLight,
     addClickArea,
     addPage,
+    openPage,
     removePage,
     linkSpot,
     changeLight,
@@ -971,14 +1116,13 @@ export async function studio() {
     setLightPick,
     setLightTool,
     zoomRoom: (id) => world?.selectRoom(id),
-    libraryReadOnly: cloud,
     get characterLibrary() {
       return characterLibrary
     },
     characterMotion: (c) => characterMotion(shown, c),
     characterModel: (c) => characterModel(characterLibrary, c),
     characterState: (c) => cast?.state(shown, c) ?? 'loading',
-    supportsProportions: (id) => cast?.supportsProportions(id),
+    proportionDimensions: (id) => cast?.proportionDimensions(id),
     clayProtection: (id) => cast?.protection(id) ?? null,
     setWorldClay,
     setClayMotion: (settings) =>
@@ -989,6 +1133,15 @@ export async function studio() {
     },
     setClay,
     setCharacterDefault,
+    setCharacterModel: (id, model) =>
+      change((d) =>
+        ops.selectCharacterModel(
+          d,
+          ops.find(d, 'characters', id),
+          model,
+          characterLibrary,
+        ),
+      ),
     setCharacterWear: (id, wear, on) =>
       change((d) => ops.setWear(d, id, wear, on)),
     setCharacterProportion(id, key, value, temporary = false) {
@@ -1002,6 +1155,35 @@ export async function studio() {
     inheritCharacter,
     addCharacter,
     setPlacing,
+    // How the scene plays a character's route (see characterLayer.route).
+    routeInfo: (id) => cast?.route(id) ?? null,
+    // Stride measured from a walking character of this model, if any.
+    modelStride: (id) =>
+      (shown.characters ?? [])
+        .filter((c) => characterModel(characterLibrary, c) === id)
+        .map((c) => cast?.route(c.id)?.stride)
+        .find((v) => v > 0) ?? null,
+    startRoute,
+    finishRoute,
+    cancelRoute,
+    setRoute(id, values, temporary = false) {
+      const edit = (d) => ops.patchRoute(d, id, values)
+      temporary ? preview(edit) : change(edit)
+    },
+    removeRoute(id) {
+      ui.routePlay = false
+      change((d) => ops.setRoute(d, id, null))
+      notify('경로를 지웠습니다.', true)
+    },
+    setRouteStop: (id, index, stop) =>
+      change((d) => ops.setRouteStop(d, id, index, stop)),
+    removeRoutePoint: (id, index) =>
+      change((d) => ops.removeRoutePoint(d, id, index)),
+    playRoute(on) {
+      ui.routePlay = on
+      syncRoute()
+      render()
+    },
     uploadModel,
     chooseModelFile,
     uploadMotion,
@@ -1034,8 +1216,23 @@ export async function studio() {
     ])
     if (key === outlineKey) return
     outlineKey = key
+    const focused = document.activeElement
+    const inTree =
+      outline.contains(focused) &&
+      focused.classList.contains('ui-tree-item__main')
     renderKeepingFocus(outline, () => outlinePanel(editor))
+    // A command that changes the selection (duplicate, undo) also moves the
+    // list's keyboard focus, so arrow keys and Enter act on what is selected.
+    // This also catches focus dropped when the focused row was removed.
+    const selected = JSON.stringify(selection)
+    if (selected === outlineSelection) return
+    outlineSelection = selected
+    const current = outline.querySelector(
+      '.ui-tree-item__main[aria-current="true"]',
+    )
+    if (inTree && current && document.activeElement !== current) current.focus()
   }
+  let outlineSelection = ''
   function renderInspector() {
     const key = JSON.stringify([
       selection,
@@ -1045,6 +1242,9 @@ export async function studio() {
       ui.addressing,
       ui.lightPick,
       ui.placing,
+      ui.routing?.id,
+      ui.routing?.added.length,
+      ui.routePlay,
       ui.clayDetail,
       ui.lightTool,
     ])
@@ -1055,6 +1255,12 @@ export async function studio() {
     renderKeepingFocus(properties, () =>
       inspectors[selection.type](entities.find(selection), editor),
     )
+    if (ui.focus) {
+      const field = properties.querySelector('[data-key="' + ui.focus + '"]')
+      ui.focus = null
+      field?.focus()
+      field?.select?.()
+    }
   }
   // ---- Render loop ----
   let frame = 0
@@ -1064,6 +1270,7 @@ export async function studio() {
     frame = requestAnimationFrame(() => {
       renderOutline()
       projection?.select(entities.modelRoot(selection), selection)
+      syncRoute()
       renderInspector()
       undoButton.disabled = !history.canUndo
       redoButton.disabled = !history.canRedo
@@ -1078,6 +1285,11 @@ export async function studio() {
     })
   }
   renderSave()
+  // Populate the add menu before it can be opened, while the 3D scene is still starting.
+  characterLibrary = await api('admin/characters').catch((e) => {
+    fail('캐릭터 자료를 읽지 못했습니다 · ' + e.message)
+    return characterLibrary
+  })
   render()
 
   // ---- Keyboard ----
@@ -1091,6 +1303,7 @@ export async function studio() {
       e.target.isContentEditable
     if (e.key === 'Escape') {
       if (ui.lightPick) return setLightPick(null)
+      if (ui.routing) return cancelRoute()
       if (ui.placing) return setPlacing(null)
       if (canvas?.cancel()) return
       if (!typing) select(null)
@@ -1102,6 +1315,10 @@ export async function studio() {
       return
     }
     if (typing) return
+    if (e.key === 'Enter' && ui.routing) {
+      e.preventDefault()
+      return finishRoute()
+    }
     if (mod && key === 'z') {
       e.preventDefault()
       e.shiftKey ? redo() : undo()
@@ -1132,7 +1349,11 @@ export async function studio() {
     }
   })
   addEventListener('beforeunload', (e) => {
-    if (autosave.busy || ['error', 'unauthorized'].includes(autosave.state)) {
+    if (reopening) return
+    if (
+      autosave.busy ||
+      ['error', 'unauthorized', 'conflict'].includes(autosave.state)
+    ) {
       e.preventDefault()
       e.returnValue = ''
       if (autosave.state === 'pending') flush().catch(() => {})
@@ -1164,30 +1385,77 @@ export async function studio() {
     toolbar: floating,
     // Placement: the character follows the pointer; a click drops it.
     placing: () => ui.placing,
-    placeHover(at) {
+    placeHover(at, e) {
       const c = ops.find(shown, 'characters', ui.placing)
-      const spot = c && floorAt(at, c)
+      const spot = c && floorAt(at, c, e)
       const root = c && cast?.root(c.id)
       if (!spot || !root) return
       root.parent = world.rooms.get(spot.room)
       root.position.set(...spot.position)
+      guide?.moveTo(spot.room, spot.position)
       world.wake()
     },
-    place(at) {
+    place(at, e) {
       const c = ops.find(shown, 'characters', ui.placing)
-      const spot = c && floorAt(at, c)
+      const spot = c && floorAt(at, c, e)
       if (!spot) {
         notify('방의 바닥을 클릭하세요.')
         return
       }
+      if (!fitsRoom(c, spot.room, spot.position)) return routeLeaves()
       setPlacing(null)
       patch('characters', c.id, spot)
       if (spot.room !== c.room)
         notify(roomName(spot.room) + '(으)로 옮겼습니다.', true)
     },
+    // Route drawing: each floor click in the character's room adds a point.
+    routing: () => !!ui.routing,
+    routeHover(at, e) {
+      const c = ops.find(history.value, 'characters', ui.routing.id)
+      const offset = c && routeOffset(at, c, e)
+      if (offset) showRouting(offset)
+    },
+    routeClick(at, e) {
+      const r = ui.routing
+      const c = ops.find(history.value, 'characters', r.id)
+      const offset = c && routeOffset(at, c, e)
+      if (!offset) return notify('캐릭터가 있는 방의 바닥을 누르세요.')
+      const last = r.added.at(-1) ?? r.base.points.at(-1).at
+      // The last point pressed again ends the route.
+      if (Math.hypot(offset[0] - last[0], offset[1] - last[1]) < 0.01)
+        return finishRoute()
+      r.added.push(offset)
+      if (r.base.points.length + r.added.length >= routeLimits.points.max)
+        return finishRoute()
+      showRouting()
+      inspectorKey = ''
+      render()
+    },
+    // Route points of the selected character can be dragged along the floor.
+    routePointAt: (at) =>
+      selection?.type === 'character' && guide ? guide.pointAt(at.x, at.y) : -1,
+    routePointMove(index, at, e) {
+      const c = ops.find(history.value, 'characters', selection.id)
+      const offset = c && routeOffset(at, c, e)
+      if (!offset) return
+      routeDrag = { id: c.id, index, offset }
+      preview((d) => ops.moveRoutePoint(d, c.id, index, offset))
+    },
+    routePointDrop() {
+      const drag = routeDrag
+      routeDrag = null
+      if (!drag) return apply()
+      change((d) => ops.moveRoutePoint(d, drag.id, drag.index, drag.offset))
+    },
     modelRoot: entities.modelRoot,
     character: (id) => ops.find(shown, 'characters', id),
+    characterMoving: (room, position) => guide?.moveTo(room, position),
     commitCharacter(id, values) {
+      const c = ops.find(shown, 'characters', id)
+      if (c && !fitsRoom(c, values.room ?? c.room, values.position)) {
+        apply()
+        return routeLeaves()
+      }
       patch('characters', id, values)
       if (values.room)
         notify(roomName(values.room) + '(으)로 옮겼습니다.', true)
@@ -1233,6 +1501,7 @@ export async function studio() {
     },
     itemMoved: () => projection.invalidate(),
     revert() {
+      routeDrag = null
       apply()
       if (selection?.type === 'light') {
         const light = lightById(selection.id)
@@ -1273,6 +1542,7 @@ export async function studio() {
   }
   world.update(shown)
   // A model that finishes loading replaces its stand-ins.
+  guide = routeGuide(world)
   cast = characterLayer(world, {
     onLoad() {
       refreshScene()
@@ -1280,12 +1550,14 @@ export async function studio() {
       render()
       world.wake()
     },
+    // A route's clips were read: the inspector can show its pace.
+    onRoute() {
+      inspectorKey = ''
+      render()
+    },
   })
-  const library = await api('admin/characters').catch((e) => {
-    fail('캐릭터 자료를 읽지 못했습니다 · ' + e.message)
-    return characterLibrary
-  })
-  useLibrary(library)
+  cast.setLibrary(characterLibrary)
+  refreshScene()
   projection = selectionPreview(
     world,
     portrait,

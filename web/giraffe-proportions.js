@@ -1,18 +1,21 @@
+import { giraffeDimensions } from '../shared/giraffe-proportions.mjs'
 import { Matrix, Vector3 } from '@babylonjs/core/Maths/math.vector.js'
 
 // glTF animation writes local TRS on the nodes linked to the skin. Restore
 // the sampled pose before the next animation tick, then apply the proportions
 // to the new sample, so authored clips and rigid socket children follow it.
-const legs = ['Fore', 'Hind'].flatMap((pair) =>
+const limbChains = (pair) =>
   ['L', 'R'].map((side) =>
     ['Upper', 'Lower', 'Hoof'].map((joint) => pair + '.' + joint + '.' + side),
-  ),
-)
+  )
 const neck = ['Neck.02', 'Neck.03', 'Head']
 export function giraffeProportions(scene, nodes) {
+  const biped = nodes.has('Arm.Upper.L') && nodes.has('Arm.Upper.R')
+  const legs = biped ? limbChains('Hind') : ['Fore', 'Hind'].flatMap(limbChains)
   const required = ['Pelvis', 'Neck.01', 'Tail.01', ...neck, ...legs.flat()]
   if (!required.every((name) => nodes.has(name))) return null
   const pelvis = nodes.get('Pelvis')
+  const restHipHeight = pelvis.position.y
   const rig = pelvis.parent?.computeWorldMatrix(true) ?? Matrix.Identity()
   const worldToRig = Matrix.Invert(rig)
   const rigPosition = (name) =>
@@ -39,8 +42,16 @@ export function giraffeProportions(scene, nodes) {
   let edits = [],
     observers,
     previous = ''
-  function channel(name, prop, factor, offset = zero, axialFactor = factor) {
-    if (factor === 1 && axialFactor === 1 && offset.equals(zero)) return
+  function channel(
+    name,
+    prop,
+    factor,
+    offset = zero,
+    axialFactor = factor,
+    stride = null,
+  ) {
+    if (factor === 1 && axialFactor === 1 && offset.equals(zero) && !stride)
+      return
     const node = nodes.get(name)
     if (!node) return
     edits.push({
@@ -51,15 +62,19 @@ export function giraffeProportions(scene, nodes) {
       factor,
       axialFactor,
       offset,
+      stride,
     })
   }
   function apply() {
+    // Read the animated hip before applying the torso and leg offsets.
+    const hipTravel = pelvis.position.y - restHipHeight
     for (const edit of edits) {
-      const { node, prop, shaped, factor, offset } = edit
+      const { node, prop, shaped, factor, offset, stride } = edit
       if (node[prop] !== shaped) edit.sampled = node[prop]
       edit.sampled.scaleToRef(factor, shaped)
       shaped.y = edit.sampled.y * edit.axialFactor
       shaped.addInPlace(offset)
+      if (stride) stride.scaleAndAddToRef(hipTravel, shaped)
       node[prop] = shaped
     }
   }
@@ -75,28 +90,46 @@ export function giraffeProportions(scene, nodes) {
     restore()
   }
   return {
-    set({ neck: length = 1, head = 1, legs: leg = 1, body = 1 } = {}) {
-      const key = [length, head, leg, body].join('/')
+    dimensions: Object.keys(giraffeDimensions).filter((key) =>
+      (giraffeDimensions[key].joints ?? []).every((joint) => nodes.has(joint)),
+    ),
+    set({
+      neck: length = 1,
+      head = 1,
+      legs: leg = 1,
+      body = 1,
+      ears = 1,
+      muzzle = 1,
+    } = {}) {
+      const key = [length, head, leg, body, ears, muzzle].join('/')
       if (previous === key) return
       previous = key
       detach()
       edits = []
       const lift = (leg - 1) * legSpan
-      // Scale the torso around the stance center so it stays over the four feet.
+      // Scale the torso around the stance center so it stays over the supporting feet.
       const torsoOffset = pivotOffset.scale(1 - body)
       torsoOffset.y += lift
       channel('Pelvis', 'position', 1, torsoOffset)
       channel('Pelvis', 'scaling', body)
       channel('Tail.01', 'scaling', 1 / body)
+      if (biped)
+        for (const side of ['L', 'R'])
+          channel('Arm.Upper.' + side, 'scaling', 1 / body)
       // Neck joints inherit the torso's radius. Compensate joint spacing so
       // the centerline and the head still follow their independent controls.
       for (const name of neck) channel(name, 'position', length / body)
       channel('Socket.Neck', 'position', length, zero, length / body)
       channel('Head', 'scaling', head / body)
+      for (const side of ['L', 'R']) channel('Ear.' + side, 'scaling', ears)
+      channel('Muzzle', 'scaling', 1, zero, muzzle)
       legs.forEach(([upper, lower, hoof], i) => {
         // Move the attachment with the body in plan, keeping its rest height.
         const offset = legUp[i].scale((1 / body - 1) * (hips[i].y - center.y))
-        channel(upper, 'position', 1, offset)
+        // Keep the support foot planted as the hips rise and fall during a biped walk.
+        const stride =
+          biped && leg !== 1 ? legUp[i].scale((leg - 1) / body) : null
+        channel(upper, 'position', 1, offset, 1, stride)
         channel(upper, 'scaling', 1 / body)
         const scale = 1 + lift / spans[i]
         for (const name of [lower, hoof]) channel(name, 'position', scale)

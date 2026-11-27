@@ -1,3 +1,5 @@
+import { riggedGiraffe, giraffeMotion } from './giraffe-fixture.mjs'
+import { characterListing } from '../cloud/characters.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -298,4 +300,100 @@ test('클라우드의 버전 미리보기와 복원은 버전 자체의 모델�
   assert.equal(result.status, 200)
   assert.deepEqual((await result.json()).rooms, preview.rooms)
   assert.equal((await world(db)).state.published.id, 'before')
+})
+
+test('운영 자료실에서 별도 모델과 동작을 등록하고 공개 승인된 파일만 방문자가 읽는다', async () => {
+  const draft = {
+    id: 'draft',
+    model: 'initial',
+    layout: { items: [], spots: [], pages: [] },
+  }
+  const db = store({ draft, published: { ...draft, id: 'live' } })
+  db.prepare('INSERT INTO settings VALUES(?,?)')
+    .bind('catalog/initial', JSON.stringify({ rooms: [], items: [] }))
+    .run()
+  const token = 'c'.repeat(64)
+  db.prepare('INSERT INTO sessions VALUES(?,?)')
+    .bind(createHash('sha256').update(token).digest('hex'), Date.now() + 60000)
+    .run()
+  const request = (route, method = 'GET', body, auth = true) =>
+    onRequest({
+      env: { STUDIO: db },
+      params: { path: route.split('/') },
+      request: new Request('https://studio.test/api/' + route, {
+        method,
+        headers: {
+          ...(auth && { cookie: 'riragi=' + token }),
+          'Content-Type': Buffer.isBuffer(body)
+            ? 'application/octet-stream'
+            : 'application/json',
+        },
+        body,
+      }),
+    })
+  const model = Buffer.from(await riggedGiraffe()), walk = Buffer.from(await giraffeMotion('Walk'))
+  const models = 'admin/characters/models',
+    motions = 'admin/characters/motions'
+  assert.equal((await request(models, 'POST', model, false)).status, 401)
+  assert.equal((await request(models, 'POST', walk)).status, 422)
+  const upload = await request(models, 'POST', model)
+  assert.equal(upload.status, 200)
+  const { id, library } = await upload.json()
+  assert.equal(library.models[0].joints, 3)
+  const clip = (
+    await (await request(motions, 'POST', walk)).json()
+  ).motions.find((m) => !m.model)
+  assert.ok(clip.matched[id] > 0)
+  const ref = {
+    id: 'giraffe',
+    model: id,
+    motion: clip.id + '/' + clip.clips[0].name,
+  }
+  const { state, version } = await world(db)
+  state.draft.layout.characters = [ref]
+  await commit(db, version, state)
+  assert.equal((await request(models + '/' + id, 'DELETE')).status, 409)
+  assert.equal((await request(motions + '/' + clip.id, 'DELETE')).status, 409)
+  const publicFile = 'world/characters/' + clip.id + '.glb'
+  assert.equal((await request(publicFile, 'GET', undefined, false)).status, 404)
+  const review = await request(
+    'admin/reviews',
+    'POST',
+    JSON.stringify({ revision: draft.id }),
+  )
+  assert.equal(review.status, 202)
+  const saved = await world(db)
+  const ready = complete(saved.state, 'asset')
+  const snap = reviewed(ready, ready.job.id)
+  assert.deepEqual(new Set(snap.cast.files), new Set([id, clip.id]))
+  await commit(db, saved.version, ready)
+  assert.equal(
+    (await request('admin/reviews/' + ready.job.id + '/publish', 'POST'))
+      .status,
+    200,
+  )
+  assert.deepEqual(
+    Buffer.from(
+      await (await request(publicFile, 'GET', undefined, false)).arrayBuffer(),
+    ),
+    walk,
+  )
+  assert.equal(
+    (await (await request('world', 'GET', undefined, false)).json()).characters
+      .base,
+    '/api/world/characters/',
+  )
+})
+
+test('퇴역한 원격 자료는 이전 배치가 참조할 때만 자료 목록에 복구한다', async () => {
+  const db = store({draft: {}, published: {}})
+  const active = {models:[{id:'biped'}], motions:[{id:'walk'}], fallback:'biped'}
+  const archive = {models:[{id:'riragi'}], motions:[{id:'riragi'},{id:'old-walk'}]}
+  for (const [key,value] of [['characters',active],['character-archive',archive]]) {
+    db.prepare('INSERT INTO settings VALUES(?,?)').bind(key,JSON.stringify(value)).run()
+  }
+  assert.deepEqual(await characterListing(db),active)
+  const restored=await characterListing(db,{characters:[{model:'riragi'}],defaults:{character:{motion:'riragi/LookAround'}}})
+  assert.deepEqual(restored.models.map(m=>m.id),['biped','riragi'])
+  assert.deepEqual(restored.motions.map(m=>m.id),['walk','riragi'])
 })

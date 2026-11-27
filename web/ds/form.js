@@ -1,6 +1,7 @@
 import { el, cx } from './dom.js'
 import { Button } from './button.js'
 import { Icon } from './icon.js'
+import { toast } from './feedback.js'
 import { options, is, invariant, viewClass } from './contract.js'
 
 // Form controls share one commit model so every view behaves the same:
@@ -153,14 +154,31 @@ export function NumberInput(props) {
     inputmode: 'decimal',
   })
   input.value = String(o.value)
+  // A value the field cannot take is replaced, and a toast says why, so the
+  // number shown never changes silently.
   input.addEventListener('change', () => {
-    let v = Number(input.value)
-    if (input.value === '' || !Number.isFinite(v)) {
+    const typed = Number(input.value)
+    if (input.value === '' || !Number.isFinite(typed)) {
       input.value = String(o.value)
+      toast(
+        o.label + ': 숫자를 입력하세요. 이전 값(' + o.value + ')을 유지합니다.',
+      )
       return
     }
+    let v = typed
     if (o.min != null) v = Math.max(o.min, v)
     if (o.max != null) v = Math.min(o.max, v)
+    if (v !== typed) {
+      input.value = String(v)
+      toast(
+        o.label +
+          ': ' +
+          [o.min ?? '', o.max ?? ''].join('~') +
+          ' 범위라 ' +
+          v +
+          '(으)로 맞췄습니다.',
+      )
+    }
     o.onCommit(v)
   })
   input.addEventListener('keydown', (e) => {

@@ -153,8 +153,8 @@ export function openVersions({ flush, current, library }) {
             if (dialog.isOpen && viewer === world) refreshLayers()
           },
         })
-        cast.setLibrary(library())
       }
+      cast.setLibrary(state.characterLibrary ?? library())
       refreshLayers()
       view.loading.hidden = true
       loaded = true

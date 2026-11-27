@@ -1,6 +1,6 @@
 // Only properties that affect the rendered image belong to the bake identity.
 export function lightingInput(layout) {
-  const byId = (a, b) => a.id.localeCompare(b.id)
+  const byId = (a, b) => a.id.localeCompare(b.id);
   return [
     layout.items
       .map(({ id, room, kind, position, rotation, scale, color, finish }) => ({
@@ -22,7 +22,7 @@ export function lightingInput(layout) {
         position,
         color,
         energy,
-        ...(shape && shape.type !== 'point' ? { shape } : {}),
+        ...(shape && shape.type !== "point" ? { shape } : {}),
       }))
       .sort(byId),
     ...(layout.sourceLights?.length
@@ -36,5 +36,5 @@ export function lightingInput(layout) {
             .sort(byId),
         ]
       : []),
-  ]
+  ];
 }

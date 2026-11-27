@@ -1,4 +1,8 @@
 import { checkVersionHistory } from './version-history-browser.mjs'
+import {
+  checkCharacterRoute,
+  checkPublishedRoute,
+} from './character-route-browser.mjs'
 import { checkLightHandles, turnLightHandle } from './light-handles.mjs'
 import { copyPreparedWorld } from './prepared-world.mjs'
 import { chromium, devices } from 'playwright'
@@ -224,6 +228,7 @@ try {
   await page.getByRole('button', { name: '캐릭터 삭제' }).click()
   await expectWorld()
   await saved()
+  await checkCharacterRoute(page, origin)
   await tree('월드').click()
   await checkLightHandles(page, origin, 'Large_softbox', true)
   await tree('Large_softbox').click()
@@ -642,6 +647,25 @@ try {
   const originalDraft = await (
     await page.request.get(origin + '/api/admin/draft')
   ).json()
+  // A giraffe that walks a route goes public with this draft.
+  const walker = {
+    id: 'walker',
+    room: 'sports',
+    label: '걷는 기린',
+    model: 'riragi-biped',
+    position: [0, 0, 0],
+    yaw: 0,
+    scale: 1,
+    route: {
+      points: [
+        { at: [0, 0] },
+        { at: [3, 0], stop: { motion: 'riragi-biped/두 발 걷기', wait: 1 } },
+        { at: [3, 3] },
+      ],
+      mode: 'pingpong',
+      walk: 'riragi-biped/두 발 걷기',
+    },
+  }
   const external = {
     ...before.layout.spots[0],
     id: 'external',
@@ -652,6 +676,7 @@ try {
   const updated = {
     ...before.layout,
     spots: [...before.layout.spots, external],
+    characters: [walker],
   }
   const invalid = await page.request.put(origin + '/api/admin/draft', {
     data: {
@@ -683,7 +708,9 @@ try {
     await mobile.locator('.ui-pin--event').first().tap()
     await mobile.getByRole('link', { name: '행사 자세히 보기' }).tap()
     assert.equal(await mobile.locator('h1').innerText(), '멘탈 사우나')
-    assert.ok(!scripts.some((u) => /\/assets\/studio-/.test(u)))
+    // The editing bundle stays off phones. The character layer is shared
+    // with the visitor scene, which shows the published walking giraffe.
+    assert.ok(!scripts.some((u) => /\/assets\/studio-(?!characters-)/.test(u)))
     await mobile.goto(origin)
     await mobile.getByRole('button', { name: '운동회', exact: true }).tap()
     await mobile.getByRole('button', { name: '행사 원문', exact: true }).tap()
@@ -703,6 +730,7 @@ try {
     assert.equal(await mobile.locator('.event-card').count(), 2)
     await mobile.close()
   }
+  await checkPublishedRoute(browser, origin, errors)
   assert.deepEqual(errors, [])
   console.log(
     'PC 복제·옵션·자동 저장·재접속·미리보기·발행, 모바일 행사 탐색, 접근 권한 확인',

@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mat4, vec3 } from 'gl-matrix'
 import { getBounds, NodeIO } from '@gltf-transform/core'
 import { clayField, clayPresets } from '../web/clay-field.js'
 
@@ -135,12 +136,27 @@ test('캐릭터 파일의 원점과 단위가 달라도 굴곡과 눌림의 상�
   }
 })
 
-test('기린 체형은 실제 골격의 머리·의상 소켓을 따라가고 발굽과 원래 포즈를 보존한다', async () => {
-  const { NullEngine } = await import('@babylonjs/core/Engines/nullEngine.js')
-  const { Scene } = await import('@babylonjs/core/scene.js')
+async function poseNodes(root, scene) {
   const { TransformNode } =
     await import('@babylonjs/core/Meshes/transformNode.js')
   const { Quaternion } = await import('@babylonjs/core/Maths/math.vector.js')
+  const nodes = new Map()
+  for (const n of root.listNodes()) {
+    const joint = new TransformNode(n.getName(), scene)
+    joint.position.set(...n.getTranslation())
+    joint.scaling.set(...n.getScale())
+    joint.rotationQuaternion = Quaternion.FromArray(n.getRotation())
+    nodes.set(n.getName(), joint)
+  }
+  for (const n of root.listNodes())
+    for (const child of n.listChildren())
+      nodes.get(child.getName()).parent = nodes.get(n.getName())
+  return nodes
+}
+
+test('기린 체형은 실제 골격의 머리·의상 소켓을 따라가고 발굽과 원래 포즈를 보존한다', async () => {
+  const { NullEngine } = await import('@babylonjs/core/Engines/nullEngine.js')
+  const { Scene } = await import('@babylonjs/core/scene.js')
   const { giraffeProportions } = await import('../web/giraffe-proportions.js')
   const root = (
     await new NodeIO().read(
@@ -150,17 +166,7 @@ test('기린 체형은 실제 골격의 머리·의상 소켓을 따라가고 �
   const engine = new NullEngine()
   const scene = new Scene(engine)
   try {
-    const nodes = new Map()
-    for (const n of root.listNodes()) {
-      const joint = new TransformNode(n.getName(), scene)
-      joint.position.set(...n.getTranslation())
-      joint.scaling.set(...n.getScale())
-      joint.rotationQuaternion = Quaternion.FromArray(n.getRotation())
-      nodes.set(n.getName(), joint)
-    }
-    for (const n of root.listNodes())
-      for (const child of n.listChildren())
-        nodes.get(child.getName()).parent = nodes.get(n.getName())
+    const nodes = await poseNodes(root, scene)
     const at = (name) =>
       nodes.get(name).computeWorldMatrix(true).getTranslation()
     const sole = at('Fore.Hoof.L'),
@@ -225,4 +231,284 @@ test('기린 체형은 실제 골격의 머리·의상 소켓을 따라가고 �
     scene.dispose()
     engine.dispose()
   }
+})
+
+function* walkSample(walk, time) {
+  for (const channel of walk.listChannels()) {
+    const sampler = channel.getSampler()
+    const keys = sampler.getInput().getArray()
+    const index = keys.reduce(
+      (nearest, t, i) =>
+        Math.abs(t - time) < Math.abs(keys[nearest] - time) ? i : nearest,
+      0,
+    )
+    const value = sampler.getOutput().getElement(index, [])
+    yield [channel.getTargetNode(), channel.getTargetPath(), value]
+  }
+}
+
+// Track the two ends of the flat pad on each hoof. The ankle rises as the
+// hoof rolls over its toe, even when its contact point stays on the floor.
+function hoofPads(matrixForSide) {
+  return ['L', 'R'].map((side) => {
+    const rest = matrixForSide(side)
+    const ankle = mat4.getTranslation([], rest)
+    const inverse = mat4.invert([], rest)
+    const local = [0.008, 0.138].map((forward) =>
+      vec3.transformMat4(
+        [],
+        vec3.add([], ankle, [0, -0.158, forward]),
+        inverse,
+      ),
+    )
+    return () => {
+      const matrix = matrixForSide(side)
+      return local.map((point) => vec3.transformMat4([], point, matrix))
+    }
+  })
+}
+
+test('두발 기린은 골반 위에 선 몸통, 독립된 팔, 양발을 번갈아 드는 보행과 옷 없는 얼굴 조절 골격을 갖춘다', async () => {
+  const root = (
+    await new NodeIO().read(
+      'assets-source/characters/riragi-clay/riragi-biped.glb',
+    )
+  ).getRoot()
+  const byName = new Map(root.listNodes().map((node) => [node.getName(), node]))
+  const body = byName.get('Giraffe.Body')
+  const [surface] = body.getMesh().listPrimitives()
+  assert.ok(
+    surface.getAttribute('WEIGHTS_0') && surface.getAttribute('JOINTS_0'),
+  )
+  const protect = surface.getAttribute('_CLAY_PROTECT')
+  assert.equal(protect.getMax([])[0], 1)
+  assert.equal(protect.getMin([])[0], 0)
+  const headIndex = body.getSkin().listJoints().indexOf(byName.get('Head'))
+  const joints = surface.getAttribute('JOINTS_0')
+  const weights = surface.getAttribute('WEIGHTS_0')
+  const jointIds = [],
+    skinWeights = []
+  let faceVertices = 0
+  for (let i = 0; i < weights.getCount(); i++) {
+    joints.getElement(i, jointIds)
+    weights.getElement(i, skinWeights)
+    if (skinWeights[jointIds.indexOf(headIndex)] >= 0.9999) {
+      faceVertices++
+      assert.ok(protect.getScalar(i) >= 0.9999)
+    }
+  }
+  assert.ok(faceVertices > 0)
+
+  assert.ok(
+    root.listNodes().every((node) => !node.getName().startsWith('Wear.')),
+  )
+  assert.equal(byName.get('Muzzle').getParentNode(), byName.get('Head'))
+  assert.equal(byName.get('Socket.Face').getParentNode(), byName.get('Muzzle'))
+  assert.equal(byName.get('Socket.Ear.L').getParentNode(), byName.get('Ear.L'))
+  const at = (name) => byName.get(name).getWorldTranslation()
+  const chest = at('Chest'),
+    hips = at('Pelvis')
+  assert.ok(chest[1] > hips[1] + 0.5 && Math.abs(chest[2] - hips[2]) < 0.2)
+  for (const side of ['L', 'R']) {
+    assert.equal(
+      byName.get('Arm.Upper.' + side).getParentNode(),
+      byName.get('Chest'),
+    )
+    assert.equal(
+      byName.get('Hind.Upper.' + side).getParentNode(),
+      byName.get('Pelvis'),
+    )
+    assert.ok(at('Arm.Hoof.' + side)[1] > hips[1])
+  }
+  const walk = root
+    .listAnimations()
+    .find((clip) => clip.getName() === '두 발 걷기')
+  // Sample the actual exported joint transforms at the two passing poses.
+  function sample(time) {
+    for (const [joint, path, value] of walkSample(walk, time)) {
+      if (path === 'rotation') joint.setRotation(value)
+      else if (path === 'translation') joint.setTranslation(value)
+      else joint.setScale(value)
+    }
+  }
+  const left = 'Hind.Hoof.L',
+    right = 'Hind.Hoof.R'
+  const pads = hoofPads((s) => byName.get('Hind.Hoof.' + s).getWorldMatrix())
+  const keys = walk.listSamplers().reduce((times, s) => {
+    const input = s.getInput().getArray()
+    return input.length > times.length ? input : times
+  }, [])
+  const end = keys.at(-1)
+  assert.equal(keys[0], 0)
+  const snapshots = Array.from(keys, (time) => {
+    sample(time)
+    return pads.map((pad) => pad())
+  })
+  const height = (pad) => Math.min(...pad.map((p) => p[1]))
+  for (const [phase, planted, lifted] of [
+    [0.25, 0, 1],
+    [0.75, 1, 0],
+  ]) {
+    const feet = snapshots[Math.round(phase * (keys.length - 1))]
+    assert.ok(Math.abs(height(feet[planted])) < 0.001)
+    assert.ok(height(feet[lifted]) > 0.055 && height(feet[lifted]) < 0.105)
+  }
+  // The grounded pad travels backward at the same belt speed before, during
+  // and after the weight transfer. Check all samples, including both feet.
+  const beltSpeeds = []
+  let previous = snapshots.at(-2)
+  for (let i = 0; i < keys.length - 1; i++) {
+    const feet = snapshots[i]
+    const dt = i ? keys[i] - keys[i - 1] : end - keys.at(-2)
+    assert.ok(Math.abs(Math.min(...feet.map(height))) < 0.001)
+    for (const side of [0, 1]) {
+      const point = feet[side][0][1] < feet[side][1][1] ? 0 : 1
+      if (Math.max(feet[side][point][1], previous[side][point][1]) < 0.0002)
+        beltSpeeds.push((previous[side][point][2] - feet[side][point][2]) / dt)
+    }
+    previous = feet
+  }
+  assert.ok(beltSpeeds.length >= keys.length - 1)
+  assert.ok(Math.min(...beltSpeeds) > 0.8)
+  assert.ok(Math.max(...beltSpeeds) - Math.min(...beltSpeeds) < 0.08)
+  for (const side of [0, 1])
+    assert.ok(
+      vec3.distance(snapshots[0][side][0], snapshots.at(-1)[side][0]) < 0.0001,
+    )
+  // A foot reaching forward is accompanied by the opposite hand.
+  sample(1 / 24)
+  assert.ok(at(left)[2] > at(right)[2] + 0.2)
+  assert.ok(at('Arm.Hoof.R')[2] > at('Arm.Hoof.L')[2] + 0.1)
+})
+
+test('두발 얼굴 체형은 귀 뿌리와 눈을 고정하고 걷기 프레임 사이에도 독립적으로 유지된다', async () => {
+  const { NullEngine } = await import('@babylonjs/core/Engines/nullEngine.js')
+  const { Scene } = await import('@babylonjs/core/scene.js')
+  const { giraffeProportions } = await import('../web/giraffe-proportions.js')
+  const doc = await new NodeIO().read(
+    'assets-source/characters/riragi-clay/riragi-biped.glb',
+  )
+  const engine = new NullEngine()
+  const scene = new Scene(engine)
+  try {
+    const nodes = await poseNodes(doc.getRoot(), scene)
+    const shape = giraffeProportions(scene, nodes)
+    const at = (name) =>
+      nodes.get(name).computeWorldMatrix(true).getTranslation()
+    const length = (from, to) => at(from).subtract(at(to)).length()
+    const ear = length('Ear.L', 'Socket.Ear.L')
+    const face = at('Socket.Face')
+    const temple = at('Ear.L')
+    shape.set({ ears: 1.4 })
+    assert.ok(Math.abs(length('Ear.L', 'Socket.Ear.L') / ear - 1.4) < 1e-5)
+    assert.ok(at('Socket.Face').equalsWithEpsilon(face))
+    shape.set({ muzzle: 0.75, ears: 1.4 })
+    const short = at('Socket.Face')
+    assert.ok(short.subtract(face).length() > 0.05)
+    for (let frame = 0; frame < 3; frame++) {
+      scene.onBeforeAnimationsObservable.notifyObservers(scene)
+      scene.onAfterAnimationsObservable.notifyObservers(scene)
+      assert.ok(at('Ear.L').equalsWithEpsilon(temple))
+      assert.ok(at('Socket.Face').equalsWithEpsilon(short))
+    }
+    shape.set()
+    assert.ok(at('Socket.Face').equalsWithEpsilon(face))
+    shape.dispose()
+  } finally {
+    scene.dispose()
+    engine.dispose()
+  }
+})
+
+test('두발 걷기에서 다리 길이와 몸통 크기를 바꿔도 지지발의 높이를 유지한다', async () => {
+  const { NullEngine } = await import('@babylonjs/core/Engines/nullEngine.js')
+  const { Scene } = await import('@babylonjs/core/scene.js')
+  const { giraffeProportions } = await import('../web/giraffe-proportions.js')
+  const root = (
+    await new NodeIO().read(
+      'assets-source/characters/riragi-clay/riragi-biped.glb',
+    )
+  ).getRoot()
+  const engine = new NullEngine()
+  const scene = new Scene(engine)
+  try {
+    const nodes = await poseNodes(root, scene)
+    const shape = giraffeProportions(scene, nodes)
+    const walk = root
+      .listAnimations()
+      .find((clip) => clip.getName() === '두 발 걷기')
+    const props = {
+      translation: 'position',
+      rotation: 'rotationQuaternion',
+      scale: 'scaling',
+    }
+    const pads = hoofPads((side) =>
+      nodes
+        .get('Hind.Hoof.' + side)
+        .computeWorldMatrix(true)
+        .asArray(),
+    )
+    const supportHeight = () =>
+      Math.min(...pads.flatMap((pad) => pad().map((point) => point[1])))
+    const keys = walk.listSamplers().reduce((times, sampler) => {
+      const input = sampler.getInput().getArray()
+      return input.length > times.length ? input : times
+    }, [])
+    const rest = supportHeight()
+    for (const [legs, body] of [
+      [0.75, 1.4],
+      [1.3, 0.7],
+    ]) {
+      shape.set({ legs, body })
+      for (const time of keys) {
+        scene.onBeforeAnimationsObservable.notifyObservers(scene)
+        for (const [joint, path, value] of walkSample(walk, time))
+          nodes.get(joint.getName())[props[path]].set(...value)
+        scene.onAfterAnimationsObservable.notifyObservers(scene)
+        assert.ok(
+          Math.abs(supportHeight() - rest) < 0.003,
+          'time ' + time + ' / legs ' + legs,
+        )
+      }
+    }
+    shape.dispose()
+  } finally {
+    scene.dispose()
+    engine.dispose()
+  }
+})
+
+test('모션 전용 걷기 GLB는 모델의 같은 골격 채널과 시간·값만 담는다', async () => {
+  const io = new NodeIO()
+  const read = async (name) =>
+    (
+      await io.read('assets-source/characters/riragi-clay/' + name + '.glb')
+    ).getRoot()
+  const [model, motion] = await Promise.all([
+    read('riragi-biped'),
+    read('riragi-biped-walk'),
+  ])
+  assert.equal(motion.listMeshes().length, 0)
+  assert.equal(motion.listTextures().length, 0)
+  function tracks(root) {
+    assert.equal(root.listAnimations().length, 1)
+    const clip = root.listAnimations()[0]
+    assert.equal(clip.getName(), '두 발 걷기')
+    return new Map(
+      clip.listChannels().map((c) => {
+        const s = c.getSampler()
+        return [
+          [c.getTargetNode().getName(), c.getTargetPath()].join('/'),
+          [
+            s.getInterpolation(),
+            s.getInput().getArray(),
+            s.getOutput().getArray(),
+          ],
+        ]
+      }),
+    )
+  }
+  const skinTracks = tracks(model)
+  assert.equal(skinTracks.size, 75)
+  assert.deepEqual(tracks(motion), skinTracks)
 })

@@ -462,10 +462,11 @@
   }
 
   /* ---------- Toast ---------- */
+  /* A surface with its own bottom toolbar raises toasts with --toast-offset. */
   .ui-toaster {
     position: fixed;
     left: 50%;
-    bottom: max(var(--space-5), env(safe-area-inset-bottom));
+    bottom: max(var(--toast-offset, var(--space-5)), env(safe-area-inset-bottom));
     transform: translateX(-50%);
     z-index: var(--z-toast);
     width: max-content;

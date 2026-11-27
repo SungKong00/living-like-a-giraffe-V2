@@ -15,6 +15,18 @@ const route = location.pathname
 const studioAvailable = !matchMedia(
   '(pointer: coarse) and (max-device-width: 960px)',
 ).matches
+// The studio opens an event page with `?draft` to show unpublished text.
+// Without a studio login the published page is shown instead.
+let draftView = new URLSearchParams(location.search).has('draft')
+async function draftPages() {
+  try {
+    return (await api('admin/draft')).layout.pages
+  } catch (e) {
+    if (e.status !== 401) throw e
+    draftView = false
+    return null
+  }
+}
 const photo = (id) =>
   id === 'mental-sauna' ? 'sauna' : id === 'sports-day' ? 'sports' : 'world'
 const coverSrc = (id) => '/images/' + photo(id) + '.jpg'
@@ -120,7 +132,11 @@ function detail(page) {
       el(
         'header',
         { class: 'page-header' },
-        el('span', { class: 'eyebrow' }, '행사 기록'),
+        el(
+          'span',
+          { class: 'eyebrow' },
+          draftView ? '행사 기록 · 공개 전 초안' : '행사 기록',
+        ),
         el('h1', { class: 'page-title' }, page.title),
         el('p', { class: 'page-lead' }, page.summary),
       ),
@@ -331,10 +347,14 @@ try {
   if (route === '/studio' && studioAvailable)
     await (await import('./studio.js')).studio()
   else {
-    const state = await api('world')
-    if (route.startsWith('/events'))
-      events(state.layout.pages, route.split('/')[2])
-    else await visit(state)
+    const id = route.split('/')[2]
+    if (route.startsWith('/events') && id && draftView)
+      events((await draftPages()) ?? (await api('world')).layout.pages, id)
+    else {
+      const state = await api('world')
+      if (route.startsWith('/events')) events(state.layout.pages, id)
+      else await visit(state)
+    }
   }
 } catch (e) {
   app.replaceChildren(

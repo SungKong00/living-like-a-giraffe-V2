@@ -130,22 +130,6 @@ app.get('/api/admin/versions/:id', (req, res) =>
 app.post('/api/admin/versions/:id/restore', (req, res) =>
   res.json(editorView(store.restoreVersion(req.body.revision, req.params.id))),
 )
-app.get('/api/admin/clay-giraffe', (req, res) =>
-  res
-    .type('model/gltf-binary')
-    .sendFile(
-      path.resolve(
-        'assets-source/characters/riragi-clay',
-        req.query.outfit === 'base'
-          ? 'riragi-giraffe-base.glb'
-          : 'riragi-giraffe.glb',
-      ),
-    ),
-)
-app.get('/api/admin/clay-samples', async (_req, res) => {
-  const { claySamples } = await import('./clay-samples.mjs')
-  res.type('model/gltf-binary').send(await claySamples())
-})
 app.get('/api/admin/model/:id', async (req, res) => {
   if (!/^(initial|[a-f0-9-]{36})$/.test(req.params.id))
     return res.sendStatus(404)

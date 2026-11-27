@@ -11,6 +11,7 @@ import {
   FileButton,
   FileList,
   IconButton,
+  Menu,
   NumberInput,
   PanelHeader,
   PanelSection,
@@ -27,6 +28,7 @@ import { giraffeProportionSection } from './giraffe-proportion-controls.js'
 import { clayMotionSection, hatchRow } from './clay-motion-controls.js'
 import { lightInspector } from './light-inspector.js'
 import * as ops from './edit-ops.js'
+import { routeDefaults, routeLimits } from '../shared/character-route.mjs'
 import {
   clayDefaults,
   clayFor,
@@ -141,7 +143,7 @@ const worldSections = [
   worldClay('objects'),
   worldClay('characters'),
   worldCharacters,
-  (editor) => (editor.libraryReadOnly ? null : characterLibrarySection(editor)),
+  characterLibrarySection,
   worldLighting,
 ]
 
@@ -177,12 +179,18 @@ function composition(editor) {
         label: '개체',
         children: [
           muted(
-            '가구 ' +
-              layout.items.length +
-              ' · 클릭 영역 ' +
-              layout.spots.length +
-              ' · 행사 페이지 ' +
-              layout.pages.length,
+            [
+              ['가구', layout.items.length],
+              ['캐릭터', layout.characters?.length ?? 0],
+              [
+                '조명',
+                editor.sourceCatalog.length + (layout.lights?.length ?? 0),
+              ],
+              ['클릭 영역', layout.spots.length],
+              ['행사 페이지', layout.pages.length],
+            ]
+              .map(([label, n]) => label + ' ' + n)
+              .join(' · '),
           ),
         ],
       }),
@@ -753,9 +761,9 @@ function pageInspector(p, editor) {
       actions: [
         IconButton({
           icon: 'external',
-          label: '/events/' + p.id + ' 새 창에서 열기',
+          label: '초안으로 새 창에서 보기',
           key: 'open-page',
-          onClick: () => window.open('/events/' + p.id, '_blank', 'noopener'),
+          onClick: () => editor.openPage(p.id),
         }),
         IconButton({
           icon: 'delete',
@@ -824,11 +832,50 @@ function pageInspector(p, editor) {
         chips(
           editor,
           linked.map((s) => ({ type: 'spot', id: s.id })),
-          '방이나 가구를 선택해 클릭 영역을 추가하고 이 페이지를 연결하세요.',
+          '아직 이 페이지를 여는 클릭 영역이 없습니다.',
         ),
+        pageSpotMenu(p, editor),
       ],
     }),
   ]
+}
+
+// Adds a click area that opens this page, on a room or a piece of furniture.
+function pageSpotMenu(p, editor) {
+  const { layout, rooms } = editor
+  return Menu({
+    trigger: Button({
+      label: '클릭 영역 추가',
+      icon: 'add',
+      size: 'sm',
+      variant: 'secondary',
+      key: 'add-page-spot',
+    }),
+    label: '이 페이지를 여는 클릭 영역 추가',
+    // Narrow enough to stay inside the panel, which clips what overflows.
+    width: 'sm',
+    // The button sits at the bottom of the panel, so the menu opens upward.
+    placement: 'top-start',
+    sections: () => [
+      {
+        heading: '방에 붙이기',
+        items: rooms.map((r) => ({
+          label: r.label,
+          icon: 'room',
+          onSelect: () => editor.addClickArea(r.id, p.id),
+        })),
+      },
+      {
+        heading: '가구에 붙이기',
+        items: layout.items.map((i) => ({
+          label: i.label,
+          hint: editor.roomName(i.room),
+          icon: 'furniture',
+          onSelect: () => editor.addClickArea(i.id, p.id),
+        })),
+      },
+    ],
+  }).element
 }
 
 // ---- 점토 ----
@@ -1012,7 +1059,13 @@ function motionRows(editor, o) {
           key: o.key + '-motion',
           size: 'sm',
           value: list[0] ?? STILL,
-          options: options(list[0]),
+          // An inherited value says where it comes from, so "정지" is not
+          // mistaken for this character's own choice.
+          options: options(list[0]).map((x) =>
+            o.inherited && x.value === (list[0] ?? STILL)
+              ? { ...x, label: x.label + ' · 월드 기본' }
+              : x,
+          ),
           onChange: (v) =>
             o.onMotion(v === STILL ? null : motionOf([v, ...list.slice(1)])),
         }),
@@ -1051,7 +1104,7 @@ function motionRows(editor, o) {
         ],
       }),
     )
-  if (list.length > 1)
+  if (list.length > 1 && o.onOrder)
     rows.push(
       PropertyRow({
         label: '순서',
@@ -1215,6 +1268,47 @@ function characterLibrarySection(editor) {
 
 const meters = (v) => (Math.round(v * 100) / 100).toString() + 'm'
 
+// Ground one walk cycle covers at 100%: measured from the walk clip of a
+// character walking a route, until the operator sets it.
+function strideRows(editor, m) {
+  const measured = editor.modelStride(m.id)
+  const value = m.stride ?? measured
+  if (!value)
+    return [
+      PropertyRow({
+        label: '걸음 길이',
+        children: [
+          muted('이 모델의 캐릭터가 경로를 걸으면 걷기 동작에서 잽니다.'),
+        ],
+      }),
+    ]
+  return [
+    PropertyRow({
+      label: '걸음 길이',
+      override: m.stride !== undefined && {
+        from: '걷기 동작',
+        subject: '걸음 길이',
+        onReset: () => editor.updateModel(m.id, { stride: null }),
+      },
+      children: [
+        NumberInput({
+          label: '모델 걸음 길이',
+          prefix: 'm',
+          key: 'library-model-stride',
+          step: 0.05,
+          min: 0.05,
+          max: 20,
+          value: Math.round(value * 100) / 100,
+          onCommit: (stride) => editor.updateModel(m.id, { stride }),
+        }),
+      ],
+    }),
+    muted(
+      '걷기 동작 한 주기에 나아가는 거리입니다. 경로를 걸을 때 발이 미끄러지지 않는 속도를 정합니다.',
+    ),
+  ]
+}
+
 // Settings of one library model: name, default height, file and removal.
 function librarySettings(editor, m) {
   const uses = editor.fileUsers('models', m.id)
@@ -1258,6 +1352,7 @@ function librarySettings(editor, m) {
         meters(m.measured) +
         '입니다.',
     ),
+    ...strideRows(editor, m),
     PropertyRow({
       label: '구성',
       stack: true,
@@ -1323,6 +1418,316 @@ function librarySettings(editor, m) {
   ]
 }
 
+// ---- 경로 ----
+const seconds = (v) => (Math.round(v * 10) / 10).toString() + '초'
+const routeModes = [
+  { value: 'loop', label: '돌아오기' },
+  { value: 'pingpong', label: '왕복' },
+]
+// What a point does, in a few words, for its heading.
+function stopSummary(editor, stop) {
+  if (!stop) return '지나가기'
+  const clips = clipsOf(stop.motion)
+  const parts = ['멈추기']
+  if (clips.length)
+    parts.push(
+      clipLabel(editor, clips[0]).split(' · ').at(-1) +
+        (clips.length > 1 ? ' 외 ' + (clips.length - 1) : '') +
+        ((stop.repeat ?? 1) > 1 ? ' ×' + stop.repeat : ''),
+    )
+  if (stop.wait) parts.push(seconds(stop.wait) + ' 대기')
+  return parts.join(' · ')
+}
+// Rows of one route point: pass or stop, and what a stop does in order —
+// face, motion (and how many times), wait.
+function routePointRows(c, editor, modelId, p, i) {
+  const n = i + 1
+  const stop = p.stop
+  const key = 'route-' + i
+  // A stop with nothing set is still a stop: it turns on the spot.
+  const setStop = (values) => {
+    const next = { ...stop, ...values }
+    for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k]
+    if (next.motion == null) delete next.repeat
+    editor.setRouteStop(c.id, i, next)
+  }
+  const rows = [
+    PropertyRow({
+      label: '할 일',
+      children: [
+        Segmented({
+          label: n + '번 지점에서 할 일',
+          key: key + '-kind',
+          size: 'sm',
+          value: stop ? 'stop' : 'pass',
+          options: [
+            { value: 'pass', label: '지나가기' },
+            { value: 'stop', label: '멈추기' },
+          ],
+          onChange: (v) =>
+            editor.setRouteStop(c.id, i, v === 'stop' ? { wait: 1 } : null),
+        }),
+        IconButton({
+          icon: 'delete',
+          label: n + '번 지점 지우기',
+          size: 'sm',
+          key: key + '-remove',
+          onClick: () => editor.removeRoutePoint(c.id, i),
+        }),
+      ],
+    }),
+  ]
+  if (!stop) return rows
+  const facing = typeof stop.face === 'number'
+  rows.push(
+    PropertyRow({
+      label: '방향',
+      children: [
+        Segmented({
+          label: n + '번 지점에서 바라볼 방향',
+          key: key + '-face',
+          size: 'sm',
+          value: facing ? 'angle' : 'next',
+          options: [
+            { value: 'next', label: '다음 지점 쪽' },
+            { value: 'angle', label: '직접 정하기' },
+          ],
+          onChange: (v) =>
+            setStop({ face: v === 'angle' ? Math.round(c.yaw) : undefined }),
+        }),
+        facing &&
+          NumberInput({
+            label: n + '번 지점에서 바라볼 각도',
+            prefix: '°',
+            key: key + '-angle',
+            step: ops.ROTATE_STEP,
+            min: -360,
+            max: 360,
+            value: stop.face,
+            onCommit: (face) => setStop({ face }),
+          }),
+      ].filter(Boolean),
+    }),
+    ...motionRows(editor, {
+      prefix: n + '번 지점',
+      key,
+      model: modelId,
+      motion: stop.motion ?? null,
+      onMotion: (motion) => setStop({ motion: motion ?? undefined }),
+    }),
+  )
+  if (stop.motion != null)
+    rows.push(
+      PropertyRow({
+        label: '반복',
+        children: [
+          NumberInput({
+            label: n + '번 지점 동작 반복 횟수',
+            prefix: '회',
+            key: key + '-repeat',
+            step: 1,
+            min: routeLimits.repeat.min,
+            max: routeLimits.repeat.max,
+            value: stop.repeat ?? 1,
+            onCommit: (repeat) => setStop({ repeat: Math.round(repeat) }),
+          }),
+        ],
+      }),
+    )
+  rows.push(
+    PropertyRow({
+      label: '대기',
+      children: [
+        NumberInput({
+          label: n + '번 지점 대기 시간',
+          prefix: '초',
+          key: key + '-wait',
+          step: 0.5,
+          min: routeLimits.wait.min,
+          max: routeLimits.wait.max,
+          value: stop.wait ?? 0,
+          onCommit: (wait) => setStop({ wait: wait || undefined }),
+        }),
+      ],
+    }),
+  )
+  return rows
+}
+function routeSection(c, editor, modelId) {
+  const route = c.route
+  const drawing = editor.view.routing?.id === c.id
+  const drawingNote =
+    drawing &&
+    Callout({
+      message:
+        '방 바닥을 눌러 지점을 더하세요. Enter나 마지막 지점을 다시 눌러 마치고, Esc로 취소합니다.',
+    })
+  const draw = PropertyRow({
+    label: drawing ? '바닥을 클릭' : '장면에서',
+    stack: true,
+    children: [
+      Button({
+        label: drawing
+          ? '그리기 마치기'
+          : route
+            ? '지점 더하기'
+            : '경로 그리기',
+        icon: 'pointer',
+        size: 'sm',
+        variant: drawing ? 'primary' : 'secondary',
+        key: 'route-draw',
+        onClick: () =>
+          drawing ? editor.finishRoute() : editor.startRoute(c.id),
+      }),
+      !route &&
+        muted(
+          '바닥에 지점을 찍으면 캐릭터가 그 순서대로 걷습니다. 지점마다 지나가거나, 멈춰서 동작을 하고 기다리게 할 수 있습니다.',
+        ),
+    ].filter(Boolean),
+  })
+  if (!route)
+    return PanelSection({
+      title: '경로',
+      meta: '없음',
+      children: [drawingNote, draw].filter(Boolean),
+    })
+  const info = editor.routeInfo(c.id)
+  const playing = editor.view.routePlay
+  const speed = route.speed ?? info?.speed ?? routeDefaults.speed
+  const slides = info?.ready && (info.pace < 0.5 || info.pace > 2)
+  const walks = motionOptions(editor, route.walk, modelId).filter(
+    (o) => o.value !== STILL,
+  )
+  return PanelSection({
+    title: '경로',
+    meta:
+      '지점 ' +
+      route.points.length +
+      '개' +
+      (info?.duration ? ' · 한 바퀴 ' + seconds(info.duration) : ''),
+    children: [
+      drawingNote,
+      PropertyRow({
+        label: '미리보기',
+        children: [
+          Button({
+            label: playing ? '처음으로' : '경로 재생',
+            icon: playing ? 'reset' : 'play',
+            size: 'sm',
+            variant: playing ? 'primary' : 'secondary',
+            key: 'route-play',
+            onClick: () => editor.playRoute(!playing),
+          }),
+        ],
+      }),
+      info?.loaded && !info.ready
+        ? Callout({
+            tone: 'warning',
+            message:
+              '걷기 동작을 읽지 못해 첫 지점에 서 있습니다. 이 모델에 맞는 걷기 동작을 고르세요.',
+          })
+        : null,
+      PropertyRow({
+        label: '반복',
+        children: [
+          Segmented({
+            label: '경로 반복 방식',
+            key: 'route-mode',
+            size: 'sm',
+            value: route.mode ?? routeDefaults.mode,
+            options: routeModes,
+            onChange: (mode) => editor.setRoute(c.id, { mode }),
+          }),
+        ],
+      }),
+      PropertyRow({
+        label: '속도',
+        override: route.speed !== undefined && {
+          from: '걸음에 맞춘 속도',
+          subject: '속도',
+          onReset: () => editor.setRoute(c.id, { speed: undefined }),
+        },
+        children: [
+          Slider({
+            label: '경로 걷는 속도',
+            key: 'route-speed',
+            min: routeLimits.speed.min,
+            max: routeLimits.speed.max,
+            step: 0.05,
+            value: Math.min(
+              routeLimits.speed.max,
+              Math.max(routeLimits.speed.min, speed),
+            ),
+            format: (v) => v.toFixed(2) + 'm/s',
+            onInput: (v) => editor.setRoute(c.id, { speed: v }, true),
+            onCommit: (v) => editor.setRoute(c.id, { speed: v }),
+          }),
+        ],
+      }),
+      slides
+        ? Callout({
+            tone: 'warning',
+            message:
+              '걸음과 맞지 않는 속도라 발이 미끄러져 보일 수 있습니다. 걸음에 맞는 속도는 ' +
+              info.natural.toFixed(2) +
+              'm/s입니다.',
+          })
+        : null,
+      PropertyRow({
+        label: '걷기',
+        children: [
+          Select({
+            label: '경로 걷기 동작',
+            key: 'route-walk',
+            size: 'sm',
+            value: route.walk,
+            options: walks,
+            onChange: (walk) => editor.setRoute(c.id, { walk }),
+          }),
+        ],
+      }),
+      PropertyRow({
+        label: '서 있을 때',
+        children: [
+          Select({
+            label: '경로에서 서 있을 때 동작',
+            key: 'route-idle',
+            size: 'sm',
+            value: route.idle ?? STILL,
+            options: motionOptions(editor, route.idle, modelId).map((o) =>
+              o.value === STILL ? { ...o, label: '정지 자세' } : o,
+            ),
+            onChange: (v) =>
+              editor.setRoute(c.id, { idle: v === STILL ? undefined : v }),
+          }),
+        ],
+      }),
+      ...route.points.flatMap((p, i) => [
+        el(
+          'h4',
+          { class: 'studio-route-point' },
+          n(i) + ' 지점 · ' + stopSummary(editor, p.stop),
+        ),
+        ...routePointRows(c, editor, modelId, p, i),
+      ]),
+      draw,
+      PropertyRow({
+        children: [
+          Button({
+            label: '경로 지우기',
+            icon: 'delete',
+            size: 'sm',
+            variant: 'ghost',
+            key: 'route-remove',
+            onClick: () => editor.removeRoute(c.id),
+          }),
+        ],
+      }),
+    ].filter(Boolean),
+  })
+}
+const n = (i) => i + 1 + '번'
+
 const modelStates = {
   ready: null,
   loading: '여는 중',
@@ -1340,6 +1745,7 @@ function characterInspector(c, editor) {
   const library = editor.characterLibrary
   const modelId = editor.characterModel(c)
   const model = library.models.find((m) => m.id === modelId)
+  const dimensions = editor.proportionDimensions(c.id)
   const state = editor.characterState(c)
   const effective = editor.characterMotion(c)
   const inherit = (key, subject) =>
@@ -1395,7 +1801,7 @@ function characterInspector(c, editor) {
               size: 'sm',
               value: modelId ?? '',
               options: modelOptions,
-              onChange: (v) => set({ model: v }),
+              onChange: (v) => editor.setCharacterModel(c.id, v),
             }),
           ],
         }),
@@ -1419,15 +1825,65 @@ function characterInspector(c, editor) {
           }),
       ].filter(Boolean),
     }),
+    c.route
+      ? PanelSection({
+          title: '동작',
+          meta: '경로를 걷는 중',
+          children: [
+            muted(
+              '경로가 있는 캐릭터는 제자리 동작 대신 아래 경로의 걷기와 지점별 동작을 합니다.',
+            ),
+          ],
+        })
+      : PanelSection({
+          title: '동작',
+          meta:
+            c.motion === undefined &&
+            c.speed === undefined &&
+            c.order === undefined
+              ? '월드 따름'
+              : '이 캐릭터만 따로',
+          children: [
+            ...motionRows(editor, {
+              prefix: '캐릭터',
+              key: 'character',
+              model: modelId,
+              motion: effective.motion,
+              order: effective.order,
+              inherited: c.motion === undefined,
+              override: inherit,
+              onMotion: (motion) => set({ motion }),
+              onOrder: (order) => set({ order }),
+            }),
+            PropertyRow({
+              label: '속도',
+              override: inherit('speed', '속도'),
+              children: [
+                Slider({
+                  label: '캐릭터 동작 속도',
+                  key: 'character-speed',
+                  min: 0.1,
+                  max: 3,
+                  step: 0.05,
+                  value: effective.speed,
+                  format: (v) => '×' + v.toFixed(2),
+                  onInput: (speed) => preview({ speed }),
+                  onCommit: (speed) => set({ speed }),
+                }),
+              ],
+            }),
+          ],
+        }),
+    routeSection(c, editor, modelId),
     PanelSection({
       title: '배치',
       children: [
         PropertyRow({
-          label: placing ? '바닥을 클릭 · Esc 취소' : '장면에서',
+          label: placing ? '바닥을 클릭 · Esc로 마침' : '장면에서',
           stack: true,
           children: [
             Button({
-              label: placing ? '놓기 취소' : '포인터로 놓기',
+              label: placing ? '현재 위치에 두기' : '포인터로 놓기',
               icon: 'pointer',
               size: 'sm',
               variant: placing ? 'primary' : 'secondary',
@@ -1526,11 +1982,12 @@ function characterInspector(c, editor) {
       ],
     }),
     // Body proportions need the Riragi giraffe's joint layout.
-    editor.supportsProportions(c.id)
+    dimensions?.length
       ? giraffeProportionSection(
           c.proportions,
           (key, value) => editor.setCharacterProportion(c.id, key, value),
           (key, value) => editor.setCharacterProportion(c.id, key, value, true),
+          dimensions,
         )
       : state === 'ready' &&
         PanelSection({
@@ -1559,42 +2016,6 @@ function characterInspector(c, editor) {
           ],
         })
       : null,
-    PanelSection({
-      title: '동작',
-      meta:
-        c.motion === undefined && c.speed === undefined && c.order === undefined
-          ? '월드 따름'
-          : '이 캐릭터만 따로',
-      children: [
-        ...motionRows(editor, {
-          prefix: '캐릭터',
-          key: 'character',
-          model: modelId,
-          motion: effective.motion,
-          order: effective.order,
-          override: inherit,
-          onMotion: (motion) => set({ motion }),
-          onOrder: (order) => set({ order }),
-        }),
-        PropertyRow({
-          label: '속도',
-          override: inherit('speed', '속도'),
-          children: [
-            Slider({
-              label: '캐릭터 동작 속도',
-              key: 'character-speed',
-              min: 0.1,
-              max: 3,
-              step: 0.05,
-              value: effective.speed,
-              format: (v) => '×' + v.toFixed(2),
-              onInput: (speed) => preview({ speed }),
-              onCommit: (speed) => set({ speed }),
-            }),
-          ],
-        }),
-      ],
-    }),
     PanelSection({
       title: '관람',
       meta: c.page ? '페이지 연결' : '연결 없음',

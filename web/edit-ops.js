@@ -1,6 +1,8 @@
 // Pure layout edits shared by the studio UI and node tests. Each function
 // mutates the draft passed by EditHistory.change and never touches the scene.
 
+import { retargetRoute, routeClips } from '../shared/character-route.mjs'
+
 export const GRID = 0.25
 export const ROTATE_STEP = 15
 
@@ -163,6 +165,27 @@ export function addCharacter(
   ;(layout.characters ??= []).push(character)
   return character
 }
+// Keep a compatible motion or playlist when changing rigs. A new biped walks
+// by default, while an explicit still pose from the character or world wins.
+export function selectCharacterModel(layout, character, model, library) {
+  character.model = model
+  const current =
+    character.motion === undefined
+      ? layout.defaults?.character?.motion
+      : character.motion
+  const suggested = library.models.find((m) => m.id === model)?.suggestedMotion
+  if (current === undefined && suggested) character.motion = suggested
+  if (current == null) return
+  const clips = [current].flat()
+  const compatible = clips.filter(
+    (clip) =>
+      library.motions.find((m) => m.id === clip.split('/')[0])?.matched[model],
+  )
+  if (compatible.length !== clips.length)
+    character.motion =
+      compatible.length > 1 ? compatible : (compatible[0] ?? suggested ?? null)
+}
+
 /** A copy beside the original with its own clay override, if any. */
 export function duplicateCharacter(layout, id, next) {
   const source = find(layout, 'characters', id)
@@ -196,6 +219,62 @@ export function inheritCharacter(layout, id, key) {
   if (c) delete c[key]
 }
 
+// ---- Routes ----
+// A route's points are offsets from the character, the first one [0, 0].
+const rebase = (c, by) => {
+  c.position = [
+    clampPosition(round(c.position[0] + by[0])),
+    c.position[1],
+    clampPosition(round(c.position[2] + by[1])),
+  ]
+  c.route.points = c.route.points.map((p, i) => ({
+    ...p,
+    at: i ? [round(p.at[0] - by[0]), round(p.at[1] - by[1])] : [0, 0],
+  }))
+}
+/** Gives a character a route; null or fewer than two points removes it. */
+export function setRoute(layout, id, route) {
+  const c = find(layout, 'characters', id)
+  if (!c) return
+  if (!route || route.points.length < 2) return void delete c.route
+  c.route = {
+    ...route,
+    points: route.points.map((p, i) => (i ? p : { ...p, at: [0, 0] })),
+  }
+}
+/** Changes fields of a route; an undefined value removes the field. */
+export function patchRoute(layout, id, values) {
+  const route = find(layout, 'characters', id)?.route
+  if (!route) return
+  for (const [key, value] of Object.entries(values))
+    if (value === undefined) delete route[key]
+    else route[key] = value
+}
+/** Moves a route point to offset `at`; the first one takes the character. */
+export function moveRoutePoint(layout, id, index, at) {
+  const c = find(layout, 'characters', id)
+  const p = c?.route?.points[index]
+  if (!p) return
+  if (index === 0) rebase(c, at)
+  else p.at = at.map((v) => round(v))
+}
+/** Removes a route point; a route left with one point goes with it. */
+export function removeRoutePoint(layout, id, index) {
+  const c = find(layout, 'characters', id)
+  if (!c?.route?.points[index]) return
+  if (c.route.points.length <= 2) return void delete c.route
+  c.route.points = c.route.points.filter((_, i) => i !== index)
+  if (index === 0) rebase(c, c.route.points[0].at)
+}
+/** Makes a route point a stop with these values, or a passed point (null). */
+export function setRouteStop(layout, id, index, stop) {
+  const c = find(layout, 'characters', id)
+  const p = c?.route?.points[index]
+  if (!p) return
+  if (stop) p.stop = stop
+  else delete p.stop
+}
+
 /** Where in its loop (0–1) a character starts, fixed by its ID. */
 export function motionPhase(id) {
   let h = 2166136261
@@ -225,6 +304,13 @@ export function moveMotionFile(layout, from, to, clips) {
       owner.motion = Array.isArray(owner.motion)
         ? owner.motion.map(swap)
         : swap(owner.motion)
+  for (const c of layout.characters ?? [])
+    if (c.route) {
+      const has = (next) => clips.includes(next.slice(to.length + 1))
+      const before = routeClips(c.route)
+      c.route = retargetRoute(c.route, from, to, has)
+      moved += routeClips(c.route).filter((x, i) => x !== before[i]).length
+    }
   return moved
 }
 

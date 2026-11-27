@@ -1,3 +1,4 @@
+import { characterSheet } from '../shared/character-sheet.mjs'
 import { api, stage, zoomControls } from './ui.js'
 import { el, Button, Dialog, Badge } from './ds/index.js'
 import { openLayoutPreview, openVisitorScene } from './scene.js'
@@ -105,7 +106,14 @@ async function showPreview(state, { title, description, open, approve }) {
           s.label + ' · ' + (page?.summary || s.action.url || '연결 확인 필요')
       },
     })
-    if (state.characters && open === openVisitorScene)
+    if (open === openLayoutPreview && state.layout.characters?.length) {
+      const catalog = await api('admin/characters')
+      state.characters = {
+        ...characterSheet(state.layout, catalog),
+        base: '/api/admin/characters/files/',
+      }
+    }
+    if (state.characters && dialog.isOpen)
       cast = (await import('./visitor-characters.js')).visitorCharacters(
         viewer,
         state,
@@ -117,7 +125,7 @@ async function showPreview(state, { title, description, open, approve }) {
         },
       )
     if (!dialog.isOpen) {
-      viewer.dispose()
+      viewer?.dispose()
       viewer = undefined
     }
   } catch (e) {
