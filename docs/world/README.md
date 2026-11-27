@@ -32,7 +32,7 @@
 
 ## Blender 도구
 
-장면을 조사하거나 수정할 때 [프로젝트 Blender 스킬](../../.agents/skills/riragi-blender/SKILL.md)을 사용한다. [Codex 설정](../../.codex/config.toml)은 Blender Lab 공식 MCP 소스를 고정 커밋에서 실행한다. 장면에 연결하려면 Blender 5.1 이상에서 공식 MCP 애드온을 설치하고 브리지를 시작한다. [Blender Lab 설치 안내](https://www.blender.org/lab/mcp-server/)
+장면을 조사하거나 수정할 때 [프로젝트 Blender 스킬](../../.agents/skills/riragi-blender/SKILL.md)을 사용한다. [Codex 설정](../../.codex/config.toml)과 Claude Code 설정(`.mcp.json`)은 Blender Lab 공식 MCP 소스를 같은 고정 커밋에서 실행한다. Claude Code는 `.claude/skills/riragi-blender`(이 스킬을 가리키는 링크)로 같은 스킬을 읽는다. 장면에 연결하려면 Blender 5.1 이상에서 공식 MCP 애드온을 설치하고 브리지를 시작한다. [Blender Lab 설치 안내](https://www.blender.org/lab/mcp-server/)
 
 관람과 편집 화면은 v06 원본의 바닥 오브젝트 `Backdrop`에서 렌더한 조명 이미지를 공유한다. 바닥 조명을 갱신할 때는 초기 원본을 준비한 뒤 프로젝트 루트에서 `.venv/bin/python scripts/render-studio-floor.py`를 실행한다. 방 밑의 부드러운 그림자는 웹에서 현재 방 크기와 위치에 맞춰 근사한다.
 
