@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mat4, vec3 } from 'gl-matrix'
 import { getBounds, NodeIO } from '@gltf-transform/core'
 import { clayField, clayPresets } from '../web/clay-field.js'
 
@@ -246,6 +247,27 @@ function* walkSample(walk, time) {
   }
 }
 
+// Track the two ends of the flat pad on each hoof. The ankle rises as the
+// hoof rolls over its toe, even when its contact point stays on the floor.
+function hoofPads(matrixForSide) {
+  return ['L', 'R'].map((side) => {
+    const rest = matrixForSide(side)
+    const ankle = mat4.getTranslation([], rest)
+    const inverse = mat4.invert([], rest)
+    const local = [0.008, 0.138].map((forward) =>
+      vec3.transformMat4(
+        [],
+        vec3.add([], ankle, [0, -0.158, forward]),
+        inverse,
+      ),
+    )
+    return () => {
+      const matrix = matrixForSide(side)
+      return local.map((point) => vec3.transformMat4([], point, matrix))
+    }
+  })
+}
+
 test('두발 기린은 골반 위에 선 몸통, 독립된 팔, 양발을 번갈아 드는 보행과 옷 없는 얼굴 조절 골격을 갖춘다', async () => {
   const root = (
     await new NodeIO().read(
@@ -311,32 +333,48 @@ test('두발 기린은 골반 위에 선 몸통, 독립된 팔, 양발을 번갈
   }
   const left = 'Hind.Hoof.L',
     right = 'Hind.Hoof.R'
-  const floor = at(left)[1]
-  for (const [time, planted, lifted] of [
-    [9 / 24, left, right],
-    [25 / 24, right, left],
-  ]) {
-    sample(time)
-    assert.ok(Math.abs(at(planted)[1] - floor) < 0.025)
-    const clearance = at(lifted)[1] - at(planted)[1]
-    assert.ok(clearance > 0.055 && clearance < 0.105)
-  }
-  // The supporting hoof keeps its belt speed across the loop boundary.
-  const times = walk
-    .listSamplers()
-    .map((s) => Array.from(s.getInput().getArray()))
-  const keys = times.reduce((a, b) => (a.length > b.length ? a : b))
+  const pads = hoofPads((s) => byName.get('Hind.Hoof.' + s).getWorldMatrix())
+  const keys = walk.listSamplers().reduce((times, s) => {
+    const input = s.getInput().getArray()
+    return input.length > times.length ? input : times
+  }, [])
+  const end = keys.at(-1)
   assert.equal(keys[0], 0)
-  const hoof = (time) => {
+  const snapshots = Array.from(keys, (time) => {
     sample(time)
-    return at(left)[2]
+    return pads.map((pad) => pad())
+  })
+  const height = (pad) => Math.min(...pad.map((p) => p[1]))
+  for (const [phase, planted, lifted] of [
+    [0.25, 0, 1],
+    [0.75, 1, 0],
+  ]) {
+    const feet = snapshots[Math.round(phase * (keys.length - 1))]
+    assert.ok(Math.abs(height(feet[planted])) < 0.001)
+    assert.ok(height(feet[lifted]) > 0.055 && height(feet[lifted]) < 0.105)
   }
-  const end = keys.at(-1),
-    dt = keys[1] - keys[0]
-  assert.ok(Math.abs(hoof(end) - hoof(0)) < 0.0001)
-  const before = (hoof(end) - hoof(end - dt)) / dt,
-    after = (hoof(dt) - hoof(0)) / dt
-  assert.ok(Math.abs(after) > 0.3 && Math.abs(after - before) < 0.04)
+  // The grounded pad travels backward at the same belt speed before, during
+  // and after the weight transfer. Check all samples, including both feet.
+  const beltSpeeds = []
+  let previous = snapshots.at(-2)
+  for (let i = 0; i < keys.length - 1; i++) {
+    const feet = snapshots[i]
+    const dt = i ? keys[i] - keys[i - 1] : end - keys.at(-2)
+    assert.ok(Math.abs(Math.min(...feet.map(height))) < 0.001)
+    for (const side of [0, 1]) {
+      const point = feet[side][0][1] < feet[side][1][1] ? 0 : 1
+      if (Math.max(feet[side][point][1], previous[side][point][1]) < 0.0002)
+        beltSpeeds.push((previous[side][point][2] - feet[side][point][2]) / dt)
+    }
+    previous = feet
+  }
+  assert.ok(beltSpeeds.length >= keys.length - 1)
+  assert.ok(Math.min(...beltSpeeds) > 0.8)
+  assert.ok(Math.max(...beltSpeeds) - Math.min(...beltSpeeds) < 0.08)
+  for (const side of [0, 1])
+    assert.ok(
+      vec3.distance(snapshots[0][side][0], snapshots.at(-1)[side][0]) < 0.0001,
+    )
   // A foot reaching forward is accompanied by the opposite hand.
   sample(1 / 24)
   assert.ok(at(left)[2] > at(right)[2] + 0.2)
@@ -404,30 +442,32 @@ test('두발 걷기에서 다리 길이와 몸통 크기를 바꿔도 지지발�
       rotation: 'rotationQuaternion',
       scale: 'scaling',
     }
+    const pads = hoofPads((side) =>
+      nodes
+        .get('Hind.Hoof.' + side)
+        .computeWorldMatrix(true)
+        .asArray(),
+    )
     const supportHeight = () =>
-      Math.min(
-        ...['L', 'R'].map(
-          (side) =>
-            nodes
-              .get('Hind.Hoof.' + side)
-              .computeWorldMatrix(true)
-              .getTranslation().y,
-        ),
-      )
+      Math.min(...pads.flatMap((pad) => pad().map((point) => point[1])))
+    const keys = walk.listSamplers().reduce((times, sampler) => {
+      const input = sampler.getInput().getArray()
+      return input.length > times.length ? input : times
+    }, [])
     const rest = supportHeight()
     for (const [legs, body] of [
       [0.75, 1.4],
       [1.3, 0.7],
     ]) {
       shape.set({ legs, body })
-      for (let frame = 1; frame <= 33; frame++) {
+      for (const time of keys) {
         scene.onBeforeAnimationsObservable.notifyObservers(scene)
-        for (const [joint, path, value] of walkSample(walk, frame / 24))
+        for (const [joint, path, value] of walkSample(walk, time))
           nodes.get(joint.getName())[props[path]].set(...value)
         scene.onAfterAnimationsObservable.notifyObservers(scene)
         assert.ok(
           Math.abs(supportHeight() - rest) < 0.003,
-          'frame ' + frame + ' / legs ' + legs,
+          'time ' + time + ' / legs ' + legs,
         )
       }
     }
