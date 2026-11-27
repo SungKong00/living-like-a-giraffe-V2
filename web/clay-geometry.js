@@ -1,3 +1,4 @@
+import { CLAY_PROTECT_KIND } from './clay-protect-loader.js'
 import { Vector3 } from '@babylonjs/core/Maths/math.vector'
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData'
 import { NodeGeometry } from '@babylonjs/core/Meshes/Node/nodeGeometry'
@@ -30,6 +31,7 @@ export function clayDeformer(mesh, characterField) {
   const data = new VertexData()
   const rest = mesh.getVerticesData('position').slice()
   const normals = mesh.getVerticesData('normal').slice()
+  const protection = characterField && mesh.getVerticesData(CLAY_PROTECT_KIND)
   data.positions = rest
   source.value = data
   const positions = new GeometryInputBlock('원본 좌표', Type.Vector3)
@@ -86,6 +88,15 @@ export function clayDeformer(mesh, characterField) {
           }
       graph.build()
       const next = graph.vertexData.positions
+      if (protection) {
+        for (let vertex = 0; vertex < protection.length; vertex++) {
+          const keep = Math.min(1, Math.max(0, protection[vertex]))
+          if (!keep) continue
+          const start = vertex * 3
+          for (let i = start; i < start + 3; i++)
+            next[i] += keep * (rest[i] - next[i])
+        }
+      }
       VertexData.ComputeNormals(next, indices, nextNormals, rightHanded)
       // Transfer the change in surface normal to the original bevel shading.
       for (let i = 0; i < normals.length; i += 3) {

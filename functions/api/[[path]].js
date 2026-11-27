@@ -1,3 +1,5 @@
+import { characterListing, editCharacters } from '../../cloud/characters.mjs'
+import { characterSheet } from '../../shared/character-sheet.mjs'
 import {
   availableImport,
   uploadedScene,
@@ -179,7 +181,7 @@ async function helper(db, req, route, current) {
   reject(404, '작업을 찾을 수 없습니다.')
 }
 
-async function handle({ request: req, env, params, waitUntil }) {
+async function handle({ request: req, env, params, waitUntil, next }) {
   const db = env.STUDIO,
     route = [].concat(params.path || []).join('/')
   const url = new URL(req.url),
@@ -209,8 +211,31 @@ async function handle({ request: req, env, params, waitUntil }) {
     { state, version } = current
   const { draft, published, job } = state
   if (route.startsWith('helper/')) return helper(db, req, route, current)
-  const visitor = async (snap, path) =>
-    json(visitorView(snap, await catalog(db, snap.model), path))
+  const visitor = async (snap, path, privateView = false) => {
+    const cast = snap.cast
+    return json({
+      ...visitorView(snap, await catalog(db, snap.model), path),
+      ...(cast && {
+        characters: {
+          ...cast,
+          base: privateView
+            ? '/api/admin/characters/files/'
+            : '/api/world/characters/',
+        },
+      }),
+    })
+  }
+  if (method === 'GET' && route.startsWith('world/characters/')) {
+    const file = /^world\/characters\/([\w-]+)\.glb$/.exec(route)?.[1]
+    if (
+      !file ||
+      ![published, state.previous].some((snap) =>
+        snap?.cast?.files.includes(file),
+      )
+    )
+      reject(404, '공개되지 않은 캐릭터 파일입니다.')
+    return asset(db, 'character/' + file + '.glb', true)
+  }
   if (method === 'GET' && route === 'world')
     return visitor(published, '/api/world/' + published.asset)
   if (method === 'GET' && route.startsWith('world/')) {
@@ -261,6 +286,7 @@ async function handle({ request: req, env, params, waitUntil }) {
       return json({
         ...editorView(snap, source),
         asset: '/api/admin/versions/' + id + '/model',
+        characterLibrary: await characterListing(db, snap.layout),
       })
     if (method === 'POST' && action === 'restore') {
       const { revision } = await input(req)
@@ -295,7 +321,39 @@ async function handle({ request: req, env, params, waitUntil }) {
       catalog,
     })
   if (method === 'GET' && route === 'admin/characters')
-    return json(JSON.parse(await setting(db, 'characters')))
+    return json(await characterListing(db, draft.layout))
+  if (route.startsWith('admin/characters/') && method !== 'GET')
+    return json(
+      await editCharacters(db, current, req, route, { body, input, limit }),
+    )
+  // The bundled clay sample is also available on older, single-model D1 seeds.
+  if (
+    method === 'GET' &&
+    route === 'admin/characters/files/riragi-biped.glb' &&
+    next
+  ) {
+    const stored = await db
+      .prepare('SELECT 1 FROM files WHERE name=? LIMIT 1')
+      .bind('character/riragi-biped.glb')
+      .first()
+    if (!stored) {
+      const modelId = await setting(db, 'clay/biped-model')
+      const sampleModel =
+        modelId &&
+        (await characterListing(db)).models.find((m) => m.id === modelId)
+      if (sampleModel)
+        return asset(db, 'character/' + sampleModel.file + '.glb')
+      const sample = await next()
+      return new Response(sample.body, {
+        status: sample.status,
+        headers: {
+          'Content-Type': 'model/gltf-binary',
+          'Cache-Control': 'private, no-store',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      })
+    }
+  }
   if (method === 'GET' && route.startsWith('admin/characters/files/'))
     return asset(
       db,
@@ -303,13 +361,16 @@ async function handle({ request: req, env, params, waitUntil }) {
     )
   if (method === 'GET' && route === 'admin/clay-samples')
     return asset(db, 'clay/samples')
-  if (method === 'GET' && route === 'admin/clay-giraffe')
+  if (method === 'GET' && route === 'admin/clay-giraffe') {
+    if (!(await characterListing(db)).models.some((m) => m.id === 'riragi'))
+      reject(404, '자료실에서 제거한 시안입니다.')
     return asset(
       db,
       url.searchParams.get('outfit') === 'base'
         ? 'character/riragi.glb'
         : 'clay/giraffe',
     )
+  }
   if (route === 'admin/status' && method === 'GET') {
     const { token, deadline, attempt, ...view } = job || {}
     if (token && !active(job))
@@ -338,6 +399,10 @@ async function handle({ request: req, env, params, waitUntil }) {
       id: crypto.randomUUID(),
       revision,
       kind,
+      cast: characterSheet(
+        draft.layout,
+        await characterListing(db, draft.layout),
+      ),
       status: '대기',
       token: secret(),
       deadline: Date.now() + 2 * 3600000,
@@ -356,7 +421,7 @@ async function handle({ request: req, env, params, waitUntil }) {
       return json({ ok: true })
     const snapshot = reviewed(state, review[1])
     if (method === 'GET' && !review[2])
-      return visitor(snapshot, '/api/admin/reviews/' + job.id + '/asset')
+      return visitor(snapshot, '/api/admin/reviews/' + job.id + '/asset', true)
     if (method === 'GET' && review[2] === 'asset')
       return asset(db, 'baked/' + snapshot.asset)
     if (method === 'POST' && review[2] === 'publish') {

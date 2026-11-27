@@ -141,7 +141,7 @@ const worldSections = [
   worldClay('objects'),
   worldClay('characters'),
   worldCharacters,
-  (editor) => (editor.libraryReadOnly ? null : characterLibrarySection(editor)),
+  characterLibrarySection,
   worldLighting,
 ]
 
@@ -1340,6 +1340,7 @@ function characterInspector(c, editor) {
   const library = editor.characterLibrary
   const modelId = editor.characterModel(c)
   const model = library.models.find((m) => m.id === modelId)
+  const dimensions = editor.proportionDimensions(c.id)
   const state = editor.characterState(c)
   const effective = editor.characterMotion(c)
   const inherit = (key, subject) =>
@@ -1395,7 +1396,7 @@ function characterInspector(c, editor) {
               size: 'sm',
               value: modelId ?? '',
               options: modelOptions,
-              onChange: (v) => set({ model: v }),
+              onChange: (v) => editor.setCharacterModel(c.id, v),
             }),
           ],
         }),
@@ -1420,14 +1421,50 @@ function characterInspector(c, editor) {
       ].filter(Boolean),
     }),
     PanelSection({
+      title: '동작',
+      meta:
+        c.motion === undefined && c.speed === undefined && c.order === undefined
+          ? '월드 따름'
+          : '이 캐릭터만 따로',
+      children: [
+        ...motionRows(editor, {
+          prefix: '캐릭터',
+          key: 'character',
+          model: modelId,
+          motion: effective.motion,
+          order: effective.order,
+          override: inherit,
+          onMotion: (motion) => set({ motion }),
+          onOrder: (order) => set({ order }),
+        }),
+        PropertyRow({
+          label: '속도',
+          override: inherit('speed', '속도'),
+          children: [
+            Slider({
+              label: '캐릭터 동작 속도',
+              key: 'character-speed',
+              min: 0.1,
+              max: 3,
+              step: 0.05,
+              value: effective.speed,
+              format: (v) => '×' + v.toFixed(2),
+              onInput: (speed) => preview({ speed }),
+              onCommit: (speed) => set({ speed }),
+            }),
+          ],
+        }),
+      ],
+    }),
+    PanelSection({
       title: '배치',
       children: [
         PropertyRow({
-          label: placing ? '바닥을 클릭 · Esc 취소' : '장면에서',
+          label: placing ? '바닥을 클릭 · Esc로 마침' : '장면에서',
           stack: true,
           children: [
             Button({
-              label: placing ? '놓기 취소' : '포인터로 놓기',
+              label: placing ? '현재 위치에 두기' : '포인터로 놓기',
               icon: 'pointer',
               size: 'sm',
               variant: placing ? 'primary' : 'secondary',
@@ -1526,11 +1563,12 @@ function characterInspector(c, editor) {
       ],
     }),
     // Body proportions need the Riragi giraffe's joint layout.
-    editor.supportsProportions(c.id)
+    dimensions?.length
       ? giraffeProportionSection(
           c.proportions,
           (key, value) => editor.setCharacterProportion(c.id, key, value),
           (key, value) => editor.setCharacterProportion(c.id, key, value, true),
+          dimensions,
         )
       : state === 'ready' &&
         PanelSection({
@@ -1559,42 +1597,6 @@ function characterInspector(c, editor) {
           ],
         })
       : null,
-    PanelSection({
-      title: '동작',
-      meta:
-        c.motion === undefined && c.speed === undefined && c.order === undefined
-          ? '월드 따름'
-          : '이 캐릭터만 따로',
-      children: [
-        ...motionRows(editor, {
-          prefix: '캐릭터',
-          key: 'character',
-          model: modelId,
-          motion: effective.motion,
-          order: effective.order,
-          override: inherit,
-          onMotion: (motion) => set({ motion }),
-          onOrder: (order) => set({ order }),
-        }),
-        PropertyRow({
-          label: '속도',
-          override: inherit('speed', '속도'),
-          children: [
-            Slider({
-              label: '캐릭터 동작 속도',
-              key: 'character-speed',
-              min: 0.1,
-              max: 3,
-              step: 0.05,
-              value: effective.speed,
-              format: (v) => '×' + v.toFixed(2),
-              onInput: (speed) => preview({ speed }),
-              onCommit: (speed) => set({ speed }),
-            }),
-          ],
-        }),
-      ],
-    }),
     PanelSection({
       title: '관람',
       meta: c.page ? '페이지 연결' : '연결 없음',

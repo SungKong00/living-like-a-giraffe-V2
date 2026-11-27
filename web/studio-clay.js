@@ -1,4 +1,4 @@
-import { app } from './ui.js'
+import { api, app } from './ui.js'
 import {
   el,
   Brand,
@@ -31,9 +31,10 @@ const levels = [
   { value: 'medium', label: '보통' },
   { value: 'strong', label: '강하게' },
 ]
-const subjects = [
+const sampleSubjects = [
   { value: 'bench', label: '벤치' },
-  { value: 'giraffe', label: '기린' },
+  { value: 'giraffe', label: '네발 기린' },
+  { value: 'biped', label: '두발 기린' },
 ]
 const controls = [
   ['strength', '굴곡 강도', '모서리와 윤곽이 휘는 정도'],
@@ -42,12 +43,15 @@ const controls = [
 ]
 
 export async function studioClay() {
-  let kind =
-      new URLSearchParams(location.search).get('model') === 'giraffe'
-        ? 'giraffe'
-        : 'bench',
+  const library = await api('admin/characters')
+  const subjects = sampleSubjects.filter(
+    (s) =>
+      s.value !== 'giraffe' || library.models.some((m) => m.id === 'riragi'),
+  )
+  const initial = new URLSearchParams(location.search).get('model')
+  let kind = subjects.find((s) => s.value === initial)?.value ?? 'bench',
     outfit = 'none',
-    pose = 'rest',
+    poses = { giraffe: 'rest', biped: 'look' },
     scene,
     pending = 0
   let motion = initialClayMotion,
@@ -67,6 +71,7 @@ export async function studioClay() {
   const settings = {
     bench: { ...presets.medium },
     giraffe: { ...presets.light },
+    biped: { ...presets.light },
   }
   const canvas = el('canvas', {
     'aria-label': '원본과 점토 시안 3D 비교',
@@ -147,8 +152,31 @@ export async function studioClay() {
       scene?.apply(settings[kind])
     })
   }
+  async function showSubject(requested) {
+    if (!scene) return
+    status.hidden = false
+    status.replaceChildren(Spinner(), '모델을 여는 중…')
+    try {
+      await scene.show(requested)
+      if (kind !== requested) return
+      scene.dress(outfit)
+      scene.pose(poses[kind])
+      scene.setProportions(proportions)
+      scene.apply(settings[kind])
+      status.hidden = true
+      drawPanel()
+    } catch (error) {
+      if (kind === requested)
+        status.replaceChildren(
+          Callout({
+            tone: 'danger',
+            message: '시안 모델을 열 수 없습니다. ' + error.message,
+          }),
+        )
+    }
+  }
   function drawPanel() {
-    const giraffe = kind === 'giraffe'
+    const giraffe = kind !== 'bench'
     subject.replaceChildren(
       Segmented({
         label: '시안 모델',
@@ -157,7 +185,7 @@ export async function studioClay() {
         value: kind,
         onChange: (value) => {
           kind = value
-          scene?.show(kind)
+          showSubject(kind)
           drawPanel()
           schedule()
           subject.querySelector('[aria-checked="true"]').focus()
@@ -196,7 +224,12 @@ export async function studioClay() {
     renderKeepingFocus(panel, () => [
       PanelHeader({
         eyebrow: '비교 모델',
-        title: giraffe ? '점토 기린' : '사우나 나무 벤치',
+        title:
+          kind === 'biped'
+            ? '두발 점토 기린'
+            : giraffe
+              ? '점토 기린'
+              : '사우나 나무 벤치',
       }),
       PanelSection({ title: '모델', children: [subject] }),
       PanelSection({ title: '점토 강도', children: [presetRow] }),
@@ -214,41 +247,49 @@ export async function studioClay() {
                 drawPanel()
               },
               shape,
+              scene?.proportionDimensions ?? [],
             ),
-            PanelSection({
-              title: '착용',
-              children: [
-                Segmented({
-                  key: 'giraffe-outfit',
-                  label: '착용',
-                  value: outfit,
-                  options: [
-                    { value: 'none', label: '기본' },
-                    { value: 'cape', label: '케이프' },
-                    { value: 'flower', label: '꽃핀' },
-                    { value: 'both', label: '함께' },
-                  ],
-                  onChange(value) {
-                    outfit = value
-                    scene?.dress(value)
-                    drawPanel()
-                  },
-                }),
-              ],
-            }),
+            ...(kind === 'giraffe'
+              ? [
+                  PanelSection({
+                    title: '착용',
+                    children: [
+                      Segmented({
+                        key: 'giraffe-outfit',
+                        label: '착용',
+                        value: outfit,
+                        options: [
+                          { value: 'none', label: '기본' },
+                          { value: 'cape', label: '케이프' },
+                          { value: 'flower', label: '꽃핀' },
+                          { value: 'both', label: '함께' },
+                        ],
+                        onChange(value) {
+                          outfit = value
+                          scene?.dress(value)
+                          drawPanel()
+                        },
+                      }),
+                    ],
+                  }),
+                ]
+              : []),
             PanelSection({
               title: '포즈',
               children: [
                 Segmented({
                   key: 'giraffe-pose',
                   label: '포즈',
-                  value: pose,
+                  value: poses[kind],
                   options: [
                     { value: 'rest', label: '서 있기' },
-                    { value: 'look', label: '두리번거리기' },
+                    {
+                      value: 'look',
+                      label: kind === 'biped' ? '두 발 걷기' : '두리번거리기',
+                    },
                   ],
                   onChange(value) {
-                    pose = value
+                    poses[kind] = value
                     scene?.pose(value)
                     drawPanel()
                   },
@@ -292,13 +333,8 @@ export async function studioClay() {
   drawPanel()
   try {
     scene = await clayScene(canvas)
-    scene.show(kind)
-    scene.dress(outfit)
-    scene.pose(pose)
-    scene.apply(settings[kind])
     scene.setMotion(motion)
-    scene.setProportions(proportions)
-    status.hidden = true
+    await showSubject(kind)
   } catch (error) {
     status.replaceChildren(
       Callout({

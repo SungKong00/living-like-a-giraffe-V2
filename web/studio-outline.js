@@ -143,16 +143,12 @@ export function addMenu(editor) {
               icon: 'character',
               onSelect: () => editor.addCharacter(m.id, room),
             })),
-            ...(editor.libraryReadOnly
-              ? []
-              : [
-                  {
-                    label: '새 모델 올리기…',
-                    hint: '리깅된 GLB',
-                    icon: 'upload',
-                    onSelect: () => editor.chooseModelFile(room),
-                  },
-                ]),
+            {
+              label: '새 모델 올리기…',
+              hint: '리깅된 GLB',
+              icon: 'upload',
+              onSelect: () => editor.chooseModelFile(room),
+            },
           ],
         },
         {

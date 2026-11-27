@@ -461,6 +461,24 @@ test('기본 리라지 기린은 자료실의 첫 모델이고 자기 동작을 
   assert.equal(view.fallback, 'riragi')
   assert.equal(view.motions[0].clips[0].name, 'LookAround')
   assert.ok(view.motions[0].matched.riragi > 0)
+  if (!fs.existsSync('assets-source/characters/riragi-clay/riragi-biped.glb')) {
+    assert.ok(!view.models.some((m) => m.id === 'riragi-biped'))
+    return
+  }
+  const biped = view.models.find((m) => m.id === 'riragi-biped')
+  assert.deepEqual(biped.wearables, [])
+  const gait = view.motions.find((m) => m.id === biped.id)
+  assert.equal(biped.suggestedMotion, gait.id + '/' + gait.clips[0].name)
+  assert.ok(gait.clips[0].duration > 1 && gait.matched[biped.id] > 0)
+  assert.equal(gait.matched.riragi, 0)
+  const { selectCharacterModel } = await import('../web/edit-ops.js')
+  const character = {}
+  selectCharacterModel({}, character, biped.id, view)
+  assert.equal(character.motion, biped.suggestedMotion)
+  selectCharacterModel({}, character, 'riragi', view)
+  assert.equal(character.motion, null)
+  selectCharacterModel({}, character, biped.id, view)
+  assert.equal(character.motion, null)
 })
 
 test('긴 모서리만 나누고 공유 모서리는 같은 점에서 나눠 틈이 없다', () => {
@@ -516,7 +534,14 @@ test('같은 방의 캐릭터 둘에 서로 다른 비율과 배치를 저장한
   assert.equal(first.label, '리라지 점토 기린 1')
   assert.equal(second.label, '캐릭터 1')
   assert.equal(second.model, undefined)
-  first.proportions = { neck: 1.4, head: 0.8, legs: 1.1, body: 0.85 }
+  first.proportions = {
+    neck: 1.4,
+    head: 0.8,
+    legs: 1.1,
+    body: 0.85,
+    ears: 1.3,
+    muzzle: 0.8,
+  }
   assert.notDeepEqual(first.position, second.position)
   const copy = duplicateCharacter(input, 'one', 'three')
   assert.equal(copy.label, '리라지 점토 기린 2')

@@ -73,23 +73,34 @@ function compareMesh(
   return { original, sample, deform, wearable }
 }
 
-async function loadComparison(scene) {
-  const load = (url) =>
-    ImportMeshAsync(url, scene, {
+async function loadBench(scene) {
+  const bench = await ImportMeshAsync('/api/admin/clay-samples', scene, {
+    pluginExtension: '.glb',
+    pluginOptions: { gltf: { createInstances: false, animationStartMode: 0 } },
+  })
+  const pieces = bench.meshes.filter((mesh) => mesh.getTotalVertices())
+  for (const mesh of pieces) {
+    mesh.computeWorldMatrix(true)
+    mesh.increaseVertices(23)
+  }
+  const original = Mesh.MergeMeshes(pieces, true, true, undefined, false, true)
+  return { parts: [compareMesh(original, true)] }
+}
+
+async function loadCharacter(scene, kind) {
+  const biped = kind === 'biped'
+  const giraffe = await LoadAssetContainerAsync(
+    biped
+      ? '/api/admin/characters/files/riragi-biped.glb'
+      : '/api/admin/clay-giraffe',
+    scene,
+    {
       pluginExtension: '.glb',
       pluginOptions: {
         gltf: { createInstances: false, animationStartMode: 0 },
       },
-    })
-  const [bench, giraffe] = await Promise.all([
-    load('/api/admin/clay-samples'),
-    LoadAssetContainerAsync('/api/admin/clay-giraffe', scene, {
-      pluginExtension: '.glb',
-      pluginOptions: {
-        gltf: { createInstances: false, animationStartMode: 0 },
-      },
-    }),
-  ])
+    },
+  )
   giraffe.addAllToScene()
   const copy = giraffe.instantiateModelsToScene((name) => name, false, {
     doNotInstantiate: true,
@@ -101,19 +112,28 @@ async function loadComparison(scene) {
   )
   const proportions = giraffeProportions(scene, nodes)
   // A single clock drives both independent rigs so clothing and pose match.
-  const glance = giraffe.animationGroups.find((g) => g.name === 'LookAround')
+  const glance = giraffe.animationGroups.find(
+    (g) => g.name === (biped ? '두 발 걷기' : 'LookAround'),
+  )
   for (const group of copy.animationGroups) {
     if (group.name === glance?.name)
       for (const track of group.targetedAnimations)
         glance.addTargetedAnimation(track.animation, track.target)
     group.dispose()
   }
-  const pieces = bench.meshes.filter((mesh) => mesh.getTotalVertices())
-  for (const mesh of pieces) {
-    mesh.computeWorldMatrix(true)
-    mesh.increaseVertices(23)
+  const rest = glance?.targetedAnimations.map(({ target, animation }) => {
+    const property = animation.targetProperty
+    return { target, property, value: target[property].clone() }
+  })
+  function setMoving(active) {
+    if (!glance || active === glance.isPlaying) return
+    if (active) glance.play(true)
+    else {
+      glance.stop()
+      for (const { target, property, value } of rest)
+        target[property] = value.clone()
+    }
   }
-  const original = Mesh.MergeMeshes(pieces, true, true, undefined, false, true)
   // The studio asset's skinned vertex buffers share one ground-based rest space.
   const min = new Vector3(Infinity, Infinity, Infinity)
   const max = min.scale(-1)
@@ -151,8 +171,8 @@ async function loadComparison(scene) {
       )
     })
   return {
-    parts: { bench: [compareMesh(original, true)], giraffe: parts },
-    glance,
+    parts,
+    setMoving,
     proportions,
   }
 }
@@ -196,10 +216,9 @@ export async function clayScene(canvas) {
   key.intensity = 2.0
   const shadow = contactShadow(scene)
   const motion = clayMotion(scene, twin)
-  let models = {},
-    glance,
-    proportions,
-    extraHeight = 0,
+  const models = {},
+    loading = new Map()
+  let extraHeight = 0,
     outfit = 'none',
     moving = false
   let selected = 'bench'
@@ -207,8 +226,10 @@ export async function clayScene(canvas) {
   resize.observe(canvas)
   function dispose() {
     resize.disconnect()
-    proportions?.dispose()
-    for (const part of Object.values(models).flat()) part.deform?.dispose()
+    for (const model of Object.values(models)) {
+      model.proportions?.dispose()
+      for (const part of model.parts) part.deform?.dispose()
+    }
     scene.dispose()
     engine.dispose()
   }
@@ -226,22 +247,14 @@ export async function clayScene(canvas) {
     camera.radius = 10
   }
   function refresh() {
-    for (const [id, parts] of Object.entries(models)) {
+    for (const [id, { parts, setMoving }] of Object.entries(models)) {
       for (const { original, sample, wearable } of parts) {
         const visible =
           id === selected &&
           (!wearable || outfit === wearable || outfit === 'both')
         original.isVisible = sample.isVisible = visible
       }
-    }
-    if (glance) {
-      if (selected === 'giraffe' && moving) {
-        if (!glance.isPlaying) glance.play(true)
-      } else {
-        if (!glance.isStarted) glance.start(true)
-        glance.goToFrame(glance.from)
-        glance.pause()
-      }
+      setMoving?.(selected === id && moving)
     }
   }
   function show(kind) {
@@ -254,17 +267,6 @@ export async function clayScene(canvas) {
     frame()
   }
   try {
-    const comparison = await loadComparison(scene)
-    models = comparison.parts
-    motion.include(models.bench[0].sample)
-    motion.includeGiraffe(
-      models.giraffe
-        .filter((part) => part.wearable !== 'flower')
-        .map((part) => part.sample),
-    )
-    proportions = comparison.proportions
-    glance = comparison.glance
-    show(selected)
     scene.onBeforeCameraRenderObservable.add((drawing) => {
       if (drawing === twin) {
         twin.alpha = camera.alpha
@@ -298,10 +300,38 @@ export async function clayScene(canvas) {
       scene.render()
     })
     return {
-      show,
+      async show(kind) {
+        show(kind)
+        if (models[kind]) return
+        if (!loading.has(kind)) {
+          const request =
+            kind === 'bench' ? loadBench(scene) : loadCharacter(scene, kind)
+          loading.set(
+            kind,
+            request
+              .then((model) => {
+                models[kind] = model
+                if (kind === 'bench') motion.include(model.parts[0].sample)
+                else
+                  motion.includeGiraffe(
+                    model.parts
+                      .filter((p) => p.wearable !== 'flower')
+                      .map((p) => p.sample),
+                  )
+                refresh()
+              })
+              .finally(() => loading.delete(kind)),
+          )
+        }
+        await loading.get(kind)
+        await scene.whenReadyAsync()
+      },
+      get proportionDimensions() {
+        return models[selected]?.proportions?.dimensions ?? []
+      },
       setMotion: motion.set,
       setProportions(values) {
-        proportions?.set(values)
+        models[selected]?.proportions?.set(values)
         extraHeight = Math.max(
           0,
           ((values.legs ?? 1) - 1) * 1.32 +
@@ -309,10 +339,11 @@ export async function clayScene(canvas) {
             ((values.head ?? 1) - 1) * 0.7 +
             ((values.body ?? 1) - 1) * 0.32,
         )
-        if (selected === 'giraffe') camera.target.y = 2.05 + extraHeight / 2
+        if (selected !== 'bench') camera.target.y = 2.05 + extraHeight / 2
       },
       apply: (settings) => {
-        for (const part of models[selected]) part.deform?.apply(settings)
+        for (const part of models[selected]?.parts ?? [])
+          part.deform?.apply(settings)
       },
       dress(value) {
         outfit = value

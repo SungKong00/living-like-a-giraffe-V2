@@ -100,7 +100,7 @@ const clayDefaults = z.union([
   }),
 ])
 // A library file: an uploaded file's content hash or the bundled model.
-const fileId = '(?:[a-f0-9]{16}|riragi)'
+const fileId = '(?:[a-f0-9]{16}|riragi(?:-biped)?)'
 // `동작파일ID/클립이름`; null means "standing still" when it overrides. A
 // list plays its clips one after another in `order`.
 const clip = z

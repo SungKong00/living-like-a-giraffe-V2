@@ -163,6 +163,27 @@ export function addCharacter(
   ;(layout.characters ??= []).push(character)
   return character
 }
+// Keep a compatible motion or playlist when changing rigs. A new biped walks
+// by default, while an explicit still pose from the character or world wins.
+export function selectCharacterModel(layout, character, model, library) {
+  character.model = model
+  const current =
+    character.motion === undefined
+      ? layout.defaults?.character?.motion
+      : character.motion
+  const suggested = library.models.find((m) => m.id === model)?.suggestedMotion
+  if (current === undefined && suggested) character.motion = suggested
+  if (current == null) return
+  const clips = [current].flat()
+  const compatible = clips.filter(
+    (clip) =>
+      library.motions.find((m) => m.id === clip.split('/')[0])?.matched[model],
+  )
+  if (compatible.length !== clips.length)
+    character.motion =
+      compatible.length > 1 ? compatible : (compatible[0] ?? suggested ?? null)
+}
+
 /** A copy beside the original with its own clay override, if any. */
 export function duplicateCharacter(layout, id, next) {
   const source = find(layout, 'characters', id)

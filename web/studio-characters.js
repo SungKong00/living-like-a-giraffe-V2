@@ -336,7 +336,7 @@ export function characterLayer(
       if (!slot || slot.failed) return 'missing'
       return cast.get(c.id)?.file === slot.file ? 'ready' : 'loading'
     },
-    supportsProportions: (id) => !!cast.get(id)?.proportions,
+    proportionDimensions: (id) => cast.get(id)?.proportions?.dimensions,
     /** Lets only these character IDs move (null: all); others hold still. */
     setActive(ids) {
       active = ids && new Set(ids)

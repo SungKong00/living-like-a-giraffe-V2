@@ -208,11 +208,21 @@ export function reviewed(state, id) {
     j.status !== '검토 가능'
   )
     reject(409, '최신 초안의 구운 결과를 다시 준비하세요.')
-  return { ...state.draft, asset: j.asset, blend: j.blend }
+  return {
+    ...state.draft,
+    asset: j.asset,
+    blend: j.blend,
+    ...(j.cast && { cast: j.cast }),
+  }
 }
 
 export function complete(state, assetId) {
-  const snapshot = { ...state.draft, asset: assetId, blend: state.job.blend }
+  const snapshot = {
+    ...state.draft,
+    asset: assetId,
+    blend: state.job.blend,
+    ...(state.job.cast && { cast: state.job.cast }),
+  }
   const job = {
     ...state.job,
     token: undefined,

@@ -661,14 +661,16 @@ export async function studio() {
   ) {
     const id = newId()
     ui.collapsed.delete('room:' + room)
-    change((d) =>
-      ops.addCharacter(d, {
+    const info = characterLibrary.models.find((m) => m.id === model)
+    change((d) => {
+      const added = ops.addCharacter(d, {
         id,
         room,
         model: model ?? undefined,
-        name: modelName(model) ?? '캐릭터',
-      }),
-    )
+        name: info?.name ?? '캐릭터',
+      })
+      if (info) ops.selectCharacterModel(d, added, model, characterLibrary)
+    })
     select({ type: 'character', id }, { frame: true })
     setPlacing(id)
   }
@@ -971,14 +973,13 @@ export async function studio() {
     setLightPick,
     setLightTool,
     zoomRoom: (id) => world?.selectRoom(id),
-    libraryReadOnly: cloud,
     get characterLibrary() {
       return characterLibrary
     },
     characterMotion: (c) => characterMotion(shown, c),
     characterModel: (c) => characterModel(characterLibrary, c),
     characterState: (c) => cast?.state(shown, c) ?? 'loading',
-    supportsProportions: (id) => cast?.supportsProportions(id),
+    proportionDimensions: (id) => cast?.proportionDimensions(id),
     clayProtection: (id) => cast?.protection(id) ?? null,
     setWorldClay,
     setClayMotion: (settings) =>
@@ -989,6 +990,15 @@ export async function studio() {
     },
     setClay,
     setCharacterDefault,
+    setCharacterModel: (id, model) =>
+      change((d) =>
+        ops.selectCharacterModel(
+          d,
+          ops.find(d, 'characters', id),
+          model,
+          characterLibrary,
+        ),
+      ),
     setCharacterWear: (id, wear, on) =>
       change((d) => ops.setWear(d, id, wear, on)),
     setCharacterProportion(id, key, value, temporary = false) {
@@ -1078,6 +1088,11 @@ export async function studio() {
     })
   }
   renderSave()
+  // Populate the add menu before it can be opened, while the 3D scene is still starting.
+  characterLibrary = await api('admin/characters').catch((e) => {
+    fail('캐릭터 자료를 읽지 못했습니다 · ' + e.message)
+    return characterLibrary
+  })
   render()
 
   // ---- Keyboard ----
@@ -1281,11 +1296,8 @@ export async function studio() {
       world.wake()
     },
   })
-  const library = await api('admin/characters').catch((e) => {
-    fail('캐릭터 자료를 읽지 못했습니다 · ' + e.message)
-    return characterLibrary
-  })
-  useLibrary(library)
+  cast.setLibrary(characterLibrary)
+  refreshScene()
   projection = selectionPreview(
     world,
     portrait,
