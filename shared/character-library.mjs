@@ -108,8 +108,16 @@ export const modelFacts = (doc) => ({
 function measure(doc) {
   const scene = doc.getRoot().getDefaultScene() ?? doc.getRoot().listScenes()[0]
   if (!scene) return 1
-  const { min, max } = getBounds(scene)
-  const height = max[1] - min[1]
+  // Reduced levels stand in for parts of the model; they do not size it.
+  let low = Infinity
+  let high = -Infinity
+  for (const node of scene.listChildren()) {
+    if (lodOf(node)) continue
+    const { min, max } = getBounds(node)
+    low = Math.min(low, min[1])
+    high = Math.max(high, max[1])
+  }
+  const height = high - low
   return Number.isFinite(height) && height > 0.01 ? round(height) : 1
 }
 const round = (v) => Math.round(v * 100) / 100

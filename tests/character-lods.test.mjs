@@ -151,3 +151,48 @@ test('부위마다 그 단계의 메시를, 없으면 더 자세한 단계나 �
   assert.equal(levelNode('eye', new Map([[2, 'eye2']]), 1), 'eye')
   assert.equal(levelNode('flower', new Map(), 2), 'flower')
 })
+
+test('기본 네발 기린은 재질 하나짜리 축소 단계 둘을 가진다', async () => {
+  const { NodeIO } = await import('@gltf-transform/core')
+  const { ALL_EXTENSIONS } = await import('@gltf-transform/extensions')
+  const doc = await new NodeIO()
+    .registerExtensions(ALL_EXTENSIONS)
+    .read('assets-source/characters/riragi-clay/riragi-giraffe.glb')
+  const facts = modelFacts(doc)
+  const named = (name) =>
+    doc
+      .getRoot()
+      .listNodes()
+      .find((node) => node.getName() === name)
+  const triangles = (node) =>
+    node
+      .getMesh()
+      .listPrimitives()
+      .reduce((sum, p) => sum + p.getIndices().getCount() / 3, 0)
+  assert.deepEqual(facts.lodOrphans, [])
+  assert.deepEqual(
+    facts.lods.map((lod) => [lod.level, lod.of]),
+    [
+      [1, 'Giraffe.Body'],
+      [2, 'Giraffe.Body'],
+    ],
+  )
+  // The levels do not change how tall the model measures.
+  assert.equal(facts.measured, 4.13)
+  const limits = { 1: 10000, 2: 2000 }
+  for (const lod of facts.lods) {
+    const node = named(lod.node)
+    const whole = [lod.of, ...lod.covers].map(named)
+    // Every body part is covered; only the wearables keep their own mesh.
+    assert.equal(whole.length, 19)
+    assert.ok(
+      whole.every((part) => part && !part.getName().startsWith('Wear.')),
+    )
+    assert.equal(node.getMesh().listPrimitives().length, 1)
+    assert.ok(triangles(node) <= limits[lod.level], lod.node)
+    assert.ok(
+      node.getMesh().listPrimitives()[0].getMaterial().getBaseColorTexture(),
+    )
+    assert.equal(node.getSkin(), named(lod.of).getSkin())
+  }
+})
