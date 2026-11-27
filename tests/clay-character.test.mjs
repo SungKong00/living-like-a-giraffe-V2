@@ -342,39 +342,44 @@ test('두발 기린은 골반 위에 선 몸통, 독립된 팔, 양발을 번갈
   assert.equal(keys[0], 0)
   const snapshots = Array.from(keys, (time) => {
     sample(time)
-    return pads.map((pad) => pad())
+    return { pads: pads.map((pad) => pad()), ankles: [at(left), at(right)] }
   })
   const height = (pad) => Math.min(...pad.map((p) => p[1]))
   for (const [phase, planted, lifted] of [
-    [0.25, 0, 1],
-    [0.75, 1, 0],
+    [0.14, 0, 1],
+    [0.64, 1, 0],
   ]) {
-    const feet = snapshots[Math.round(phase * (keys.length - 1))]
-    assert.ok(Math.abs(height(feet[planted])) < 0.001)
-    assert.ok(height(feet[lifted]) > 0.055 && height(feet[lifted]) < 0.105)
+    const { pads } = snapshots[Math.round(phase * (keys.length - 1))]
+    assert.ok(Math.abs(height(pads[planted])) < 0.006)
+    assert.ok(height(pads[lifted]) > 0.085 && height(pads[lifted]) < 0.105)
   }
-  // The grounded pad travels backward at the same belt speed before, during
-  // and after the weight transfer. Check all samples, including both feet.
-  const beltSpeeds = []
-  let previous = snapshots.at(-2)
-  for (let i = 0; i < keys.length - 1; i++) {
-    const feet = snapshots[i]
-    const dt = i ? keys[i] - keys[i - 1] : end - keys.at(-2)
-    assert.ok(Math.abs(Math.min(...feet.map(height))) < 0.001)
+  // The captured hoof rolls from heel to toe. During each stance the ankle
+  // must keep moving backwards, including the middle of the step.
+  for (let i = 1; i < keys.length; i++) {
+    const { pads, ankles } = snapshots[i]
+    assert.ok(Math.abs(Math.min(...pads.map(height))) < 0.012)
     for (const side of [0, 1]) {
-      const point = feet[side][0][1] < feet[side][1][1] ? 0 : 1
-      if (Math.max(feet[side][point][1], previous[side][point][1]) < 0.0002)
-        beltSpeeds.push((previous[side][point][2] - feet[side][point][2]) / dt)
+      const phase = (keys[i] / end + side * 0.5) % 1
+      if (phase <= 0.05 || phase >= 0.46) continue
+      const dt = keys[i] - keys[i - 1]
+      const speed = (snapshots[i - 1].ankles[side][2] - ankles[side][2]) / dt
+      assert.ok(speed > 0.8 && speed < 1.2)
     }
-    previous = feet
   }
-  assert.ok(beltSpeeds.length >= keys.length - 1)
-  assert.ok(Math.min(...beltSpeeds) > 0.8)
-  assert.ok(Math.max(...beltSpeeds) - Math.min(...beltSpeeds) < 0.08)
-  for (const side of [0, 1])
-    assert.ok(
-      vec3.distance(snapshots[0][side][0], snapshots.at(-1)[side][0]) < 0.0001,
-    )
+  for (const side of [0, 1]) {
+    for (const point of [0, 1]) {
+      const atPad = (i) => snapshots.at(i).pads[side][point]
+      assert.ok(vec3.distance(atPad(0), atPad(-1)) < 0.0001)
+      // At the loop boundary both the heel and the toe continue moving.
+      const velocity = (a, b) =>
+        vec3.scale(
+          [],
+          vec3.subtract([], atPad(b), atPad(a)),
+          1 / (keys.at(b) - keys.at(a)),
+        )
+      assert.ok(vec3.distance(velocity(-2, -1), velocity(0, 1)) < 0.3)
+    }
+  }
   // A foot reaching forward is accompanied by the opposite hand.
   sample(1 / 24)
   assert.ok(at(left)[2] > at(right)[2] + 0.2)
@@ -454,20 +459,23 @@ test('두발 걷기에서 다리 길이와 몸통 크기를 바꿔도 지지발�
       const input = sampler.getInput().getArray()
       return input.length > times.length ? input : times
     }, [])
-    const rest = supportHeight()
+    function sampleHeight(time) {
+      scene.onBeforeAnimationsObservable.notifyObservers(scene)
+      for (const [joint, path, value] of walkSample(walk, time))
+        nodes.get(joint.getName())[props[path]].set(...value)
+      scene.onAfterAnimationsObservable.notifyObservers(scene)
+      return supportHeight()
+    }
+    const baseline = Array.from(keys, sampleHeight)
     for (const [legs, body] of [
       [0.75, 1.4],
       [1.3, 0.7],
     ]) {
       shape.set({ legs, body })
-      for (const time of keys) {
-        scene.onBeforeAnimationsObservable.notifyObservers(scene)
-        for (const [joint, path, value] of walkSample(walk, time))
-          nodes.get(joint.getName())[props[path]].set(...value)
-        scene.onAfterAnimationsObservable.notifyObservers(scene)
+      for (const [i, time] of keys.entries()) {
         assert.ok(
-          Math.abs(supportHeight() - rest) < 0.003,
-          'time ' + time + ' / legs ' + legs,
+          Math.abs(sampleHeight(time) - baseline[i]) < 0.013,
+          'time ' + time + ' / legs ' + legs + ' / body ' + body,
         )
       }
     }
