@@ -583,9 +583,13 @@ async function openScene(
     scene.onAfterRenderObservable.addOnce(() => onReady?.())
     performance.mark('riragi-world-ready')
   })
-  // Something playing an animation (a giraffe's motion) keeps the scene
-  // drawing; otherwise it sleeps until the next interaction.
-  let animating = () => false
+  // Anything playing an animation (a giraffe's motion) registers here and
+  // keeps the scene drawing; otherwise it sleeps until the next interaction.
+  const drawers = new Set()
+  const animating = () => {
+    for (const fn of drawers) if (fn()) return true
+    return false
+  }
   engine.runRenderLoop(() => {
     if (view.host.inert) return
     const motionFrame = motion.advance(performance.now())
@@ -682,10 +686,14 @@ async function openScene(
       styledExtra.add(material)
       illumination?.style(material)
     },
-    /** `fn()` returns true while something animates and needs frames. */
+    /**
+     * `fn()` returns true while something animates and needs frames. The
+     * scene draws while any registered `fn` does; the result unregisters it.
+     */
     keepDrawing(fn) {
-      animating = fn
+      drawers.add(fn)
       wake()
+      return () => drawers.delete(fn)
     },
     dispose() {
       gestures.abort()
