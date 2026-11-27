@@ -11,7 +11,7 @@ import {
   renderKeepingFocus,
 } from './ds/index.js'
 import { openLayoutPreview } from './scene.js'
-import { characterLayer } from './studio-characters.js'
+import { characterLayer } from './characters/index.js'
 import { clayLayer, updateStudioClay } from './studio-clay-layer.js'
 
 const dates = new Intl.DateTimeFormat('ko-KR', {

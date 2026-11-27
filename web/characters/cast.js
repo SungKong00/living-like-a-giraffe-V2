@@ -1,0 +1,335 @@
+import { motionPhase } from '../edit-ops.js'
+import {
+  blendChannels,
+  clipGroup,
+  clipTracks,
+  measureStride,
+  restChannels,
+  writePose,
+} from './pose.js'
+import {
+  routeAt,
+  routeClips,
+  routeDefaults,
+  routeTimeline,
+} from '../../shared/character-route.mjs'
+
+// What every character is doing: where it is on its route, its clock, which
+// motion it plays and how motions follow each other. Each one starts its
+// motion at its own point so copies do not move in step. A list of motions
+// plays each clip once, in order or at random, blending between them.
+//
+// A character with a route walks it instead. Its place, facing and pose come
+// from the route's timetable (shared/character-route.mjs) at the character's
+// own clock, so the cast writes the clips' values itself, blended, rather
+// than starting animation groups. The clock runs only while the character
+// may move, so one that was stopped goes on from where it stood.
+//
+// The cast moves a character's root node and joints; how the character is
+// drawn belongs to the view.
+
+// Yaw a model shows when it walks toward +Z of its room.
+const FORWARD = 0
+const radians = Math.PI / 180
+
+/**
+ * The character's motion, play order and speed, or the world default where
+ * it has none. `motion` is null (still), one clip or a list of clips.
+ */
+export function characterMotion(layout, c) {
+  const world = layout.defaults?.character ?? {}
+  return {
+    motion: c.motion !== undefined ? c.motion : (world.motion ?? null),
+    order: c.order ?? world.order ?? 'sequence',
+    speed: c.speed ?? world.speed ?? 1,
+  }
+}
+
+/** A motion value as a list of clips (empty when still). */
+export const motionList = (motion) => (motion == null ? [] : [motion].flat())
+
+/** The model a character shows: its own, else the library's fallback. */
+export const characterModel = (library, c) => c.model ?? library.fallback
+
+/**
+ * `assets` reads the clips; `onRoute(id)` runs when a character's route has
+ * read its clips and can walk.
+ */
+export function characterCast(world, assets, { onRoute } = {}) {
+  const { scene } = world
+  const cast = new Map()
+  // Characters allowed to move; null lets every one move.
+  let active = null
+  const moving = (entry) => !active || active.has(entry.id)
+  // The studio's selected character: it stands at its first point, or walks
+  // its route from the start while `playing`.
+  let rehearsal = null
+  const held = (entry) => rehearsal?.id === entry.id && !rehearsal.playing
+  const walking = (entry) =>
+    entry.route?.timeline?.duration > 0 && !held(entry) && moving(entry)
+  const posing = (entry) => !!entry.group?.isPlaying || walking(entry)
+
+  const engine = scene.getEngine()
+  const step = scene.onBeforeAnimationsObservable.add(() => {
+    // A frame after a sleep must not carry the whole pause.
+    const dt = Math.min(engine.getDeltaTime() / 1000, 0.1)
+    for (const entry of cast.values()) {
+      const route = entry.route
+      if (!route) continue
+      if (walking(entry)) route.clock += dt
+      else if (!route.dirty) continue
+      route.dirty = false
+      if (held(entry) || !(route.timeline?.duration > 0)) stand(entry)
+      else follow(entry)
+    }
+  })
+  scene.onDisposeObservable.addOnce(() =>
+    scene.onBeforeAnimationsObservable.remove(step),
+  )
+
+  // ---- Routes ----
+  // One clip's tracks on this character's nodes, read once per character.
+  function tracks(entry, motion) {
+    if (!entry.tracks.has(motion))
+      entry.tracks.set(
+        motion,
+        assets
+          .clip(motion)
+          .then((source) => source && clipTracks(entry.nodes, source)),
+      )
+    return entry.tracks.get(motion)
+  }
+  function settle(entry, x, z, yaw) {
+    const { position } = entry.route.base
+    entry.root.position.set(position[0] + x, position[1], position[2] + z)
+    entry.root.rotation.y = yaw * radians
+  }
+  // At the first point as placed, standing.
+  function stand(entry) {
+    const route = entry.route
+    settle(entry, 0, 0, route.base.yaw)
+    writePose(route, [{ clip: route.idle, time: 0, weight: 1, loop: true }])
+  }
+  function follow(entry) {
+    const route = entry.route
+    const at = routeAt(route.timeline, route.clock)
+    settle(entry, at.x, at.z, at.yaw ?? route.base.yaw)
+    writePose(route, at.layers)
+  }
+  function stride(entry, route, name, clip) {
+    if (!entry.strides.has(name))
+      entry.strides.set(name, measureStride(entry.root, route, name, clip))
+    return entry.strides.get(name)
+  }
+  // Puts the nodes a route moved back and lets a motion play again.
+  function leave(entry) {
+    const route = entry.route
+    if (!route) return
+    restChannels(route.channels)
+    entry.route = null
+    entry.root.rotationQuaternion = null
+  }
+  async function walk(entry, c, m) {
+    const key = JSON.stringify([c.route, c.scale, m?.stride, m?.height])
+    const base = { position: c.position, yaw: c.yaw }
+    if (entry.route?.key === key) {
+      entry.route.base = base
+      entry.route.dirty = true
+      return
+    }
+    // The motion it played where it stood stops.
+    for (const group of entry.groups) group.dispose()
+    entry.groups = []
+    entry.group = null
+    entry.motionKey = null
+    const before = entry.route
+    const route = (entry.route = {
+      key,
+      base,
+      idle: c.route.idle ?? null,
+      clips: new Map(),
+      channels: before?.channels ?? [],
+      timeline: null,
+      clock: 0,
+      dirty: true,
+    })
+    if (!entry.file) return
+    const names = [...new Set(routeClips(c.route))]
+    const loaded = await Promise.all(names.map((n) => tracks(entry, n)))
+    // A newer edit may have replaced this one while the files loaded.
+    if (entry.route !== route || cast.get(entry.id) !== entry) return
+    names.forEach((name, i) => loaded[i] && route.clips.set(name, loaded[i]))
+    route.channels = blendChannels(route.clips, entry.rest, before?.channels)
+    route.dirty = true
+    world.wake()
+    const steps = route.clips.get(c.route.walk)
+    route.loaded = true
+    // Without its walk it would slide, so it stays at the first point.
+    if (!steps) return void onRoute?.(entry.id)
+    const fit = m ? m.height / m.measured : 1
+    route.measured = stride(entry, route, c.route.walk, steps) * fit
+    const length = m?.stride ?? route.measured
+    // Speed at which the feet do not slide, for this character's size.
+    route.natural = (length * c.scale) / steps.duration
+    const known = route.natural > 0.01
+    route.speed = c.route.speed ?? (known ? route.natural : routeDefaults.speed)
+    route.pace = known ? route.speed / route.natural : 1
+    route.timeline = routeTimeline(
+      { ...c.route, speed: route.speed },
+      {
+        duration: (clip) => route.clips.get(clip)?.duration,
+        radius: 0.6 * c.scale,
+        forward: FORWARD,
+        walkRate: Math.min(2, Math.max(0.5, route.pace)),
+      },
+    )
+    route.clock =
+      rehearsal?.id === entry.id
+        ? 0
+        : motionPhase(entry.id) * route.timeline.duration
+    onRoute?.(entry.id)
+  }
+
+  async function play(entry, { motion, order, speed }) {
+    const list = motionList(motion)
+    const key = entry.file ? JSON.stringify([list, order, speed]) : null
+    if (entry.motionKey === key) return
+    entry.motionKey = key
+    for (const group of entry.groups) group.dispose()
+    entry.groups = []
+    entry.group = null
+    if (!key || !list.length) return
+    const loaded = await Promise.all(
+      list.map((m) =>
+        assets
+          .clip(m)
+          .then(
+            (source) =>
+              source && clipGroup(scene, entry.id, entry.nodes, source),
+          ),
+      ),
+    )
+    const groups = loaded.filter(Boolean)
+    // A newer edit may have replaced this one while the files loaded.
+    if (entry.motionKey !== key || cast.get(entry.id) !== entry) {
+      for (const group of groups) group.dispose()
+      return
+    }
+    if (!groups.length) return
+    entry.groups = groups
+    const phase = motionPhase(entry.id)
+    const start = (index, at) => {
+      const group = groups[index]
+      entry.group = group
+      group.start(groups.length === 1, speed)
+      if (at !== undefined)
+        group.goToFrame(group.from + (group.to - group.from) * at)
+    }
+    if (groups.length > 1)
+      groups.forEach((group, index) => {
+        group.enableBlending = true
+        group.blendingSpeed = 0.05
+        group.onAnimationGroupEndObservable.add(() => {
+          if (entry.groups !== groups) return
+          let next = (index + 1) % groups.length
+          if (order === 'random') {
+            next = Math.floor(Math.random() * (groups.length - 1))
+            if (next >= index) next++
+          }
+          start(next)
+        })
+      })
+    // Copies start at different points: in the clip, or in the list.
+    if (groups.length === 1) start(0, phase)
+    else start(Math.floor(phase * groups.length), (phase * groups.length) % 1)
+    if (!moving(entry)) entry.group.pause()
+  }
+
+  return {
+    get: (id) => cast.get(id),
+    entries: () => cast.values(),
+    /** Takes a spawned character (the view's `body`) into the cast. */
+    add(id, body) {
+      const entry = {
+        id,
+        ...body,
+        groups: [],
+        group: null,
+        motionKey: null,
+        // Route clips read for this character and strides measured from them.
+        tracks: new Map(),
+        strides: new Map(),
+        route: null,
+      }
+      cast.set(id, entry)
+      return entry
+    },
+    /** Stops what the character does and forgets it. */
+    remove(entry) {
+      for (const group of entry.groups) group.dispose()
+      if (cast.get(entry.id) === entry) cast.delete(entry.id)
+    },
+    /**
+     * Starts what character `c` does where it was just placed: its route,
+     * else `motion` (see characterMotion). `info` is its model's entry.
+     */
+    perform(entry, c, info, motion) {
+      if (c.route) walk(entry, c, info)
+      else {
+        leave(entry)
+        play(entry, motion)
+      }
+    },
+    /** True while any character needs frames. */
+    animating() {
+      for (const entry of cast.values()) if (posing(entry)) return true
+      return false
+    },
+    /** Lets only these character IDs move (null: all); others hold still. */
+    setActive(ids) {
+      active = ids && new Set(ids)
+      for (const entry of cast.values()) {
+        if (!entry.group) continue
+        if (moving(entry)) entry.group.play(entry.groups.length === 1)
+        else entry.group.pause()
+      }
+    },
+    rehearse(id, playing = false) {
+      const before = rehearsal
+      if (before ? before.id === id && before.playing === playing : !id) return
+      rehearsal = id ? { id, playing } : null
+      for (const entry of cast.values()) {
+        const route = entry.route
+        if (!route || (entry.id !== id && entry.id !== before?.id)) continue
+        route.dirty = true
+        route.clock =
+          entry.id === id
+            ? 0
+            : motionPhase(entry.id) * (route.timeline?.duration ?? 0)
+      }
+      world.wake()
+    },
+    route(id) {
+      const route = cast.get(id)?.route
+      if (!route) return null
+      return {
+        loaded: !!route.loaded,
+        ready: !!route.timeline,
+        speed: route.speed,
+        natural: route.natural,
+        pace: route.pace,
+        stride: route.measured,
+        duration: route.timeline?.duration ?? 0,
+      }
+    },
+    stats() {
+      let posed = 0
+      for (const entry of cast.values()) if (posing(entry)) posed++
+      return { total: cast.size, posed }
+    },
+    playing(id) {
+      const entry = cast.get(id)
+      return !!entry && posing(entry)
+    },
+  }
+}

@@ -45,7 +45,7 @@ import {
   characterModel,
   characterMotion,
   motionList,
-} from './studio-characters.js'
+} from './characters/index.js'
 import { clayLayer, updateStudioClay } from './studio-clay-layer.js'
 import { routeGuide } from './route-guide.js'
 import { characterClips, routeLimits } from '../shared/character-route.mjs'

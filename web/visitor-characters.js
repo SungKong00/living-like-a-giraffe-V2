@@ -1,4 +1,4 @@
-import { characterLayer } from './studio-characters.js'
+import { characterLayer } from './characters/index.js'
 
 // Characters of the published world in the visitor scene. Their files come
 // from the list fixed at publication (`state.characters`). Only the room a
