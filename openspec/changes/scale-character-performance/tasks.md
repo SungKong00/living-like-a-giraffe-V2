@@ -14,10 +14,11 @@
 
 ## 3. 구조 분리
 
-- [ ] 3.1 `world.keepDrawing()`이 등록을 여럿 받고 해제 함수를 돌려주게 한다. 두 레이어가 등록했을 때 하나만 참이어도 장면이 그려지는지 `npm run test:browser`로 확인한다.
-- [ ] 3.2 `web/studio-characters.js`와 `web/giraffe-proportions.js`를 `web/characters/`의 `assets.js`·`cast.js`·`pose.js`·`view.js`·`index.js`로 옮긴다. `characterLayer()`가 돌려주는 모양은 그대로 둔다. 검사 파일을 고치지 않은 채 `npm test`와 `npm run test:browser`가 통과하는지 확인한다.
-- [ ] 3.3 움직임 제한(`setActive`, `overviewLimit`)을 `web/characters/policy.js`로 옮기고 `characterLayer()`가 `options.policy`를 받게 한다. 이 단계에서는 지금 규칙(방, 8개·24개)을 그대로 낸다. 같은 검사가 통과하는지 확인한다.
-- [ ] 3.4 `web/AGENTS.md`의 스튜디오 규칙에 캐릭터 모듈의 경계(밖에서는 `characters/index.js`만 가져온다, 수치는 `policy.js`에만 둔다)를 더하고, `tests/`에 `web/characters/` 밖의 파일이 그 안의 다른 파일을 가져오면 실패하는 검사를 더한다.
+- [x] 3.1 `world.keepDrawing()`이 등록을 여럿 받고 해제 함수를 돌려주게 한다. 두 레이어가 등록했을 때 하나만 참이어도 장면이 그려지는지 `npm run test:browser`로 확인한다. 지금 등록하는 곳은 캐릭터 레이어 하나뿐이라 둘이 함께 등록한 경우는 검사하지 않았다. 등록이 하나일 때 캐릭터가 계속 걷는 것만 `npm run test:browser`로 확인했다.
+- [x] 3.2 `web/studio-characters.js`를 `web/characters/`의 `assets.js`·`cast.js`·`pose.js`·`view.js`·`index.js`로 옮긴다. `characterLayer()`가 돌려주는 모양은 그대로 둔다. 검사 파일을 고치지 않은 채 `npm test`와 `npm run test:browser`가 통과하는지 확인한다.
+- [ ] 3.5 `web/giraffe-proportions.js`를 `web/characters/`로 옮기고 `tests/clay-character.test.mjs`의 가져오기를 고친다. 지금은 `pose.js`가 제자리의 파일을 다시 내보낸다. 이 파일과 그 검사에 다른 작업의 커밋 안 된 변경이 있어 3.2에서 옮기지 않았다.
+- [x] 3.3 움직임 제한(`setActive`, `overviewLimit`)을 `web/characters/policy.js`로 옮기고 `characterLayer()`가 `options.policy`를 받게 한다. 이 단계에서는 지금 규칙(방, 8개·24개)을 그대로 낸다. 같은 검사가 통과하는지 확인한다.
+- [x] 3.4 `web/AGENTS.md`의 스튜디오 규칙에 캐릭터 모듈의 경계(밖에서는 `characters/index.js`만 가져온다, 수치는 `policy.js`에만 둔다)를 더하고, `tests/`에 `web/characters/` 밖의 파일이 그 안의 다른 파일을 가져오면 실패하는 검사를 더한다.
 
 ## 4. 성능 정책
 
