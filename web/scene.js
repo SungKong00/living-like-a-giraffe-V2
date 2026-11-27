@@ -62,11 +62,12 @@ async function openScene(
   scene.useRightHandedSystem = true
   scene.clearColor = floorBackground
   const center = Vector3.Zero()
-  const alpha = Math.PI / 4
+  const alpha = Math.PI / 4,
+    beta = Math.PI / 2 - 0.62
   const camera = new ArcRotateCamera(
     '관람',
     alpha,
-    Math.PI / 2 - 0.62,
+    beta,
     150,
     center.clone(),
     scene,
@@ -77,17 +78,17 @@ async function openScene(
     camera.upperBetaLimit = null
     camera.allowUpsideDown = true
   } else {
-    camera.lowerAlphaLimit = alpha - Math.PI / 6
-    camera.upperAlphaLimit = alpha + Math.PI / 6
-    camera.lowerBetaLimit = Math.PI / 9
-    camera.upperBetaLimit = (5 * Math.PI) / 12
+    // Visitors and the layout preview only pan and zoom. Equal limits hold
+    // the direction through every retarget, and no camera input is attached.
+    camera.lowerAlphaLimit = camera.upperAlphaLimit = alpha
+    camera.lowerBetaLimit = camera.upperBetaLimit = beta
   }
   camera.lowerRadiusLimit = camera.upperRadiusLimit = 150
-  camera.inputs.removeByType('ArcRotateCameraMouseWheelInput')
-  camera.panningSensibility = 0
-  camera.attachControl(view.canvas, true, true, studioCamera ? -1 : 2)
   // The studio keeps the left button for selecting, moving and panning.
   if (studioCamera) {
+    camera.inputs.removeByType('ArcRotateCameraMouseWheelInput')
+    camera.panningSensibility = 0
+    camera.attachControl(view.canvas, true, true, -1)
     camera.inputs.attached.pointers.buttons = [2]
     camera.movement.input.addEntry({
       source: 'pointer',
@@ -130,6 +131,20 @@ async function openScene(
   center.copyFrom(bounds.min.add(bounds.max).scale(0.5))
   camera.setTarget(center.clone())
   const worldSize = bounds.max.subtract(bounds.min)
+  // Visitors pan until the edge of the world reaches the middle of the
+  // screen: the floor point the camera looks at stays inside the world.
+  camera.getViewMatrix(true)
+  const sight = center.subtract(camera.position).normalize()
+  const onFloor = (point) =>
+    point.add(sight.scale((bounds.min.y - point.y) / sight.y))
+  const panMin = Vector3.Minimize(bounds.min, onFloor(center)),
+    panMax = Vector3.Maximize(bounds.max, onFloor(center))
+  function keepInWorld() {
+    if (studioCamera) return
+    const at = onFloor(camera.target)
+    camera.target.x += Math.min(panMax.x, Math.max(panMin.x, at.x)) - at.x
+    camera.target.z += Math.min(panMax.z, Math.max(panMin.z, at.z)) - at.z
+  }
   const overviewWidth = 1.18 * Math.hypot(worldSize.x, worldSize.z)
   const overviewHeight =
     overviewWidth * Math.sin(0.62) + worldSize.y * Math.cos(0.62)
@@ -369,6 +384,7 @@ async function openScene(
     camera.setTarget(
       rooms.get(id)?.getAbsolutePosition()?.clone() || center.clone(),
     )
+    keepInWorld()
     resize()
     markers()
     onRoom?.(id)
@@ -376,6 +392,7 @@ async function openScene(
   function look(target, nextZoom = zoom) {
     wake()
     camera.setTarget(target.clone())
+    keepInWorld()
     zoom = Math.min(10, Math.max(0.5, nextZoom))
     resize()
   }
@@ -392,9 +409,24 @@ async function openScene(
         camera.getViewMatrix().clone().invert(),
       )
       camera.target.addInPlace(offset.scale(1 - zoom / next))
+      keepInWorld()
     }
     zoom = next
     resize()
+    wake()
+  }
+  /** Moves the view by a pointer's travel in CSS pixels. */
+  function pan(dx, dy) {
+    // A pixel is the same length everywhere in an orthographic view, so the
+    // floor under the pointer follows it exactly.
+    const unit = (2 * camera.orthoTop) / Math.max(1, view.canvas.clientHeight)
+    camera.target.addInPlace(
+      Vector3.TransformNormal(
+        new Vector3(-dx * unit, dy * unit, 0),
+        camera.getViewMatrix().clone().invert(),
+      ),
+    )
+    keepInWorld()
     wake()
   }
   const gestures = new AbortController()
@@ -449,14 +481,40 @@ async function openScene(
   const obs = new ResizeObserver(resize)
   obs.observe(view.host)
   const previous = { x: 0, y: 0 }
-  if (!studioCamera)
+  // The primary pointer's last place while it may pan; null otherwise.
+  let drag = null
+  if (!studioCamera) {
     view.canvas.onpointerdown = (e) => {
-      if (e.isPrimary) multiTouch = false
+      // A second finger makes the gesture a pinch until every finger lifts.
+      multiTouch = !e.isPrimary
+      drag = null
+      if (!e.isPrimary) return
       previous.x = e.clientX
       previous.y = e.clientY
+      if (e.button !== 0) return
+      drag = { x: e.clientX, y: e.clientY, moved: false }
+      view.canvas.setPointerCapture(e.pointerId)
     }
+    view.canvas.onpointermove = (e) => {
+      if (!drag || !e.isPrimary || multiTouch) return
+      // Under the tap threshold nothing moves, so a press never shifts the view.
+      if (
+        !drag.moved &&
+        Math.hypot(e.clientX - previous.x, e.clientY - previous.y) <= 6
+      )
+        return
+      drag.moved = true
+      pan(e.clientX - drag.x, e.clientY - drag.y)
+      drag.x = e.clientX
+      drag.y = e.clientY
+    }
+    view.canvas.onpointercancel = () => {
+      drag = null
+    }
+  }
   if (!studioCamera)
     view.canvas.onpointerup = (e) => {
+      if (e.isPrimary) drag = null
       if (multiTouch) return
       if (Math.hypot(e.clientX - previous.x, e.clientY - previous.y) > 6) return
       const mesh = scene.pick(scene.pointerX, scene.pointerY)?.pickedMesh

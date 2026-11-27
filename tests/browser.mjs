@@ -4,6 +4,11 @@ import {
   checkPublishedRoute,
 } from './character-route-browser.mjs'
 import { checkLightHandles, turnLightHandle } from './light-handles.mjs'
+import {
+  checkPanKeepsDirection,
+  checkTouchPan,
+  checkVisitorCamera,
+} from './visitor-camera-browser.mjs'
 import { copyPreparedWorld } from './prepared-world.mjs'
 import { chromium, devices } from 'playwright'
 import { spawn } from 'node:child_process'
@@ -576,6 +581,8 @@ try {
   assert.equal(linked.action.type, 'page')
   await page.getByRole('button', { name: '미리보기', exact: true }).click()
   const preview = page.getByRole('dialog', { name: '배치 미리보기' })
+  // The preview shows the layout from the visitor's fixed direction.
+  await checkPanKeepsDirection(preview)
   await preview
     .getByRole('button', { name: '멘탈 사우나', exact: true })
     .click()
@@ -712,6 +719,7 @@ try {
     // with the visitor scene, which shows the published walking giraffe.
     assert.ok(!scripts.some((u) => /\/assets\/studio-(?!characters-)/.test(u)))
     await mobile.goto(origin)
+    await checkTouchPan(mobile)
     await mobile.getByRole('button', { name: '운동회', exact: true }).tap()
     await mobile.getByRole('button', { name: '행사 원문', exact: true }).tap()
     assert.equal(
@@ -730,6 +738,7 @@ try {
     assert.equal(await mobile.locator('.event-card').count(), 2)
     await mobile.close()
   }
+  await checkVisitorCamera(browser, origin, errors)
   await checkPublishedRoute(browser, origin, errors)
   assert.deepEqual(errors, [])
   console.log(
