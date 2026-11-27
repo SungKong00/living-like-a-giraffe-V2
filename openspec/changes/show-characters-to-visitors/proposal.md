@@ -15,7 +15,7 @@
 
 ### New Capabilities
 
-- `visitor-characters`: 관람 장면의 캐릭터 표시, 파일 고정, 움직임 제한, 페이지 연결.
+- `visitor-characters`: 관람 장면의 캐릭터 표시, 파일 고정, 페이지 연결. 어느 캐릭터를 움직일지는 `scale-character-performance`의 `character-performance`가 정한다.
 
 ### Modified Capabilities
 

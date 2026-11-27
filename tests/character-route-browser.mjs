@@ -116,9 +116,9 @@ export async function checkCharacterRoute(page, origin) {
   await saved()
 }
 
-// The published world shows the walking giraffe to visitors: it walks while
-// its room or the whole world is in view and stands still while the visitor
-// looks at another room.
+// The published world shows the walking giraffe to visitors: the scene keeps
+// drawing while the giraffe is on screen and sleeps while the visitor looks
+// at a room it cannot be seen from.
 export async function checkPublishedRoute(browser, origin, errors) {
   const world = await (await fetch(origin + '/api/world')).json()
   assert.equal(world.layout.characters[0].route.points.length, 3)
@@ -147,7 +147,7 @@ export async function checkPublishedRoute(browser, origin, errors) {
   await until(true, '공개한 캐릭터가 자기 방에서 경로를 걷지 않습니다')
   await page.getByRole('button', { name: '전체 공간' }).click()
   await room('멘탈 사우나')
-  await until(false, '다른 방을 보는 동안에도 캐릭터가 움직입니다')
+  await until(false, '캐릭터가 화면 밖인데도 장면을 계속 그립니다')
   await page.getByRole('button', { name: '전체 공간' }).click()
   await room('운동회')
   await until(true, '방으로 돌아와도 캐릭터가 다시 걷지 않습니다')
