@@ -52,15 +52,14 @@ export const motionList = (motion) => (motion == null ? [] : [motion].flat())
 export const characterModel = (library, c) => c.model ?? library.fallback
 
 /**
- * `assets` reads the clips; `onRoute(id)` runs when a character's route has
- * read its clips and can walk.
+ * `assets` reads the clips and `policy` says which characters may move;
+ * `onRoute(id)` runs when a character's route has read its clips and can
+ * walk.
  */
-export function characterCast(world, assets, { onRoute } = {}) {
+export function characterCast(world, assets, policy, { onRoute } = {}) {
   const { scene } = world
   const cast = new Map()
-  // Characters allowed to move; null lets every one move.
-  let active = null
-  const moving = (entry) => !active || active.has(entry.id)
+  const moving = (entry) => policy.moves(entry.id)
   // The studio's selected character: it stands at its first point, or walks
   // its route from the start while `playing`.
   let rehearsal = null
@@ -83,9 +82,18 @@ export function characterCast(world, assets, { onRoute } = {}) {
       else follow(entry)
     }
   })
-  scene.onDisposeObservable.addOnce(() =>
-    scene.onBeforeAnimationsObservable.remove(step),
-  )
+  // A character the policy stops holds its pose; one it lets go plays on.
+  const unwatch = policy.watch(() => {
+    for (const entry of cast.values()) {
+      if (!entry.group) continue
+      if (moving(entry)) entry.group.play(entry.groups.length === 1)
+      else entry.group.pause()
+    }
+  })
+  scene.onDisposeObservable.addOnce(() => {
+    scene.onBeforeAnimationsObservable.remove(step)
+    unwatch()
+  })
 
   // ---- Routes ----
   // One clip's tracks on this character's nodes, read once per character.
@@ -284,15 +292,6 @@ export function characterCast(world, assets, { onRoute } = {}) {
     animating() {
       for (const entry of cast.values()) if (posing(entry)) return true
       return false
-    },
-    /** Lets only these character IDs move (null: all); others hold still. */
-    setActive(ids) {
-      active = ids && new Set(ids)
-      for (const entry of cast.values()) {
-        if (!entry.group) continue
-        if (moving(entry)) entry.group.play(entry.groups.length === 1)
-        else entry.group.pause()
-      }
     },
     rehearse(id, playing = false) {
       const before = rehearsal

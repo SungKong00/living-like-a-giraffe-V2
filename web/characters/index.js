@@ -1,13 +1,15 @@
 import { characterAssets } from './assets.js'
 import { characterCast, characterModel, characterMotion } from './cast.js'
+import { everyoneMoves } from './policy.js'
 import { characterView } from './view.js'
 
 // Characters in a scene, assembled from what each part owns (ADR 0006):
 // `assets` reads and keeps the library's files, `cast` holds what every
-// character is doing, `pose` turns clips into joint values and `view` draws
-// them. Code outside this folder imports this file only.
+// character is doing, `pose` turns clips into joint values, `view` draws them
+// and `policy` says which of them may move. Code outside this folder imports this file only.
 
 export { characterModel, characterMotion, motionList } from './cast.js'
+export { visitorPolicy } from './policy.js'
 
 const adminFile = (id) => '/api/admin/characters/files/' + id + '.glb'
 
@@ -16,7 +18,8 @@ const adminFile = (id) => '/api/admin/characters/files/' + id + '.glb'
  * `onRoute(id)` when a character's route has read its clips and can walk.
  * `fileUrl(id)` gives a library file's address (the studio's by default);
  * `standIn` draws a placeholder while a model loads or is missing; `shadows`
- * lays a soft round shadow under each character.
+ * lays a soft round shadow under each character; `policy` says which
+ * characters may move (all of them by default, see policy.js).
  */
 export function characterLayer(
   world,
@@ -26,11 +29,12 @@ export function characterLayer(
     fileUrl = adminFile,
     standIn = true,
     shadows = false,
+    policy = everyoneMoves,
   } = {},
 ) {
   const assets = characterAssets(world.scene, { fileUrl, onLoad })
   const view = characterView(world, { standIn, shadows })
-  const cast = characterCast(world, assets, { onRoute })
+  const cast = characterCast(world, assets, policy, { onRoute })
   world.keepDrawing(cast.animating)
   function release(entry) {
     cast.remove(entry)
@@ -71,8 +75,6 @@ export function characterLayer(
       return cast.get(c.id)?.file === slot.file ? 'ready' : 'loading'
     },
     proportionDimensions: (id) => cast.get(id)?.proportions?.dimensions,
-    /** Lets only these character IDs move (null: all); others hold still. */
-    setActive: cast.setActive,
     /**
      * The studio's selected character `id` stands at its first point, or
      * walks its route from the start while `playing`. null lets every
