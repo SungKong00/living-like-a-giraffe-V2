@@ -18,8 +18,9 @@ export const STAND_IN_HEIGHT = 4.6
 
 /**
  * The node drawn for one part of a model at reduced level `level` (0 is the
- * original). `levels` maps a level to the node that stands in at it. A part
- * without that level uses the nearest finer one it has.
+ * original). `levels` maps a level to the node that stands in at it, or to
+ * null where another part's merged mesh covers this one. A part without
+ * that level uses the nearest finer one it has.
  */
 export function levelNode(original, levels, level) {
   for (let l = level; l > 0; l--) if (levels.has(l)) return levels.get(l)
@@ -113,7 +114,7 @@ export function characterView(world, { standIn: showStandIn, shadows }) {
       const shown = levelNode(original, levels, body.level)
       const on = worn.get(original) ?? true
       for (const node of [original, ...levels.values()])
-        node.setEnabled(on && node === shown)
+        node?.setEnabled(on && node === shown)
     }
   }
   return {
@@ -159,6 +160,14 @@ export function characterView(world, { standIn: showStandIn, shadows }) {
           if (!original || !node) continue
           if (!parts.has(original)) parts.set(original, new Map())
           parts.get(original).set(lod.level, node)
+          // Nodes a merged level covers show nothing at that level.
+          for (const name of lod.covers ?? []) {
+            const covered = nodes.get(name)
+            if (!covered) continue
+            if (!parts.has(covered)) parts.set(covered, new Map())
+            if (!parts.get(covered).has(lod.level))
+              parts.get(covered).set(lod.level, null)
+          }
         }
         proportions = giraffeProportions(scene, nodes)
         // Clay keeps the face: the model's own marked vertices, else the

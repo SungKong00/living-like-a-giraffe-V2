@@ -46,7 +46,9 @@ function wearablesOf(doc) {
 // for a node of the model when characters are small on screen: a node named
 // `LOD1.<node>` or `LOD2.<node>`, or one with the custom properties `lod`
 // (1 or 2) and `lodOf` (the node's name). A level only counts when that node
-// exists and both are bound to the same skeleton.
+// exists and both are bound to the same skeleton. One merged mesh can stand
+// in for several nodes: its custom property `lodCovers` names the others
+// (a list, or names separated by commas), which are hidden while it shows.
 export const lodLevels = Object.freeze([1, 2])
 function lodOf(node) {
   const extras = node.getExtras() ?? {}
@@ -65,8 +67,20 @@ function lodsOf(doc) {
     if (!lod) continue
     const name = node.getName()
     const original = nodes.find((n) => n.getName() === lod.of && !lodOf(n))
-    if (original && original.getSkin() === node.getSkin())
-      lods.push({ ...lod, node: name })
+    const listed = (node.getExtras() ?? {}).lodCovers
+    const covers = (
+      Array.isArray(listed) ? listed : String(listed ?? '').split(',')
+    )
+      .map((other) => String(other).trim())
+      .filter((other) => other && other !== lod.of)
+    const known = (other) =>
+      nodes.some((n) => n.getName() === other && !lodOf(n))
+    if (
+      original &&
+      original.getSkin() === node.getSkin() &&
+      covers.every(known)
+    )
+      lods.push({ ...lod, node: name, ...(covers.length ? { covers } : {}) })
     else orphans.push(name)
   }
   return { lods, lodOrphans: orphans }

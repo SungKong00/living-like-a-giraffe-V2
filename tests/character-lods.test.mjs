@@ -61,6 +61,35 @@ test('원본이 없거나 골격이 다른 축소 단계는 쓰지 않고 따로
   ])
 })
 
+test('합친 축소 단계 하나가 여러 노드를 대신한다', async () => {
+  const merged = (covers) => ['LOD1.Body', { extras: { lodCovers: covers } }]
+  const parts = [['Body'], ['Ear.L', { skin: null }], ['Eye.L', { skin: null }]]
+  const lod = {
+    level: 1,
+    of: 'Body',
+    node: 'LOD1.Body',
+    covers: ['Ear.L', 'Eye.L'],
+  }
+  assert.deepEqual(modelFacts(model([...parts, merged('Ear.L, Eye.L')])).lods, [
+    lod,
+  ])
+  assert.deepEqual(
+    modelFacts(model([...parts, merged(['Ear.L', 'Eye.L'])])).lods,
+    [lod],
+  )
+  // A covered node that the model does not have makes the level unusable.
+  const missing = modelFacts(model([...parts, merged('Ear.L, Tail')]))
+  assert.deepEqual(missing.lods, [])
+  assert.deepEqual(missing.lodOrphans, ['LOD1.Body'])
+
+  // A covered part draws nothing from that level on.
+  const { levelNode } = await import('../web/characters/view.js')
+  const covered = new Map([[1, null]])
+  assert.equal(levelNode('ear', covered, 0), 'ear')
+  assert.equal(levelNode('ear', covered, 1), null)
+  assert.equal(levelNode('ear', covered, 2), null)
+})
+
 test('축소 단계가 없는 모델은 그대로 읽히고 공개 목록은 단계를 함께 싣는다', () => {
   assert.deepEqual(modelFacts(model([['Body']])).lods, [])
   const lods = [{ level: 1, of: 'Body', node: 'LOD1.Body' }]
