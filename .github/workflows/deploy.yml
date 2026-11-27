@@ -27,6 +27,7 @@ jobs:
           go-version-file: helper/windows/go.mod
           cache-dependency-path: helper/windows/go.sum
       - run: npm ci
+      - run: npm test
       - run: npm run build:cloud
       - name: Deploy to production
         env:

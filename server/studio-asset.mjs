@@ -17,6 +17,7 @@ for (const input of [
   'light_field.py',
   'optimize.mjs',
   'requirements.txt',
+  '../server/blender.mjs',
   '../package-lock.json',
 ]) {
   recipe.update(fs.readFileSync(new URL('../world/' + input, import.meta.url)))

@@ -120,7 +120,7 @@ test('only a helper with the current material converter can start or submit a re
       }),
     })
   for (const action of ['start', 'result', 'blend'])
-    assert.equal((await send(action, '2')).status, 409)
+    assert.equal((await send(action, '3')).status, 409)
   assert.deepEqual((await world(db)).state.job, job)
   assert.equal((await send('start', publisherVersion)).status, 200)
 })
