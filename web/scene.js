@@ -590,9 +590,48 @@ async function openScene(
     for (const fn of drawers) if (fn()) return true
     return false
   }
+  // Glass (KHR_materials_transmission) refracts a texture of the opaque
+  // scene, which Babylon draws again for every frame: each mesh twice.
+  // Meshes registered with hideFromGlass() stay out of that texture, and
+  // the visitor scene, whose rooms never change, draws it again only when
+  // the view or the clay motion changed.
+  const refraction = scene._transmissionHelper?.getOpaqueTarget() ?? null
+  const unrefracted = new Set()
+  let refracted = null,
+    refractedFrom = -1,
+    motionFrames = 0
+  if (refraction) {
+    refraction.getCustomRenderList = (pass, list, length) => {
+      if (!unrefracted.size) return null
+      if (!refracted || refractedFrom !== length) {
+        refracted = list.slice(0, length).filter((m) => !unrefracted.has(m))
+        refractedFrom = length
+      }
+      return refracted
+    }
+    if (!draft) {
+      refraction.refreshRate = refraction.constructor.REFRESHRATE_RENDER_ONCE
+      let drawn = ''
+      scene.onBeforeRenderObservable.add(() => {
+        const shot = [
+          ...camera.target.asArray(),
+          camera.orthoTop,
+          camera.orthoRight,
+          engine.getRenderWidth(),
+          engine.getRenderHeight(),
+          scene.meshes.length,
+          motionFrames,
+        ].join()
+        if (ready && shot === drawn) return
+        drawn = shot
+        refraction.resetRefreshCounter()
+      })
+    }
+  }
   engine.runRenderLoop(() => {
     if (view.host.inert) return
     const motionFrame = motion.advance(performance.now())
+    if (motionFrame) motionFrames++
     if (
       ready &&
       !motionFrame &&
@@ -685,6 +724,19 @@ async function openScene(
         return
       styledExtra.add(material)
       illumination?.style(material)
+    },
+    /**
+     * Keeps `mesh` out of what glass refracts: for things that move every
+     * frame (characters), which would redraw that texture all the time.
+     */
+    hideFromGlass(mesh) {
+      if (!refraction) return
+      unrefracted.add(mesh)
+      refracted = null
+      mesh.onDisposeObservable.addOnce(() => {
+        unrefracted.delete(mesh)
+        refracted = null
+      })
     },
     /**
      * True when world point `point`, or anything within `margin` metres of

@@ -58,6 +58,7 @@ export function characterView(world, { standIn: showStandIn, shadows }) {
     disc.position.y = 0.02
     disc.isPickable = false
     disc.material = shadowMaterial
+    world.hideFromGlass(disc)
     return disc
   }
   return {
@@ -88,6 +89,7 @@ export function characterView(world, { standIn: showStandIn, shadows }) {
             node.isPickable = true
             node.receiveShadows = true
             world.styleMaterial(node.material)
+            world.hideFromGlass(node)
           }
         }
         rest = restPose(root.getDescendants(false))
