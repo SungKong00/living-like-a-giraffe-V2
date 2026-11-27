@@ -461,10 +461,6 @@ test('기본 리라지 기린은 자료실의 첫 모델이고 자기 동작을 
   assert.equal(view.fallback, 'riragi')
   assert.equal(view.motions[0].clips[0].name, 'LookAround')
   assert.ok(view.motions[0].matched.riragi > 0)
-  if (!fs.existsSync('assets-source/characters/riragi-clay/riragi-biped.glb')) {
-    assert.ok(!view.models.some((m) => m.id === 'riragi-biped'))
-    return
-  }
   const biped = view.models.find((m) => m.id === 'riragi-biped')
   assert.deepEqual(biped.wearables, [])
   const gait = view.motions.find((m) => m.id === biped.id)
