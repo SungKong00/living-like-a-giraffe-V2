@@ -21,10 +21,13 @@
 
 기본 걷기는 배치 위치에서 재생되며, 왼발과 오른발을 한 번씩 딛는 데 1.10초가 걸린다. [Kimodo-SOMA-RP-v1.2](https://huggingface.co/nvidia/Kimodo-SOMA-RP-v1.2)로 생성한 보행을 기린 골격에 직접 이식했다. 발굽이 뒤꿈치에서 발끝으로 구르며 골반과 반대쪽 팔이 보폭에 맞춰 움직인다. 같은 골격에 동작만 적용할 때는 [걷기 전용 GLB](../../assets-source/characters/riragi-clay/riragi-biped-walk.glb)를 사용한다.
 
+[편안히 서기 GLB](../../assets-source/characters/riragi-clay/riragi-biped-idle.glb)는 양발을 딛고 숨을 쉬며 고개·귀·꼬리를 조금씩 움직이는 8초 반복 동작이다. 스튜디오의 **월드 → 캐릭터 → 기본 동작**에서 새로 배치할 기린의 동작을 정하고, 한 마리만 바꾸려면 해당 기린의 **동작**에서 고른다. Blender에서는 같은 이름의 액션을 편집한다. 이 액션은 자료실에 별도로 등록하므로 모델 GLB를 다시 내보낼 때 제외한다.
+
 두발 기린을 수정한 뒤에는 프로젝트 루트에서 아래 명령으로 스튜디오용 GLB를 다시 만든다. [내보내기 스크립트](../../scripts/export-clay-biped.py)는 피부 가중치와 얼굴 보호 속성을 유지하며 메시를 줄이고, 귀·발목의 색 경계를 보존한다. 양쪽 다리는 보행 중 골반이 오르내리는 높이를 참조해 다리 길이에 따른 접지를 보정한다.
 
 ```sh
 .venv/bin/python scripts/export-clay-biped.py assets-source/characters/riragi-clay/riragi-biped.blend assets-source/characters/riragi-clay/riragi-biped.glb
+.venv/bin/python scripts/export-clay-biped.py assets-source/characters/riragi-clay/riragi-biped.blend assets-source/characters/riragi-clay/riragi-biped-idle.glb --motion "편안히 서기"
 ```
 
 ## Blender 도구

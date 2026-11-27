@@ -520,3 +520,39 @@ test('모션 전용 걷기 GLB는 모델의 같은 골격 채널과 시간·값�
   assert.equal(skinTracks.size, 75)
   assert.deepEqual(tracks(motion), skinTracks)
 })
+
+test('편안히 서기는 같은 기린 골격에서 8초 동안 양발을 고정하고 상체를 움직인 뒤 처음 자세로 돌아온다', async () => {
+  const io = new NodeIO()
+  const dir = 'assets-source/characters/riragi-clay/'
+  const model = (await io.read(dir + 'riragi-biped.glb')).getRoot()
+  const idle = (await io.read(dir + 'riragi-biped-idle.glb')).getRoot()
+  const nodes = new Map(model.listNodes().map((n) => [n.getName(), n]))
+  assert.equal(idle.listMeshes().length, 0)
+  assert.deepEqual(idle.listAnimations().map((a) => a.getName()), ['편안히 서기'])
+  const [clip] = idle.listAnimations()
+  const times = new Set()
+  for (const c of clip.listChannels()) {
+    assert.ok(nodes.has(c.getTargetNode().getName()))
+    const input = c.getSampler().getInput()
+    assert.deepEqual([input.getMin([])[0], input.getMax([])[0]], [0, 8])
+    for (const t of input.getArray()) times.add(t)
+  }
+  const feet = ['Hind.Hoof.L', 'Hind.Hoof.R'].map((name) => nodes.get(name))
+  const rest = feet.map((n) => n.getWorldMatrix())
+  const face = nodes.get('Socket.Face')
+  const samples = []
+  for (const t of [...times].sort((a, b) => a - b)) {
+    for (const [n, path, value] of walkSample(clip, t)) {
+      const joint = nodes.get(n.getName())
+      if (path === 'rotation') joint.setRotation(value)
+      else if (path === 'translation') joint.setTranslation(value)
+      else joint.setScale(value)
+    }
+    for (const [i, foot] of feet.entries())
+      assert.ok(mat4.equals(foot.getWorldMatrix(), rest[i]))
+    samples.push(face.getWorldTranslation())
+  }
+  const travel = samples.map((p) => vec3.distance(p, samples[0]))
+  assert.ok(Math.max(...travel) > 0.02 && Math.max(...travel) < 0.13)
+  assert.ok(travel.at(-1) < 0.0001)
+})
