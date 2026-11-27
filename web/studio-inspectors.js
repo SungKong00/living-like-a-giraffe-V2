@@ -1268,6 +1268,13 @@ function characterLibrarySection(editor) {
 
 const meters = (v) => (Math.round(v * 100) / 100).toString() + 'm'
 
+// How many reduced levels a model carries, for its settings.
+function lodSummary(m) {
+  const levels = new Set((m.lods ?? []).map((lod) => lod.level))
+  return levels.size
+    ? '축소 단계 ' + levels.size + '개(화면에 작게 보일 때 가벼운 메시로 그림)'
+    : '축소 단계 없음(항상 원본으로 그림)'
+}
 // Ground one walk cycle covers at 100%: measured from the walk clip of a
 // character walking a route, until the operator sets it.
 function strideRows(editor, m) {
@@ -1365,6 +1372,16 @@ function librarySettings(editor, m) {
             ' · 점토 얼굴 보호 ' +
             (m.protect
               ? '정점 그룹'
+        muted(lodSummary(m)),
+        ...(m.lodOrphans?.length
+          ? [
+              muted(
+                '축소 단계로 쓰지 않는 노드: ' +
+                  m.lodOrphans.join(', ') +
+                  '. 가리키는 원본 노드가 없거나 골격이 다릅니다.',
+              ),
+            ]
+          : []),
               : '정점 그룹 없음(리라지 기린과 같은 골격이면 높이 기준)'),
         ),
       ],
