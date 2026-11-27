@@ -14,6 +14,7 @@ export function characterSheet(layout, library) {
         measured: m.measured,
         ...(m.stride ? { stride: m.stride } : {}),
         wearables: m.wearables,
+        lods: m.lods ?? [],
         protect: m.protect,
       }
   }

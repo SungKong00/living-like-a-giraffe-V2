@@ -22,6 +22,8 @@ function wearablesOf(doc) {
   for (const node of doc.getRoot().listNodes()) {
     const extras = node.getExtras() ?? {}
     const name = node.getName()
+    // A reduced level dresses with the wearable it stands in for.
+    if (lodOf(node)) continue
     const tag =
       typeof extras.wearable === 'string' && extras.wearable.trim()
         ? extras.wearable.trim()
@@ -40,6 +42,35 @@ function wearablesOf(doc) {
   }
   return [...found.values()]
 }
+// Reduced levels are meshes with fewer triangles and materials that stand in
+// for a node of the model when characters are small on screen: a node named
+// `LOD1.<node>` or `LOD2.<node>`, or one with the custom properties `lod`
+// (1 or 2) and `lodOf` (the node's name). A level only counts when that node
+// exists and both are bound to the same skeleton.
+export const lodLevels = Object.freeze([1, 2])
+function lodOf(node) {
+  const extras = node.getExtras() ?? {}
+  const level = Number(extras.lod)
+  if (lodLevels.includes(level) && typeof extras.lodOf === 'string')
+    return { level, of: extras.lodOf.trim() }
+  const named = /^LOD([12])\.(.+)$/.exec(node.getName())
+  return named ? { level: Number(named[1]), of: named[2] } : null
+}
+function lodsOf(doc) {
+  const nodes = doc.getRoot().listNodes()
+  const lods = []
+  const orphans = []
+  for (const node of nodes) {
+    const lod = lodOf(node)
+    if (!lod) continue
+    const name = node.getName()
+    const original = nodes.find((n) => n.getName() === lod.of && !lodOf(n))
+    if (original && original.getSkin() === node.getSkin())
+      lods.push({ ...lod, node: name })
+    else orphans.push(name)
+  }
+  return { lods, lodOrphans: orphans }
+}
 // Vertices marked to keep their shape under clay (see clay-protect-loader).
 const protects = (doc) =>
   doc
@@ -53,6 +84,9 @@ export const modelFacts = (doc) => ({
   joints: jointsOf(doc),
   measured: measure(doc),
   wearables: wearablesOf(doc),
+  // Reduced levels the scene may draw, and the nodes that look like one
+  // but have no original to stand in for.
+  ...lodsOf(doc),
   protect: protects(doc),
 })
 
@@ -141,6 +175,8 @@ export function characterCatalog({
         // otherwise the scene measures it from the walk clip.
         ...(m.stride ? { stride: m.stride } : {}),
         wearables: m.wearables ?? [],
+        lods: m.lods ?? [],
+        lodOrphans: m.lodOrphans ?? [],
         // Its own protected vertices; otherwise a giraffe skeleton keeps
         // its face by height and other models have no protection.
         protect: !!m.protect,
