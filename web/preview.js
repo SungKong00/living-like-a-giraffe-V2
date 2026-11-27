@@ -98,7 +98,6 @@ async function showPreview(state, { title, description, open, approve }) {
       onReady: () => {
         if (publish && dialog.isOpen) publish.disabled = false
       },
-      onRoom: (id) => cast?.focus(id),
       onPick: (owner) => !!cast?.pick(owner),
       onSpot: (s) => {
         const page = state.layout.pages.find((p) => p.id === s.action.page)

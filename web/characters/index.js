@@ -1,15 +1,14 @@
 import { characterAssets } from './assets.js'
 import { characterCast, characterModel, characterMotion } from './cast.js'
-import { everyoneMoves } from './policy.js'
-import { characterView } from './view.js'
+import { screenPolicy } from './policy.js'
+import { STAND_IN_HEIGHT, characterView } from './view.js'
 
 // Characters in a scene, assembled from what each part owns (ADR 0006):
 // `assets` reads and keeps the library's files, `cast` holds what every
 // character is doing, `pose` turns clips into joint values, `view` draws them
-// and `policy` says which of them may move. Code outside this folder imports this file only.
+// and `policy` says which of them are worth a pose. Code outside this folder imports this file only.
 
 export { characterModel, characterMotion, motionList } from './cast.js'
-export { visitorPolicy } from './policy.js'
 
 const adminFile = (id) => '/api/admin/characters/files/' + id + '.glb'
 
@@ -19,7 +18,7 @@ const adminFile = (id) => '/api/admin/characters/files/' + id + '.glb'
  * `fileUrl(id)` gives a library file's address (the studio's by default);
  * `standIn` draws a placeholder while a model loads or is missing; `shadows`
  * lays a soft round shadow under each character; `policy` says which
- * characters may move (all of them by default, see policy.js).
+ * characters are on screen (see policy.js).
  */
 export function characterLayer(
   world,
@@ -29,7 +28,7 @@ export function characterLayer(
     fileUrl = adminFile,
     standIn = true,
     shadows = false,
-    policy = everyoneMoves,
+    policy = screenPolicy(world),
   } = {},
 ) {
   const assets = characterAssets(world.scene, { fileUrl, onLoad })
@@ -60,7 +59,13 @@ export function characterLayer(
         }
         entry ??= cast.add(c.id, view.spawn(c, slot?.file, container, m))
         view.place(entry, c, m)
-        cast.perform(entry, c, m, characterMotion(layout, c))
+        cast.perform(
+          entry,
+          c,
+          m,
+          characterMotion(layout, c),
+          (m?.height ?? STAND_IN_HEIGHT) * c.scale,
+        )
       }
     },
     /** The node that carries a character's placement, or undefined. */

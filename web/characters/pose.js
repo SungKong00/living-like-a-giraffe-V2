@@ -1,7 +1,7 @@
-import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup'
-import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector'
+import { AnimationGroup } from '@babylonjs/core/Animations/animationGroup.js'
+import { Quaternion, Vector3 } from '@babylonjs/core/Maths/math.vector.js'
 import { strideFromSamples } from '../../shared/character-route.mjs'
-import '@babylonjs/core/Animations/animatable'
+import '@babylonjs/core/Animations/animatable.js'
 
 // Turns clips into joint values on one character's nodes: a clip bound to
 // its nodes for playing in place, and the blended samples a route writes

@@ -687,6 +687,18 @@ async function openScene(
       illumination?.style(material)
     },
     /**
+     * True when world point `point`, or anything within `margin` metres of
+     * it, is on screen. Both cameras are orthographic, so the screen is a
+     * rectangle in view space.
+     */
+    onScreen(point, margin = 0) {
+      const at = Vector3.TransformCoordinates(point, camera.getViewMatrix())
+      return (
+        Math.abs(at.x) <= camera.orthoRight + margin &&
+        Math.abs(at.y) <= camera.orthoTop + margin
+      )
+    },
+    /**
      * `fn()` returns true while something animates and needs frames. The
      * scene draws while any registered `fn` does; the result unregisters it.
      */

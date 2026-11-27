@@ -1,49 +1,24 @@
-// Which characters may move. The numbers that bound the work a scene does
-// for its characters live in this file only, and nothing here knows what a
-// motion or a route contains.
+// What a scene spends on its characters. The numbers that bound that work
+// live in this file only, and nothing here knows what a motion or a route
+// contains.
 //
-// A policy is { moves(id), watch(fn) }: `moves` says whether a character may
-// move now, and `watch` calls `fn` whenever that answer may have changed and
-// returns a function that stops the calls.
+// A policy is { shows(place, reach), idleCheck }. `shows` says whether a
+// character standing at world point `place`, reaching `reach` metres from
+// it, is on screen: only those get a pose. `idleCheck` is how many
+// milliseconds may pass, while the scene sleeps, between two looks at where
+// the walkers are.
 
-// Characters that move in the visitor's overview.
-const OVERVIEW_LIMIT = { touch: 8, other: 24 }
-
-/** Every character moves: the studio's rule. */
-export const everyoneMoves = Object.freeze({
-  moves: () => true,
-  watch: () => () => {},
-})
+// Looks per second at walkers that might enter a sleeping scene.
+const IDLE_CHECKS_PER_SECOND = 4
 
 /**
- * The visitor's rule over the published `characters`: those of the room the
- * visitor chose move; the overview moves the first few, fewer on touch
- * devices. `focus(room)` chooses a room, or the overview with null.
+ * Characters on screen move, on every device and however many there are.
+ * A character's own height is the margin around the screen, so one that
+ * walks in is already moving when its first limb shows.
  */
-export function visitorPolicy(characters) {
-  const watchers = new Set()
-  const allowed = (room) =>
-    new Set(
-      (room
-        ? characters.filter((c) => c.room === room)
-        : characters.slice(
-            0,
-            globalThis.matchMedia?.('(pointer: coarse)').matches
-              ? OVERVIEW_LIMIT.touch
-              : OVERVIEW_LIMIT.other,
-          )
-      ).map((c) => c.id),
-    )
-  let active = allowed(null)
+export function screenPolicy(world) {
   return Object.freeze({
-    moves: (id) => active.has(id),
-    focus(room) {
-      active = allowed(room ?? null)
-      for (const fn of watchers) fn()
-    },
-    watch(fn) {
-      watchers.add(fn)
-      return () => watchers.delete(fn)
-    },
+    shows: (place, reach) => world.onScreen(place, reach),
+    idleCheck: 1000 / IDLE_CHECKS_PER_SECOND,
   })
 }

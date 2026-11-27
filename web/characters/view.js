@@ -11,7 +11,8 @@ import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTextur
 // shown while a model loads or is missing, and the nodes a click selects it
 // by. This module does not know routes or timetables.
 
-const standInHeight = 4.6
+/** How tall the stand-in is, in metres. */
+export const STAND_IN_HEIGHT = 4.6
 
 /**
  * `standIn` draws a placeholder while a model loads or is missing; `shadows`
@@ -109,10 +110,10 @@ export function characterView(world, { standIn: showStandIn, shadows }) {
       } else if (showStandIn) {
         const body = MeshBuilder.CreateCapsule(
           '캐릭터 자리',
-          { height: standInHeight, radius: 0.55 },
+          { height: STAND_IN_HEIGHT, radius: 0.55 },
           scene,
         )
-        body.position.y = standInHeight / 2
+        body.position.y = STAND_IN_HEIGHT / 2
         body.material = standInMaterial()
         body.parent = root
       }
@@ -147,7 +148,7 @@ export function characterView(world, { standIn: showStandIn, shadows }) {
         for (const node of nodes) node.setEnabled(!!c.wear?.includes(id))
       // 100% is the model's default height; the stand-in is standIn tall.
       const fit = info
-        ? info.height / (body.file ? info.measured : standInHeight)
+        ? info.height / (body.file ? info.measured : STAND_IN_HEIGHT)
         : 1
       body.root.parent = rooms.get(c.room) ?? null
       body.root.position.set(...c.position)

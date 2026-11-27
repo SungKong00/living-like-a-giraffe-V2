@@ -296,14 +296,13 @@ async function visit(data) {
     placeCard.hidden = false
   }
 
-  // Characters of the published world; only the chosen room's move.
+  // Characters of the published world.
   let cast = null
   try {
     const { openVisitorScene } = await import('./scene.js')
     world = await openVisitorScene(view, data, {
       onPick: (owner) => !!cast?.pick(owner),
       onRoom(id) {
-        cast?.focus(id)
         shortcuts.hidden = !!id
         back.hidden = !id
         placeCard.hidden = true

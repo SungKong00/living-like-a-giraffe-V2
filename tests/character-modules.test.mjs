@@ -31,9 +31,8 @@ export function reachesInside(file, text) {
 }
 
 test('캐릭터 모듈은 index.js로만 들어간다', () => {
-  const outside = ['web', 'tests'].flatMap((dir) =>
-    sources(path.join(root, dir)),
-  )
+  // Unit tests may import the part they test.
+  const outside = sources(path.join(root, 'web'))
   assert.ok(outside.some((file) => file.endsWith('visitor-characters.js')))
   const broken = outside.flatMap((file) =>
     reachesInside(file, fs.readFileSync(file, 'utf8')).map(

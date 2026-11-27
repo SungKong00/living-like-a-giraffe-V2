@@ -22,8 +22,13 @@ import {
 // A character with a route walks it instead. Its place, facing and pose come
 // from the route's timetable (shared/character-route.mjs) at the character's
 // own clock, so the cast writes the clips' values itself, blended, rather
-// than starting animation groups. The clock runs only while the character
-// may move, so one that was stopped goes on from where it stood.
+// than starting animation groups. The clock is read from the time, not
+// added up frame by frame: a character walks on while it is off screen or
+// the scene sleeps, and shows up where its route has taken it by then.
+//
+// The policy says which characters are on screen. Only those get a pose: an
+// off-screen walker still moves along its route but its joints are left
+// alone, and an off-screen motion is paused until it shows again.
 //
 // The cast moves a character's root node and joints; how the character is
 // drawn belongs to the view.
@@ -52,48 +57,71 @@ export const motionList = (motion) => (motion == null ? [] : [motion].flat())
 export const characterModel = (library, c) => c.model ?? library.fallback
 
 /**
- * `assets` reads the clips and `policy` says which characters may move;
+ * `assets` reads the clips and `policy` says which characters are on screen;
  * `onRoute(id)` runs when a character's route has read its clips and can
- * walk.
+ * walk. `now()` is the time in milliseconds (the page's clock by default).
  */
-export function characterCast(world, assets, policy, { onRoute } = {}) {
+export function characterCast(
+  world,
+  assets,
+  policy,
+  { onRoute, now = () => performance.now() } = {},
+) {
   const { scene } = world
   const cast = new Map()
-  const moving = (entry) => policy.moves(entry.id)
+  const born = now()
+  // Seconds since the cast began: what every route's clock is read from.
+  const time = () => (now() - born) / 1000
   // The studio's selected character: it stands at its first point, or walks
   // its route from the start while `playing`.
   let rehearsal = null
   const held = (entry) => rehearsal?.id === entry.id && !rehearsal.playing
-  const walking = (entry) =>
-    entry.route?.timeline?.duration > 0 && !held(entry) && moving(entry)
-  const posing = (entry) => !!entry.group?.isPlaying || walking(entry)
+  const walking = (entry) => entry.route?.timeline?.duration > 0 && !held(entry)
+  const posing = (entry) =>
+    entry.shown && (!!entry.group?.isPlaying || walking(entry))
+  // A route starts at the character's own point of the lap, or at the
+  // beginning the moment the studio rehearses it.
+  const routeStart = (entry, route) =>
+    rehearsal?.id === entry.id
+      ? time()
+      : -motionPhase(entry.id) * (route.timeline?.duration ?? 0)
 
-  const engine = scene.getEngine()
+  // Moves every walker to where its route has it now and asks the policy
+  // which characters are on screen. Joints are not touched here.
+  let surveyed = -Infinity
+  function survey() {
+    surveyed = now()
+    for (const entry of cast.values()) {
+      if (walking(entry)) {
+        const route = entry.route
+        route.at = routeAt(route.timeline, time() - route.start)
+        settle(entry, route.at.x, route.at.z, route.at.yaw ?? route.base.yaw)
+      }
+      // The character the studio rehearses always shows.
+      entry.shown =
+        rehearsal?.id === entry.id ||
+        policy.shows(entry.root.getAbsolutePosition(), entry.reach)
+      // An off-screen motion holds its pose and plays on when it shows.
+      if (!entry.group) continue
+      if (!entry.shown) entry.group.pause()
+      else if (!entry.group.isPlaying)
+        entry.group.play(entry.groups.length === 1)
+    }
+  }
   const step = scene.onBeforeAnimationsObservable.add(() => {
-    // A frame after a sleep must not carry the whole pause.
-    const dt = Math.min(engine.getDeltaTime() / 1000, 0.1)
+    survey()
     for (const entry of cast.values()) {
       const route = entry.route
       if (!route) continue
-      if (walking(entry)) route.clock += dt
-      else if (!route.dirty) continue
+      if (walking(entry)) {
+        if (entry.shown) writePose(route, route.at.layers)
+      } else if (route.dirty) stand(entry)
       route.dirty = false
-      if (held(entry) || !(route.timeline?.duration > 0)) stand(entry)
-      else follow(entry)
     }
   })
-  // A character the policy stops holds its pose; one it lets go plays on.
-  const unwatch = policy.watch(() => {
-    for (const entry of cast.values()) {
-      if (!entry.group) continue
-      if (moving(entry)) entry.group.play(entry.groups.length === 1)
-      else entry.group.pause()
-    }
-  })
-  scene.onDisposeObservable.addOnce(() => {
-    scene.onBeforeAnimationsObservable.remove(step)
-    unwatch()
-  })
+  scene.onDisposeObservable.addOnce(() =>
+    scene.onBeforeAnimationsObservable.remove(step),
+  )
 
   // ---- Routes ----
   // One clip's tracks on this character's nodes, read once per character.
@@ -117,12 +145,6 @@ export function characterCast(world, assets, policy, { onRoute } = {}) {
     const route = entry.route
     settle(entry, 0, 0, route.base.yaw)
     writePose(route, [{ clip: route.idle, time: 0, weight: 1, loop: true }])
-  }
-  function follow(entry) {
-    const route = entry.route
-    const at = routeAt(route.timeline, route.clock)
-    settle(entry, at.x, at.z, at.yaw ?? route.base.yaw)
-    writePose(route, at.layers)
   }
   function stride(entry, route, name, clip) {
     if (!entry.strides.has(name))
@@ -158,7 +180,8 @@ export function characterCast(world, assets, policy, { onRoute } = {}) {
       clips: new Map(),
       channels: before?.channels ?? [],
       timeline: null,
-      clock: 0,
+      start: 0,
+      at: null,
       dirty: true,
     })
     if (!entry.file) return
@@ -191,10 +214,7 @@ export function characterCast(world, assets, policy, { onRoute } = {}) {
         walkRate: Math.min(2, Math.max(0.5, route.pace)),
       },
     )
-    route.clock =
-      rehearsal?.id === entry.id
-        ? 0
-        : motionPhase(entry.id) * route.timeline.duration
+    route.start = routeStart(entry, route)
     onRoute?.(entry.id)
   }
 
@@ -250,7 +270,7 @@ export function characterCast(world, assets, policy, { onRoute } = {}) {
     // Copies start at different points: in the clip, or in the list.
     if (groups.length === 1) start(0, phase)
     else start(Math.floor(phase * groups.length), (phase * groups.length) % 1)
-    if (!moving(entry)) entry.group.pause()
+    if (entry.shown === false) entry.group.pause()
   }
 
   return {
@@ -268,6 +288,10 @@ export function characterCast(world, assets, policy, { onRoute } = {}) {
         tracks: new Map(),
         strides: new Map(),
         route: null,
+        // How far from its place the character can reach, for the policy.
+        reach: 0,
+        // Whether it is on screen; unknown until the first survey.
+        shown: undefined,
       }
       cast.set(id, entry)
       return entry
@@ -279,17 +303,24 @@ export function characterCast(world, assets, policy, { onRoute } = {}) {
     },
     /**
      * Starts what character `c` does where it was just placed: its route,
-     * else `motion` (see characterMotion). `info` is its model's entry.
+     * else `motion` (see characterMotion). `info` is its model's entry and
+     * `height` how tall the character stands in the scene, in metres.
      */
-    perform(entry, c, info, motion) {
+    perform(entry, c, info, motion, height) {
+      entry.reach = height
       if (c.route) walk(entry, c, info)
       else {
         leave(entry)
         play(entry, motion)
       }
     },
-    /** True while any character needs frames. */
+    /**
+     * True while a character on screen needs frames. While the scene
+     * sleeps the walkers are still followed, a few times a second, so one
+     * that walks into view starts the drawing again.
+     */
     animating() {
+      if (now() - surveyed >= policy.idleCheck) survey()
       for (const entry of cast.values()) if (posing(entry)) return true
       return false
     },
@@ -301,10 +332,7 @@ export function characterCast(world, assets, policy, { onRoute } = {}) {
         const route = entry.route
         if (!route || (entry.id !== id && entry.id !== before?.id)) continue
         route.dirty = true
-        route.clock =
-          entry.id === id
-            ? 0
-            : motionPhase(entry.id) * (route.timeline?.duration ?? 0)
+        route.start = routeStart(entry, route)
       }
       world.wake()
     },
